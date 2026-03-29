@@ -26,9 +26,10 @@ const {
   API_BASE = '',
 } = process.env;
 
-['TELEGRAM_BOT_TOKEN', 'DATABASE_URL'].forEach(k => {
+['DATABASE_URL'].forEach(k => {
   if (!process.env[k]) { console.error(`❌ Missing env: ${k}`); process.exit(1); }
 });
+const HAS_TELEGRAM = !!TELEGRAM_BOT_TOKEN;
 
 // ─── POSTGRES ─────────────────────────────────────────────────────────────────
 const pool = new Pool({
@@ -112,7 +113,7 @@ async function query(sql, params = []) {
 }
 
 // ─── TELEGRAM API ─────────────────────────────────────────────────────────────
-const TG = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+const TG = HAS_TELEGRAM ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}` : '';
 
 async function tgCall(method, body) {
   const res = await fetch(`${TG}/${method}`, {
@@ -1215,6 +1216,7 @@ async function sendWeeklySummaries() {
 }
 
 // ─── WEBHOOK HANDLER ──────────────────────────────────────────────────────────
+if (HAS_TELEGRAM) {
 app.post(`/webhook/:secret`, async (req, res) => {
   // Validar secret para evitar llamadas no autorizadas
   if (req.params.secret !== (WEBHOOK_SECRET || 'tg')) {
@@ -1348,6 +1350,7 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
 ];
+} // end HAS_TELEGRAM webhook
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -1446,6 +1449,7 @@ app.get('/miscuentas', (req, res) => {
 });
 
 // Inicia flujo Telegram OAuth — crea token pendiente y retorna el deep link
+if (HAS_TELEGRAM) {
 app.post('/api/telegram-auth/init', async (req, res) => {
   const token = `tg_${crypto.randomBytes(16).toString('hex')}`;
   // Guardar token pendiente SIN telegram_id (se asigna cuando el webhook recibe el callback)
@@ -1465,6 +1469,7 @@ app.post('/api/telegram-auth', async (req, res) => {
   if (!token) return res.status(400).json({ error: 'Missing token' });
   res.json({ ok: true, pending: true });
 });
+} // end HAS_TELEGRAM
 
 // Polling endpoint — la web consulta si el token fue completado
 app.get('/auth-status', async (req, res) => {
