@@ -2362,7 +2362,8 @@ app.get('/api/journal', authMiddleware, async (req, res) => {
     const { from, to, account_id } = req.query;
     let sql = `SELECT je.id, je.date, je.description, je.ref_type, je.ref_id, je.created_at,
                       jl.id as line_id, jl.account_id, a.name as account_name, a.code as account_code,
-                      jl.debit, jl.credit
+                      jl.debit, jl.credit,
+                      jl.auxiliary_type, jl.auxiliary_id, jl.auxiliary_name
                FROM journal_entries je
                JOIN journal_lines jl ON jl.journal_entry_id = je.id
                JOIN accounts a ON a.id = jl.account_id
@@ -2385,7 +2386,8 @@ app.get('/api/journal', authMiddleware, async (req, res) => {
       entries[row.id].lines.push({
         id: row.line_id, account_id: row.account_id,
         account_name: row.account_name, account_code: row.account_code,
-        debit: parseFloat(row.debit), credit: parseFloat(row.credit)
+        debit: parseFloat(row.debit), credit: parseFloat(row.credit),
+        auxiliary_type: row.auxiliary_type, auxiliary_id: row.auxiliary_id, auxiliary_name: row.auxiliary_name
       });
     }
     res.json({ entries: Object.values(entries) });
@@ -2417,9 +2419,9 @@ app.post('/api/journal', authMiddleware, async (req, res) => {
     for (const line of lines) {
       const jlId = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       await client.query(
-        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,$4,$5)`,
-        [jlId, jeId, line.account_id, line.debit || 0, line.credit || 0]
+        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [jlId, jeId, line.account_id, line.debit || 0, line.credit || 0, line.auxiliary_type || null, line.auxiliary_id || null, line.auxiliary_name || null]
       );
       // Update account balance: debit increases asset/cost/expense, decreases liability/equity/income
       // credit decreases asset/cost/expense, increases liability/equity/income
@@ -2555,6 +2557,8 @@ app.post('/api/receivables', authMiddleware, async (req, res) => {
     const ing = await client.query(
       `SELECT id FROM accounts WHERE code='4.1.01' AND user_id=$1`, [req.userId]
     );
+    const clientInfo = await client.query(`SELECT name FROM clients WHERE id=$1`, [client_id]);
+    const clientName = clientInfo.rows[0]?.name || 'Cliente';
     if (cxc.rows[0] && ing.rows[0]) {
       const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       await client.query(
@@ -2565,8 +2569,9 @@ app.post('/api/receivables', authMiddleware, async (req, res) => {
       const debitLine  = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
       const creditLine = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
       await client.query(
-        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,$4,0)`, [debitLine, jeId, cxc.rows[0].id, total_amount]
+        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
+         VALUES($1,$2,$3,$4,0,'client',$5,$6)`,
+        [debitLine, jeId, cxc.rows[0].id, total_amount, client_id, clientName]
       );
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
@@ -2761,6 +2766,8 @@ app.post('/api/payables', authMiddleware, async (req, res) => {
     // Auto-journal: Debit "Gastos Operativos" (expense), Credit "Cuentas por Pagar" (liability)
     const exp = await client.query(`SELECT id FROM accounts WHERE code='6.1.01' AND user_id=$1`, [req.userId]);
     const cxp = await client.query(`SELECT id FROM accounts WHERE code='2.1.01' AND user_id=$1`, [req.userId]);
+    const vendorInfo = await client.query(`SELECT name FROM vendors WHERE id=$1`, [vendor_id]);
+    const vendorName = vendorInfo.rows[0]?.name || 'Proveedor';
     if (exp.rows[0] && cxp.rows[0]) {
       const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       await client.query(
@@ -2775,8 +2782,9 @@ app.post('/api/payables', authMiddleware, async (req, res) => {
          VALUES($1,$2,$3,$4,0)`, [debitLine, jeId, exp.rows[0].id, total_amount]
       );
       await client.query(
-        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,0,$4)`, [creditLine, jeId, cxp.rows[0].id, total_amount]
+        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
+         VALUES($1,$2,$3,0,$4,'vendor',$5,$6)`,
+        [creditLine, jeId, cxp.rows[0].id, total_amount, vendor_id, vendorName]
       );
       await client.query(
         `INSERT INTO account_balances(account_id, balance)
@@ -2829,6 +2837,8 @@ app.post('/api/payables/:id/payments', authMiddleware, async (req, res) => {
     const caja = await client.query(`SELECT id FROM accounts WHERE code='1.1.01' AND user_id=$1`, [req.userId]);
     const banco = await client.query(`SELECT id FROM accounts WHERE code='1.1.02' AND user_id=$1`, [req.userId]);
     const cashAcc = banco.rows[0]?.id || caja.rows[0]?.id;
+    const vendorInfo = await client.query(`SELECT v.name FROM vendors v JOIN payables p ON p.vendor_id=v.id WHERE p.id=$1`, [req.params.id]);
+    const vendorName = vendorInfo.rows[0]?.name || 'Proveedor';
     if (cxp.rows[0] && cashAcc) {
       const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       await client.query(
@@ -2839,8 +2849,8 @@ app.post('/api/payables/:id/payments', authMiddleware, async (req, res) => {
       const debitLine  = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
       const creditLine = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
       await client.query(
-        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,$4,0)`, [debitLine, jeId, cxp.rows[0].id, amount]
+        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
+         VALUES($1,$2,$3,$4,0,'vendor',$5,$6)`, [debitLine, jeId, cxp.rows[0].id, amount, pay.rows[0].vendor_id, vendorName]
       );
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
@@ -3274,6 +3284,9 @@ async function initDB() {
       account_id      TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
       debit           NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (debit >= 0),
       credit          NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (credit >= 0),
+      auxiliary_type  TEXT,
+      auxiliary_id    TEXT,
+      auxiliary_name  TEXT,
       CHECK (debit > 0 OR credit > 0),
       CHECK (debit = 0 OR credit = 0)
     )`,
@@ -3497,6 +3510,9 @@ async function initDB() {
 
   // Migration: add is_admin column if not exists
   try { await query(`ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE`); } catch(e) {}
+  try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS auxiliary_type TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS auxiliary_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS auxiliary_name TEXT`); } catch(e) {}
 
   // Make first registered user an admin
   try {
