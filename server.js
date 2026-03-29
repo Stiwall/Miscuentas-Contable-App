@@ -1355,14 +1355,24 @@ const ALLOWED_ORIGINS = [
 } // end HAS_TELEGRAM webhook
 
 app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-session-token');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    const origin = req.headers.origin;
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+    return res.sendStatus(200);
+  }
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-session-token');
-  res.setHeader('Vary', 'Origin');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
 
@@ -2959,6 +2969,12 @@ async function start() {
     console.log(`========================================\n`);
   });
 }
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('Server error:', err.message);
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 start();
 
