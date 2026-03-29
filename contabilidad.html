@@ -3111,11 +3111,13 @@ async function loadInvoices() {
 }
 
 async function showInvoiceDetail(id) {
+  alert('showInvoiceDetail iniciado ID='+id);
   el('invoiceDetailContent').innerHTML='<div class="empty"><div class="empty-icon">⏳</div></div>';
   el('invoiceDetailActions').innerHTML='';
   openModal('invoiceDetailModal');
   try {
     const inv = await apiFetch('/api/invoices/'+id);
+    alert('API llamó con exito, invoice: '+inv.invoice_number);
     el('invDetailTitle').textContent = `Factura ${inv.invoice_number}`;
     const statusColor = INV_STATUS_COLOR[inv.status]||'var(--text-muted)';
     el('invoiceDetailContent').innerHTML = `
