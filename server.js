@@ -3468,7 +3468,7 @@ async function initDB() {
       total       NUMERIC(12,2) NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS invoice_counter (
-      user_id     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      user_id     TEXT PRIMARY KEY,
       last_number INTEGER NOT NULL DEFAULT 0
     )`,
 
