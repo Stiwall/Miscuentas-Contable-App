@@ -1586,7 +1586,7 @@ app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/', (_, res) => res.json({ status: 'ok', service: 'MisCuentas v2', uptime: Math.floor(process.uptime()) }));
+app.get('/', (_, res) => res.sendFile(__dirname + '/contabilidad.html'));
 app.get('/health', (_, res) => res.json({ status: 'healthy', groq: !!GROQ_API_KEY, gemini: !!GEMINI_API_KEY }));
 
 // Login / upsert de usuario — devuelve token de sesión
