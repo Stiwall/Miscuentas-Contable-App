@@ -2149,16 +2149,59 @@ function openJournalModal() {
 function addJeLine() {
   const i=jeLineCount++;
   const opts=accounts.map(a=>`<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+  const clientOpts=clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  const vendorOpts=vendors.map(v=>`<option value="${v.id}">${v.name}</option>`).join('');
   const row=document.createElement('div');
   row.id='jeline-'+i;
-  row.style.cssText='display:grid;grid-template-columns:1fr 100px 100px 28px;gap:6px;margin-bottom:6px;align-items:center';
-  row.innerHTML=`<select class="form-input form-select" id="jeline-acc-${i}" onchange="updateJeBalance()" style="font-size:11px;padding:7px 28px 7px 8px"><option value="">Cuenta...</option>${opts}</select><input class="form-input" id="jeline-deb-${i}" type="number" placeholder="Débito" style="font-size:11px" oninput="updateJeBalance()"><input class="form-input" id="jeline-cre-${i}" type="number" placeholder="Crédito" style="font-size:11px" oninput="updateJeBalance()"><button onclick="removeJeLine(${i})" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:6px;color:var(--accent2);cursor:pointer;font-size:14px;width:28px;height:34px;display:flex;align-items:center;justify-content:center">✕</button>`;
+  row.style.cssText='display:grid;grid-template-columns:1fr 80px 80px 90px 28px;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap';
+  row.innerHTML=`
+    <select class="form-input form-select" id="jeline-acc-${i}" onchange="updateJeBalance()" style="font-size:11px;padding:7px 28px 7px 8px"><option value="">Cuenta...</option>${opts}</select>
+    <input class="form-input" id="jeline-deb-${i}" type="number" placeholder="Débito" style="font-size:11px" oninput="updateJeBalance()">
+    <input class="form-input" id="jeline-cre-${i}" type="number" placeholder="Crédito" style="font-size:11px" oninput="updateJeBalance()">
+    <select class="form-input form-select" id="jeline-aux-type-${i}" onchange="toggleAuxSelect(${i})" style="font-size:10px;padding:6px 4px">
+      <option value="">— Sin auxiliar —</option>
+      <option value="client">👤 Cliente</option>
+      <option value="vendor">📦 Proveedor</option>
+    </select>
+    <button onclick="removeJeLine(${i})" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:6px;color:var(--accent2);cursor:pointer;font-size:14px;width:28px;height:34px;display:flex;align-items:center;justify-content:center">✕</button>
+    <select class="form-input form-select" id="jeline-aux-${i}" style="font-size:10px;grid-column:3/5;display:none;margin-top:2px" disabled>
+      <option value="">Seleccionar...</option>
+    </select>`;
   el('jeLines').appendChild(row);
+}
+function toggleAuxSelect(i) {
+  const type=el('jeline-aux-type-'+i)?.value;
+  const sel=el('jeline-aux-'+i);
+  if(!sel) return;
+  if(type==='client') {
+    sel.innerHTML='<option value="">Seleccionar cliente...</option>'+clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+    sel.disabled=false; sel.style.display='block';
+  } else if(type==='vendor') {
+    sel.innerHTML='<option value="">Seleccionar proveedor...</option>'+vendors.map(v=>`<option value="${v.id}">${v.name}</option>`).join('');
+    sel.disabled=false; sel.style.display='block';
+  } else {
+    sel.disabled=true; sel.style.display='none'; sel.value='';
+  }
 }
 function removeJeLine(i) { const r=el('jeline-'+i); if(r) r.remove(); updateJeBalance(); }
 function getJeLines() {
   const lines=[]; let i=0;
-  while(i<jeLineCount+10) { const row=el('jeline-'+i); if(row){ const acc=el('jeline-acc-'+i)?.value, deb=parseFloat(el('jeline-deb-'+i)?.value)||0, cre=parseFloat(el('jeline-cre-'+i)?.value)||0; if(acc||(deb>0||cre>0)) lines.push({account_id:acc,debit:deb,credit:cre}); } i++; }
+  while(i<jeLineCount+10) {
+    const row=el('jeline-'+i);
+    if(row){
+      const acc=el('jeline-acc-'+i)?.value;
+      const deb=parseFloat(el('jeline-deb-'+i)?.value)||0;
+      const cre=parseFloat(el('jeline-cre-'+i)?.value)||0;
+      const auxType=el('jeline-aux-type-'+i)?.value;
+      const auxSel=el('jeline-aux-'+i);
+      const auxId=auxSel?.value;
+      let auxName='';
+      if(auxType==='client'&&auxId) { const c=clients.find(x=>x.id===auxId); auxName=c?.name||''; }
+      else if(auxType==='vendor'&&auxId) { const v=vendors.find(x=>x.id===auxId); auxName=v?.name||''; }
+      if(acc||(deb>0||cre>0)) lines.push({account_id:acc,debit:deb,credit:cre,auxiliary_type:auxType||null,auxiliary_id:auxId||null,auxiliary_name:auxName||null});
+    }
+    i++;
+  }
   return lines;
 }
 function updateJeBalance() {
