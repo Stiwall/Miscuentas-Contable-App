@@ -2426,8 +2426,8 @@ app.post('/api/journal', authMiddleware, async (req, res) => {
       // balance = balance + debit - credit (same sign for all accounts, convention differs per type)
       await client.query(
         `INSERT INTO account_balances(account_id, balance)
-         VALUES($1, $2 - $3)
-         ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2 - $3`,
+         VALUES($1, $2::numeric - $3::numeric)
+         ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2::numeric - $3::numeric`,
         [line.account_id, line.debit || 0, line.credit || 0]
       );
     }
