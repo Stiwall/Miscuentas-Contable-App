@@ -1674,6 +1674,18 @@ app.delete('/api/admin/users/:id/admin', adminMiddleware, async (req, res) => {
 app.delete('/api/admin/users/:id', adminMiddleware, async (req, res) => {
   try {
     if (req.params.id === req.userId) return res.status(400).json({ error: 'Cannot delete yourself' });
+    // Delete in order: journal_lines -> journal_entries -> account_balances -> accounts -> clients/vendors/receivables/payables -> user_credentials -> users
+    await query(`DELETE FROM journal_lines WHERE account_id IN (SELECT id FROM accounts WHERE user_id=$1)`, [req.params.id]);
+    await query(`DELETE FROM journal_entries WHERE user_id=$1`, [req.params.id]);
+    await query(`DELETE FROM account_balances WHERE account_id IN (SELECT id FROM accounts WHERE user_id=$1)`, [req.params.id]);
+    await query(`DELETE FROM accounts WHERE user_id=$1`, [req.params.id]);
+    await query(`DELETE FROM clients WHERE user_id=$1`, [req.params.id]);
+    await query(`DELETE FROM vendors WHERE user_id=$1`, [req.params.id]);
+    await query(`DELETE FROM receivables WHERE user_id=$1`, [req.params.id]);
+    await query(`DELETE FROM payable_payments WHERE payable_id IN (SELECT id FROM payables WHERE user_id=$1)`, [req.params.id]);
+    await query(`DELETE FROM payables WHERE user_id=$1`, [req.params.id]);
+    await query(`DELETE FROM receivable_payments WHERE receivable_id IN (SELECT id FROM receivables WHERE user_id=$1)`, [req.params.id]);
+    await query(`DELETE FROM user_credentials WHERE user_id=$1`, [req.params.id]);
     await query(`DELETE FROM users WHERE id=$1`, [req.params.id]);
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -3106,7 +3118,7 @@ async function initDB() {
     `CREATE TABLE IF NOT EXISTS journal_lines (
       id              TEXT PRIMARY KEY,
       journal_entry_id TEXT NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
-      account_id      TEXT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+      account_id      TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
       debit           NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (debit >= 0),
       credit          NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (credit >= 0),
       CHECK (debit > 0 OR credit > 0),
