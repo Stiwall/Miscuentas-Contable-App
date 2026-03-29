@@ -3420,8 +3420,7 @@ async function renderAdmin() {
   el('adminLoading').style.display='block';
   el('adminContent').innerHTML='<div id="adminLoading" style="text-align:center;padding:40px;color:var(--text-muted)">⏳ Cargando...</div>';
   try {
-    const res = await apiFetch('/api/admin/users');
-    const { users } = res;
+    const users = await apiFetch('/api/admin/users');
     el('adminContent').innerHTML=`
       <div style="display:flex;flex-direction:column;gap:10px;max-width:100%;overflow-x:hidden">
         ${users.map(u=>`
