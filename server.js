@@ -1764,12 +1764,17 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
     // Update counter
     const num = parseInt(invoice_number) || 1;
     await query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT DO UPDATE SET last_number=$2`, [req.userId, num]);
-    // Insert items
-    if (items && items.length > 0) {
-      for (const item of items) {
+    // Insert items (frontend sends 'lines' array)
+    const rawItems = req.body.lines || items || [];
+    if (rawItems.length > 0) {
+      for (const item of rawItems) {
         const itemId = `item_${Date.now()}_${Math.random().toString(36).substr(2,4)}`;
+        const qty = parseFloat(item.quantity || item.qty || 1);
+        const price = parseFloat(item.unit_price || item.price || 0);
+        const disc = parseFloat(item.discount_pct || 0);
+        const lineTotal = qty * price * (1 - disc / 100);
         await query(`INSERT INTO invoice_items(id,invoice_id,description,qty,price,total) VALUES($1,$2,$3,$4,$5,$6)`,
-          [itemId, id, item.description, item.qty||1, item.price, item.total]);
+          [itemId, id, item.description || '', qty, price, lineTotal]);
       }
     }
     res.json({ ok: true, id });

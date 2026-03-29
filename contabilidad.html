@@ -2881,17 +2881,23 @@ function recalcInvoice() {
 async function saveInvoice(status='draft') {
   const lines = getInvoiceLines().filter(l=>l.description&&l.quantity>0);
   if (!lines.length) { toast('Agrega al menos una línea con descripción y cantidad','error'); return; }
+  // Calculate totals client-side
+  const taxRate  = parseFloat(el('nf-tax').value)||0;
+  const discPct  = parseFloat(el('nf-discount').value)||0;
+  let subtotal   = 0;
+  lines.forEach(l => { subtotal += l.quantity * l.unit_price * (1 - l.discount_pct/100); });
+  const discAmt  = subtotal * discPct / 100;
+  const taxable  = subtotal - discAmt;
+  const taxAmt   = taxable * taxRate / 100;
+  const total    = taxable + taxAmt;
   const body = {
     invoice_number: el('nf-number').value.trim()||null,
-    ncf:            el('nf-ncf').value.trim()||null,
-    client_id:      el('nf-client-id').value||null,
     client_name:    el('nf-client-name').value.trim()||null,
     client_rnc:     el('nf-rnc').value.trim()||null,
-    issue_date:     el('nf-date').value,
+    client_address: el('nf-address').value.trim()||null,
+    date:           el('nf-date').value||null,
     due_date:       el('nf-due').value||null,
-    tax_rate:       parseFloat(el('nf-tax').value)||0,
-    discount_pct:   parseFloat(el('nf-discount').value)||0,
-    income_type_id: el('nf-income-type').value||null,
+    subtotal, tax: taxAmt, total,
     notes:          el('nf-notes').value.trim()||null,
     status, lines
   };
