@@ -2926,7 +2926,9 @@ async function viewInvoice(id) {
   } catch(e) { toast('Error cargando factura: '+e.message, 'error'); }
 }
 function printInvoice() {
+  if (!_currentInvoice) { toast('Abre la factura primero', 'error'); return; }
   const w = window.open('', 'PRINT', 'width=700,height=900');
+  if (!w) { toast('Bloquea los popups para imprimir', 'error'); return; }
   w.document.write('<html><head><title>Factura '+(_currentInvoice?.invoice_number||'')+'</title>');
   w.document.write('<style>body{font-family:Helvetica,Arial,sans-serif;padding:20px;max-width:600px;margin:0 auto}table{width:100%;border-collapse:collapse}th,td{padding:6px 8px;border-bottom:1px solid #eee;text-align:left}th{background:#f0f0f0}.tot{text-align:right;font-weight:bold}.big{font-size:18px;font-weight:bold}</style>');
   w.document.write('</head><body>');
@@ -2934,10 +2936,10 @@ function printInvoice() {
   w.document.write('</body></html>');
   w.document.close();
   w.focus();
-  setTimeout(() => { w.print(); w.close(); }, 250);
+  setTimeout(() => { w.print(); w.close(); }, 300);
 }
 function downloadInvoicePdf() {
-  if (!_currentInvoice) return;
+  if (!_currentInvoice) { toast('Abre la factura primero', 'error'); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const inv = _currentInvoice;
