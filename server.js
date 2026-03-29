@@ -1682,6 +1682,75 @@ app.delete('/api/admin/users/:id', adminMiddleware, async (req, res) => {
 app.get('/', (_, res) => res.sendFile(__dirname + '/contabilidad.html'));
 app.get('/health', (_, res) => res.json({ status: 'healthy', groq: !!GROQ_API_KEY, gemini: !!GEMINI_API_KEY }));
 
+// ─── INCOME TYPES ─────────────────────────────────────────────────────────────
+app.get('/api/income-types', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT * FROM income_types WHERE user_id=$1 ORDER BY name`, [req.userId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/income-types', authMiddleware, async (req, res) => {
+  try {
+    const { name, description, icon, color } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name required' });
+    const id = `inctype_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`, [id, req.userId, name, description||null, icon||'💰', color||'#00e5a0']);
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/income-types/:id', authMiddleware, async (req, res) => {
+  try {
+    const { name, description, icon, color } = req.body;
+    await query(`UPDATE income_types SET name=$1,description=$2,icon=$3,color=$4 WHERE id=$5 AND user_id=$6`, [name, description||null, icon||'💰', color||'#00e5a0', req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/income-types/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM income_types WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── INCOME RECORDS ───────────────────────────────────────────────────────────
+app.get('/api/income-records', authMiddleware, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const r = await query(`
+      SELECT ir.*, it.name as type_name, it.icon as type_icon, it.color as type_color
+      FROM income_records ir
+      LEFT JOIN income_types it ON it.id = ir.type_id
+      WHERE ir.user_id=$1
+      ORDER BY ir.date DESC, ir.created_at DESC
+      LIMIT $2`, [req.userId, limit]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/income-records', authMiddleware, async (req, res) => {
+  try {
+    const { type_id, amount, description, date, reference } = req.body;
+    if (!type_id || !amount) return res.status(400).json({ error: 'type_id and amount required' });
+    const id = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO income_records(id,user_id,type_id,amount,description,date,reference)
+       VALUES($1,$2,$3,$4,$5,$6,$7)`,
+      [id, req.userId, type_id, amount, description||null, date||null, reference||null]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/income-records/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM income_records WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── INVENTORY ───────────────────────────────────────────────────────────────
 // GET /api/inventory/stock
 app.get('/api/inventory/stock', authMiddleware, async (req, res) => {
@@ -3127,6 +3196,27 @@ async function initDB() {
       username     TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+
+    // ── Income types ──
+    `CREATE TABLE IF NOT EXISTS income_types (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name        TEXT NOT NULL,
+      description TEXT,
+      icon        TEXT DEFAULT '💰',
+      color       TEXT DEFAULT '#00e5a0',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS income_records (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type_id     TEXT REFERENCES income_types(id),
+      amount      NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+      description TEXT,
+      date        DATE NOT NULL DEFAULT CURRENT_DATE,
+      reference   TEXT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
 
     // ── Inventory ──
