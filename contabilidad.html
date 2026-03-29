@@ -3164,14 +3164,18 @@ async function showInvoiceDetail(id) {
 
 async function changeInvoiceStatus(id, status) {
   try {
-    await apiFetch(`/api/invoices/${id}/status`,{method:'PUT',body:JSON.stringify({status})});
-    const msgs = {issued:'✅ Factura EMITIDA', paid:'✅ Factura PAGADA', cancelled:'✅ Factura CANCELADA', draft:'✅ Factura en BORRADOR'};
-    toast(msgs[status] || '✅ Estado actualizado');
+    const msgs = {issued:'📤 EMITIENDO...', paid:'✅ PAGANDO...', cancelled:'❌ CANCELANDO...', draft:'📝 GUARDANDO...'};
+    alert(msgs[status] || 'Actualizando...');
+    const r = await apiFetch(`/api/invoices/${id}/status`,{method:'PUT',body:JSON.stringify({status})});
+    alert('API respondió: ' + JSON.stringify(r));
+    const labels = {issued:'✅ FACTURA EMITIDA', paid:'✅ FACTURA PAGADA', cancelled:'✅ FACTURA CANCELADA', draft:'✅ FACTURA EN BORRADOR'};
+    toast(labels[status] || '✅ Estado actualizado');
     invoices = await apiFetch('/api/invoices?limit=20');
     receivables = await apiFetch('/api/receivables');
     loadInvoices();
     renderDashboard();
-  } catch(e) { let msg=e.message; try{msg=JSON.parse(msg).error||msg;}catch{} toast(msg,'error'); }
+    alert('¡Listo! Factura ' + status);
+  } catch(e) { alert('ERROR: '+e.message); }
 }
 
 async function deleteInvoice(id) {
