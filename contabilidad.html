@@ -3165,7 +3165,8 @@ async function showInvoiceDetail(id) {
 async function changeInvoiceStatus(id, status) {
   try {
     await apiFetch(`/api/invoices/${id}/status`,{method:'PUT',body:JSON.stringify({status})});
-    toast('✅ Estado actualizado');
+    const msgs = {issued:'✅ Factura EMITIDA', paid:'✅ Factura PAGADA', cancelled:'✅ Factura CANCELADA', draft:'✅ Factura en BORRADOR'};
+    toast(msgs[status] || '✅ Estado actualizado');
     invoices = await apiFetch('/api/invoices?limit=20');
     receivables = await apiFetch('/api/receivables');
     loadInvoices();
