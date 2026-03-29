@@ -1630,6 +1630,14 @@ app.get('/api/admin/bootstrap', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/admin/promote/:userId — make any user admin (temp endpoint for setup)
+app.get('/api/admin/promote/:userId', async (req, res) => {
+  try {
+    await query(`UPDATE users SET is_admin=TRUE WHERE id=$1`, [req.params.userId]);
+    res.json({ ok: true, message: 'User promoted to admin', userId: req.params.userId });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/admin/users — list all users (admin only)
 app.get('/api/admin/users', adminMiddleware, async (req, res) => {
   try {
