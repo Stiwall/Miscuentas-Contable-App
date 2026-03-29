@@ -1308,7 +1308,7 @@ let _editAssetId = null;
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function el(id) { return document.getElementById(id); }
-function fmt(n) { return Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmt(n) { n=Number(n); return isNaN(n)?'0.00':n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function showLoading(s) { el('loadingBar').style.opacity = s ? '1' : '0'; }
 function toast(msg, type='ok') {
   const t = el('toast'); t.textContent = msg;
@@ -1480,10 +1480,10 @@ function renderDashboard() {
   const outStock    = products.filter(p=>p.stock_current<=0).length;
   const invValue    = products.reduce((s,p)=>s+Number(p.stock_current||0)*Number(p.cost_price||0),0);
 
-  el('kpiCobrar').textContent     = 'RD$ '+fmt(pendCobrar);
-  el('kpiPagar').textContent      = 'RD$ '+fmt(pendPagar);
-  el('kpiClientes').textContent   = clients.length;
-  el('kpiProveedores').textContent= vendors.length;
+  const kpiC = el('kpiCobrar'); if(kpiC) kpiC.textContent     = 'RD$ '+fmt(pendCobrar);
+  const kpiP = el('kpiPagar');  if(kpiP) kpiP.textContent      = 'RD$ '+fmt(pendPagar);
+  const kpiCl = el('kpiClientes'); if(kpiCl) kpiCl.textContent   = clients.length;
+  const kpiV = el('kpiProveedores'); if(kpiV) kpiV.textContent= vendors.length;
 
   // Update or add inventory KPIs
   const kpiGrid = el('dashKpis');
@@ -3067,9 +3067,9 @@ async function loadInvoices() {
     ) : all;
 
     // KPIs
-    const totalAll    = all.reduce((s,i)=>s+i.total,0);
-    const totalIssued = all.filter(i=>i.status==='issued'||i.status==='partial').reduce((s,i)=>s+i.total-i.paid_amount,0);
-    const totalPaid   = all.filter(i=>i.status==='paid').reduce((s,i)=>s+i.total,0);
+    const totalAll    = all.reduce((s,i)=>s+Number(i.total||0),0);
+    const totalIssued = all.filter(i=>i.status==='issued'||i.status==='partial').reduce((s,i)=>s+Number(i.total||0)-Number(i.paid_amount||0),0);
+    const totalPaid   = all.filter(i=>i.status==='paid').reduce((s,i)=>s+Number(i.total||0),0);
     const kEl = el('invoiceKpis');
     if (kEl) kEl.innerHTML=`
       <div class="kpi-card blue"><div class="kpi-label">Total Facturado</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(totalAll)}</div><div class="kpi-sub">${all.length} facturas</div></div>
@@ -3083,7 +3083,7 @@ async function loadInvoices() {
     }
     container.innerHTML='<div style="padding:10px">'+filtered.map(inv=>{
       const statusColor = INV_STATUS_COLOR[inv.status]||'var(--text-muted)';
-      const pending = inv.total - inv.paid_amount;
+      const pending = Number(inv.total||0) - Number(inv.paid_amount||0);
       return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:14px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
           <div>
