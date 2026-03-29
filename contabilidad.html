@@ -3111,15 +3111,12 @@ async function loadInvoices() {
 }
 
 async function showInvoiceDetail(id) {
-  alert('1. showInvoiceDetail iniciado ID='+id);
   el('invoiceDetailContent').innerHTML='<div class="empty"><div class="empty-icon">⏳</div></div>';
   el('invoiceDetailActions').innerHTML='';
   openModal('invoiceDetailModal');
   try {
-    alert('2. Llamando API /api/invoices/'+id);
-    const inv = await apiFetch('/api/invoices/'+id);
-    alert('3. API OK, status='+inv.status+' invoice='+inv.invoice_number);
-    el('invDetailTitle').textContent = `Factura ${inv.invoice_number}`;
+      const inv = await apiFetch('/api/invoices/'+id);
+      el('invDetailTitle').textContent = `Factura ${inv.invoice_number}`;
     const statusColor = INV_STATUS_COLOR[inv.status]||'var(--text-muted)';
     el('invoiceDetailContent').innerHTML = `
       <div style="display:flex;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
@@ -3157,8 +3154,7 @@ async function showInvoiceDetail(id) {
       </div>
       ${inv.notes?`<div style="margin-top:12px;font-size:var(--fs-xs);color:var(--text-muted);background:var(--surface2);border-radius:6px;padding:8px">${inv.notes}</div>`:''}`;
 
-    alert('4. Renderizando botones, status='+inv.status);
-    el('invoiceDetailActions').innerHTML=`
+      el('invoiceDetailActions').innerHTML=`
       <button onclick="printInvoice('${inv.id}')" class="btn btn-secondary">🖨️ Imprimir</button>
       ${inv.status==='draft'?`<button onclick="changeInvoiceStatus('${inv.id}','issued');closeModal('invoiceDetailModal')" class="btn btn-primary">📤 Emitir</button>`:''}
       ${(inv.status==='issued'||inv.status==='partial')?`<button onclick="changeInvoiceStatus('${inv.id}','paid');closeModal('invoiceDetailModal')" class="btn btn-primary">✅ Marcar pagada</button>`:''}
@@ -3168,18 +3164,14 @@ async function showInvoiceDetail(id) {
 
 async function changeInvoiceStatus(id, status) {
   try {
-    const msgs = {issued:'📤 EMITIENDO...', paid:'✅ PAGANDO...', cancelled:'❌ CANCELANDO...', draft:'📝 GUARDANDO...'};
-    alert(msgs[status] || 'Actualizando...');
-    const r = await apiFetch(`/api/invoices/${id}/status`,{method:'PUT',body:JSON.stringify({status})});
-    alert('4. API respondio OK');
+    await apiFetch(`/api/invoices/${id}/status`,{method:'PUT',body:JSON.stringify({status})});
     const labels = {issued:'✅ FACTURA EMITIDA', paid:'✅ FACTURA PAGADA', cancelled:'✅ FACTURA CANCELADA', draft:'✅ FACTURA EN BORRADOR'};
     toast(labels[status] || '✅ Estado actualizado');
     invoices = await apiFetch('/api/invoices?limit=20');
     receivables = await apiFetch('/api/receivables');
     loadInvoices();
     renderDashboard();
-    alert('¡Listo! Factura ' + status);
-  } catch(e) { alert('ERROR: '+e.message); }
+  } catch(e) { toast('Error: '+e.message, 'error'); }
 }
 
 async function deleteInvoice(id) {
