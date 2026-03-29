@@ -3111,13 +3111,14 @@ async function loadInvoices() {
 }
 
 async function showInvoiceDetail(id) {
-  alert('showInvoiceDetail iniciado ID='+id);
+  alert('1. showInvoiceDetail iniciado ID='+id);
   el('invoiceDetailContent').innerHTML='<div class="empty"><div class="empty-icon">⏳</div></div>';
   el('invoiceDetailActions').innerHTML='';
   openModal('invoiceDetailModal');
   try {
+    alert('2. Llamando API /api/invoices/'+id);
     const inv = await apiFetch('/api/invoices/'+id);
-    alert('API llamó con exito, invoice: '+inv.invoice_number);
+    alert('3. API OK, status='+inv.status+' invoice='+inv.invoice_number);
     el('invDetailTitle').textContent = `Factura ${inv.invoice_number}`;
     const statusColor = INV_STATUS_COLOR[inv.status]||'var(--text-muted)';
     el('invoiceDetailContent').innerHTML = `
@@ -3156,6 +3157,7 @@ async function showInvoiceDetail(id) {
       </div>
       ${inv.notes?`<div style="margin-top:12px;font-size:var(--fs-xs);color:var(--text-muted);background:var(--surface2);border-radius:6px;padding:8px">${inv.notes}</div>`:''}`;
 
+    alert('4. Renderizando botones, status='+inv.status);
     el('invoiceDetailActions').innerHTML=`
       <button onclick="printInvoice('${inv.id}')" class="btn btn-secondary">🖨️ Imprimir</button>
       ${inv.status==='draft'?`<button onclick="changeInvoiceStatus('${inv.id}','issued');closeModal('invoiceDetailModal')" class="btn btn-primary">📤 Emitir</button>`:''}
@@ -3169,7 +3171,7 @@ async function changeInvoiceStatus(id, status) {
     const msgs = {issued:'📤 EMITIENDO...', paid:'✅ PAGANDO...', cancelled:'❌ CANCELANDO...', draft:'📝 GUARDANDO...'};
     alert(msgs[status] || 'Actualizando...');
     const r = await apiFetch(`/api/invoices/${id}/status`,{method:'PUT',body:JSON.stringify({status})});
-    alert('API respondió: ' + JSON.stringify(r));
+    alert('4. API respondio OK');
     const labels = {issued:'✅ FACTURA EMITIDA', paid:'✅ FACTURA PAGADA', cancelled:'✅ FACTURA CANCELADA', draft:'✅ FACTURA EN BORRADOR'};
     toast(labels[status] || '✅ Estado actualizado');
     invoices = await apiFetch('/api/invoices?limit=20');
