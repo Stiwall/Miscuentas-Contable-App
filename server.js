@@ -1215,135 +1215,7 @@ async function sendWeeklySummaries() {
   return sent;
 }
 
-// ─── WEBHOOK HANDLER ──────────────────────────────────────────────────────────
-if (HAS_TELEGRAM) {
-app.post(`/webhook/:secret`, async (req, res) => {
-  // Validar secret para evitar llamadas no autorizadas
-  if (req.params.secret !== (WEBHOOK_SECRET || 'tg')) {
-    return res.sendStatus(403);
-  }
-  res.sendStatus(200); // Responder inmediatamente a Telegram
-
-  const update = req.body;
-
-  // Log para debug — ver qué llega de Telegram
-  console.log('Webhook received:', JSON.stringify(update).substring(0, 300));
-
-  const msg    = update?.message;
-  if (!msg) {
-    //可能是callback_query或其他类型的update
-    console.log('No message in update, type:', update.update_id ? 'id:' + update.update_id : 'unknown');
-    return;
-  }
-
-  // ── Handle deep link: t.me/Miscuentasrdbot/miscuentas?start=TOKEN ────────────
-  // When user clicks START, Telegram sends a callback_query with data containing the start parameter
-  const cq = update?.callback_query;
-  if (cq) {
-    const chatId = String(cq.from.id);
-    const data   = cq.data || '';
-
-    // data looks like "start=TG_TOKEN" or just "start" — extract the token
-    let authToken = null;
-    let isDeepLink = false;
-    if (data.startsWith('start=')) {
-      authToken = data.replace('start=', '').trim();
-      isDeepLink = true;
-    } else if (data.startsWith('tg_')) {
-      authToken = data;
-      isDeepLink = true;
-    }
-
-    // Answer the callback query to remove loading state in Telegram
-    try {
-      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callback_query_id: cq.id }),
-      }).catch(() => {});
-    } catch(e) { /* ignore */ }
-
-    if (isDeepLink && authToken) {
-      // Deep link with token — save to DB
-      try {
-        await ensureUser(chatId, 'es');
-        await createAuthToken(authToken, chatId);
-        const lang = await getUserLang(chatId);
-        await sendMessage(chatId, lang === 'es'
-          ? `✅ ¡Cuenta conectada! Tu ID es:\n\n${chatId}\n\n📋 Cópialo y pégalo en la web.`
-          : `✅ Account connected! Your ID:\n\n${chatId}\n\n📋 Copy and paste on the web.`
-        );
-      } catch(e) {
-        console.error('Telegram OAuth callback error:', e.message);
-      }
-    } else {
-      // Plain START click — just send welcome message with ID
-      try {
-        await ensureUser(chatId, 'es');
-        const lang = await getUserLang(chatId);
-        await sendMessage(chatId, lang === 'es'
-          ? `👋 ¡Bienvenido a MisCuentas!\n\nTu Telegram ID:\n\n${chatId}\n\n📋 Cópialo y pégalo en la web para iniciar sesión.\n\n💰 MisCuentas — Finanzas Personales 💰`
-          : `👋 Welcome to MisCuentas!\n\nYour Telegram ID:\n\n${chatId}\n\n📋 Copy and paste on the web to log in.\n\n💰 MisCuentas — Personal Finance 💰`
-        );
-      } catch(e) {
-        console.error('Telegram welcome error:', e.message);
-      }
-    }
-    return;
-  }
-
-  const chatId = msg.chat.id;
-  const text   = msg.text || '';
-
-  // ── TELEGRAM OAUTH: /start tg_xxx or /start miscuentas?start=tg_xxx ────────
-  // Handles both: t.me/Miscuentasrdbot?start=tg_xxx  AND  t.me/Miscuentasrdbot/miscuentas?start=tg_xxx
-  // Also handles: /tg_xxx (token enviado como comando directo desde la web)
-  let authToken = null;
-  if (text.startsWith('/start tg_')) {
-    authToken = text.replace('/start tg_', '').trim();
-  } else if (text.startsWith('/start miscuentas?start=')) {
-    authToken = text.replace('/start miscuentas?start=', '').trim();
-  } else if (/^\/tg_[a-z0-9]+$/i.test(text)) {
-    // Token enviado como /tg_xxx desde la web (el frontend pre-llena el mensaje)
-    authToken = text.replace('/tg_', '').trim();
-  } else if (/^\/start miscuentas$/.test(text)) {
-    // Bot was opened from t.me/Miscuentasrdbot/miscuentas without a token — redirect to bot
-    await sendMessage(chatId, '👋 Usa el botón de "Iniciar con Telegram" en la web para conectar tu cuenta.\n\nO envía /start nuevamente con un token válido.');
-    return;
-  }
-  if (authToken) {
-    try {
-      // Generar session token para el usuario
-      await ensureUser(String(chatId), 'es');
-
-      // Guardar token en DB (persiste aunque Railway se reinicie)
-      await createAuthToken(authToken, String(chatId));
-
-      // Responder al usuario
-      const lang = await getUserLang(String(chatId));
-      await sendMessage(chatId, lang === 'es'
-        ? '✅ ¡Cuenta conectada! Puedes volver a la web. Bienvenido a MisCuentas 💰'
-        : '✅ Account connected! You can go back to the web. Welcome to MisCuentas 💰'
-      );
-    } catch(e) {
-      console.error('Telegram OAuth error:', e.message);
-    }
-    return;
-  }
-
-  try {
-    if (msg.photo?.length > 0) {
-      await handlePhoto(msg, chatId);
-    } else if (msg.text) {
-      await handleText(msg.text, chatId);
-    }
-  } catch (e) {
-    console.error('Webhook handler error:', e);
-    try { await sendMessage(chatId, MSG.generalError('es')); } catch {}
-  }
-});
-
-// ─── REST API (para el frontend en GitHub Pages) ──────────────────────────────
+// ─── CORS & ALLOWED_ORIGINS (siempre fuera del if para que esté disponible) ──
 const ALLOWED_ORIGINS = [
   'https://stiwall.github.io',
   'https://stiwall.github.io/miscuentas-bot',
@@ -1352,7 +1224,135 @@ const ALLOWED_ORIGINS = [
   'https://miscuentas-contable-app-production.up.railway.app',
   'https://miscuentas-contable-production-34aa.up.railway.app',
 ];
-} // end HAS_TELEGRAM webhook
+
+// ─── WEBHOOK HANDLER ──────────────────────────────────────────────────────────
+if (HAS_TELEGRAM) {
+  app.post(`/webhook/:secret`, async (req, res) => {
+    // Validar secret para evitar llamadas no autorizadas
+    if (req.params.secret !== (WEBHOOK_SECRET || 'tg')) {
+      return res.sendStatus(403);
+    }
+    res.sendStatus(200); // Responder inmediatamente a Telegram
+
+    const update = req.body;
+
+    // Log para debug — ver qué llega de Telegram
+    console.log('Webhook received:', JSON.stringify(update).substring(0, 300));
+
+    const msg    = update?.message;
+    if (!msg) {
+      //可能是callback_query或其他类型的update
+      console.log('No message in update, type:', update.update_id ? 'id:' + update.update_id : 'unknown');
+      return;
+    }
+
+    // ── Handle deep link: t.me/Miscuentasrdbot/miscuentas?start=TOKEN ────────────
+    // When user clicks START, Telegram sends a callback_query with data containing the start parameter
+    const cq = update?.callback_query;
+    if (cq) {
+      const chatId = String(cq.from.id);
+      const data   = cq.data || '';
+
+      // data looks like "start=TG_TOKEN" or just "start" — extract the token
+      let authToken = null;
+      let isDeepLink = false;
+      if (data.startsWith('start=')) {
+        authToken = data.replace('start=', '').trim();
+        isDeepLink = true;
+      } else if (data.startsWith('tg_')) {
+        authToken = data;
+        isDeepLink = true;
+      }
+
+      // Answer the callback query to remove loading state in Telegram
+      try {
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callback_query_id: cq.id }),
+        }).catch(() => {});
+      } catch(e) { /* ignore */ }
+
+      if (isDeepLink && authToken) {
+        // Deep link with token — save to DB
+        try {
+          await ensureUser(chatId, 'es');
+          await createAuthToken(authToken, chatId);
+          const lang = await getUserLang(chatId);
+          await sendMessage(chatId, lang === 'es'
+            ? `✅ ¡Cuenta conectada! Tu ID es:\n\n${chatId}\n\n📋 Cópialo y pégalo en la web.`
+            : `✅ Account connected! Your ID:\n\n${chatId}\n\n📋 Copy and paste on the web.`
+          );
+        } catch(e) {
+          console.error('Telegram OAuth callback error:', e.message);
+        }
+      } else {
+        // Plain START click — just send welcome message with ID
+        try {
+          await ensureUser(chatId, 'es');
+          const lang = await getUserLang(chatId);
+          await sendMessage(chatId, lang === 'es'
+            ? `👋 ¡Bienvenido a MisCuentas!\n\nTu Telegram ID:\n\n${chatId}\n\n📋 Cópialo y pégalo en la web para iniciar sesión.\n\n💰 MisCuentas — Finanzas Personales 💰`
+            : `👋 Welcome to MisCuentas!\n\nYour Telegram ID:\n\n${chatId}\n\n📋 Copy and paste on the web to log in.\n\n💰 MisCuentas — Personal Finance 💰`
+          );
+        } catch(e) {
+          console.error('Telegram welcome error:', e.message);
+        }
+      }
+      return;
+    }
+
+    const chatId = msg.chat.id;
+    const text   = msg.text || '';
+
+    // ── TELEGRAM OAUTH: /start tg_xxx or /start miscuentas?start=tg_xxx ────────
+    // Handles both: t.me/Miscuentasrdbot?start=tg_xxx  AND  t.me/Miscuentasrdbot/miscuentas?start=tg_xxx
+    // Also handles: /tg_xxx (token enviado como comando directo desde la web)
+    let authToken = null;
+    if (text.startsWith('/start tg_')) {
+      authToken = text.replace('/start tg_', '').trim();
+    } else if (text.startsWith('/start miscuentas?start=')) {
+      authToken = text.replace('/start miscuentas?start=', '').trim();
+    } else if (/^\/tg_[a-z0-9]+$/i.test(text)) {
+      // Token enviado como /tg_xxx desde la web (el frontend pre-llena el mensaje)
+      authToken = text.replace('/tg_', '').trim();
+    } else if (/^\/start miscuentas$/.test(text)) {
+      // Bot was opened from t.me/Miscuentasrdbot/miscuentas without a token — redirect to bot
+      await sendMessage(chatId, '👋 Usa el botón de "Iniciar con Telegram" en la web para conectar tu cuenta.\n\nO envía /start nuevamente con un token válido.');
+      return;
+    }
+    if (authToken) {
+      try {
+        // Generar session token para el usuario
+        await ensureUser(String(chatId), 'es');
+
+        // Guardar token en DB (persiste aunque Railway se reinicie)
+        await createAuthToken(authToken, String(chatId));
+
+        // Responder al usuario
+        const lang = await getUserLang(String(chatId));
+        await sendMessage(chatId, lang === 'es'
+          ? '✅ ¡Cuenta conectada! Puedes volver a la web. Bienvenido a MisCuentas 💰'
+          : '✅ Account connected! You can go back to the web. Welcome to MisCuentas 💰'
+        );
+      } catch(e) {
+        console.error('Telegram OAuth error:', e.message);
+      }
+      return;
+    }
+
+    try {
+      if (msg.photo?.length > 0) {
+        await handlePhoto(msg, chatId);
+      } else if (msg.text) {
+        await handleText(msg.text, chatId);
+      }
+    } catch (e) {
+      console.error('Webhook handler error:', e);
+      try { await sendMessage(chatId, MSG.generalError('es')); } catch {}
+    }
+  });
+} // end HAS_TELEGRAM
 
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
