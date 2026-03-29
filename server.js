@@ -1674,6 +1674,129 @@ app.delete('/api/admin/users/:id', adminMiddleware, async (req, res) => {
 app.get('/', (_, res) => res.sendFile(__dirname + '/contabilidad.html'));
 app.get('/health', (_, res) => res.json({ status: 'healthy', groq: !!GROQ_API_KEY, gemini: !!GEMINI_API_KEY }));
 
+// ─── INVENTORY ───────────────────────────────────────────────────────────────
+// GET /api/inventory/stock
+app.get('/api/inventory/stock', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`
+      SELECT p.id, p.code, p.name, p.category, p.unit,
+             COALESCE(p.cost_price,0) as cost_price, COALESCE(p.sell_price,0) as sell_price,
+             COALESCE(p.min_stock,0) as min_stock,
+             COALESCE(SUM(CASE WHEN m.type='entry' THEN m.quantity WHEN m.type IN ('exit','adjustment') THEN -m.quantity ELSE 0 END),0) as stock
+      FROM inventory_products p
+      LEFT JOIN inventory_movements m ON m.product_id = p.id AND m.user_id = p.user_id
+      WHERE p.user_id=$1
+      GROUP BY p.id
+      ORDER BY p.name`, [req.userId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/inventory/products
+app.get('/api/inventory/products', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT * FROM inventory_products WHERE user_id=$1 ORDER BY name`, [req.userId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/inventory/products
+app.post('/api/inventory/products', authMiddleware, async (req, res) => {
+  try {
+    const { code, name, category, unit, cost_price, sell_price, min_stock } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name required' });
+    const id = `prod_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO inventory_products(id,user_id,code,name,category,unit,cost_price,sell_price,min_stock)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, req.userId, code||null, name, category||'General', unit||'unidad', cost_price||0, sell_price||0, min_stock||0]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/inventory/products/:id
+app.delete('/api/inventory/products/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM inventory_products WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/inventory/movements
+app.get('/api/inventory/movements', authMiddleware, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 80;
+    const r = await query(`
+      SELECT m.*, p.name as product_name
+      FROM inventory_movements m
+      JOIN inventory_products p ON p.id = m.product_id
+      WHERE m.user_id=$1
+      ORDER BY m.created_at DESC
+      LIMIT $2`, [req.userId, limit]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/inventory/entry
+app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
+  try {
+    const { product_id, quantity, unit_cost, reference, notes, mov_date } = req.body;
+    if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
+    const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
+       VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8)`,
+      [id, req.userId, product_id, quantity, unit_cost||null, reference||null, notes||null, mov_date||null]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/inventory/exit
+app.post('/api/inventory/exit', authMiddleware, async (req, res) => {
+  try {
+    const { product_id, quantity, unit_price, reference, notes, mov_date } = req.body;
+    if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
+    const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
+       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8)`,
+      [id, req.userId, product_id, quantity, unit_price||null, reference||null, notes||null, mov_date||null]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/inventory/adjustment
+app.post('/api/inventory/adjustment', authMiddleware, async (req, res) => {
+  try {
+    const { product_id, new_quantity, notes, mov_date } = req.body;
+    if (!product_id || new_quantity == null) return res.status(400).json({ error: 'product_id and new_quantity required' });
+    const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,notes,mov_date)
+       VALUES($1,$2,$3,'adjustment',$4,$5,$6)`,
+      [id, req.userId, product_id, new_quantity, notes||'Ajuste de inventario', mov_date||null]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/inventory/kardex/:productId
+app.get('/api/inventory/kardex/:productId', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`
+      SELECT m.*, p.name as product_name
+      FROM inventory_movements m
+      JOIN inventory_products p ON p.id = m.product_id
+      WHERE m.product_id=$1 AND m.user_id=$2
+      ORDER BY m.mov_date ASC, m.created_at ASC`,
+      [req.params.productId, req.userId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Login / upsert de usuario — devuelve token de sesión
 app.post('/api/login', async (req, res) => {
   try {
@@ -2996,6 +3119,32 @@ async function initDB() {
       username     TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+
+    // ── Inventory ──
+    `CREATE TABLE IF NOT EXISTS inventory_products (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      code        TEXT,
+      name        TEXT NOT NULL,
+      category    TEXT DEFAULT 'General',
+      unit        TEXT DEFAULT 'unidad',
+      cost_price  NUMERIC(12,2) DEFAULT 0,
+      sell_price  NUMERIC(12,2) DEFAULT 0,
+      min_stock   NUMERIC(12,2) DEFAULT 0,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS inventory_movements (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      product_id  TEXT NOT NULL REFERENCES inventory_products(id) ON DELETE CASCADE,
+      type        TEXT NOT NULL CHECK (type IN ('entry','exit','adjustment')),
+      quantity    NUMERIC(12,2) NOT NULL,
+      unit_cost   NUMERIC(12,2),
+      reference   TEXT,
+      notes       TEXT,
+      mov_date    DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
   ];
 
