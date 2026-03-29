@@ -2300,12 +2300,12 @@ app.post('/api/setup/wizard', authMiddleware, async (req, res) => {
         await query(
           `INSERT INTO accounts(id, user_id, code, name, type, class, currency, is_system)
            VALUES($1,$2,$3,$4,$5,$6,'DOP',FALSE)
-           ON CONFLICT DO NOTHING`,
+           ON CONFLICT (id) DO NOTHING`,
           [id, req.userId, acc.code, acc.name, acc.type, acc.class]
         );
         await query(`INSERT INTO account_balances(account_id, balance) VALUES($1,0) ON CONFLICT DO NOTHING`, [id]);
-        created++;
-      } catch(e) { /* skip duplicates */ }
+      } catch(e) { console.warn('Wizard account insert warning:', e.message); }
+      created++;
     }
 
     res.json({ ok: true, count: created, label });
