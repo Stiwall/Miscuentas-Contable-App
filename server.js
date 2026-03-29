@@ -1763,7 +1763,7 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
     );
     // Update counter
     const num = parseInt(invoice_number) || 1;
-    await query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT DO UPDATE SET last_number=$2`, [req.userId, num]);
+    await query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, num]);
     // Insert items (frontend sends 'lines' array)
     const rawItems = req.body.lines || items || [];
     if (rawItems.length > 0) {
