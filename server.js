@@ -11,7 +11,8 @@ const { Pool } = require('pg');
 
 const app = express();
 app.use(express.json());
-app.use(express.static('public'));
+// No public/ folder - frontend served as single HTML at root
+// app.use(express.static('public')); // no public folder in this app
 
 // ─── ENV ──────────────────────────────────────────────────────────────────────
 const {
