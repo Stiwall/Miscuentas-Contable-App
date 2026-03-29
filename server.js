@@ -2423,15 +2423,39 @@ app.post('/api/journal', authMiddleware, async (req, res) => {
          VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
         [jlId, jeId, line.account_id, line.debit || 0, line.credit || 0, line.auxiliary_type || null, line.auxiliary_id || null, line.auxiliary_name || null]
       );
-      // Update account balance: debit increases asset/cost/expense, decreases liability/equity/income
-      // credit decreases asset/cost/expense, increases liability/equity/income
-      // balance = balance + debit - credit (same sign for all accounts, convention differs per type)
+      // Update account balance
       await client.query(
         `INSERT INTO account_balances(account_id, balance)
          VALUES($1, $2::numeric - $3::numeric)
          ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2::numeric - $3::numeric`,
         [line.account_id, line.debit || 0, line.credit || 0]
       );
+
+      // Auto-create receivable: debit on 1.2.01 with client auxiliary
+      if (line.auxiliary_type === 'client' && Number(line.debit) > 0) {
+        const accCheck = await client.query(`SELECT code FROM accounts WHERE id=$1 AND user_id=$2`, [line.account_id, req.userId]);
+        if (accCheck.rows[0]?.code === '1.2.01') {
+          const rId = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+          await client.query(
+            `INSERT INTO receivables(id, user_id, client_id, description, total_amount, paid_amount, status, due_date)
+             VALUES($1,$2,$3,$4,$5,0,'pending',$6)`,
+            [rId, req.userId, line.auxiliary_id, description, line.debit, date]
+          );
+        }
+      }
+
+      // Auto-create payable: credit on 2.1.01 with vendor auxiliary
+      if (line.auxiliary_type === 'vendor' && Number(line.credit) > 0) {
+        const accCheck = await client.query(`SELECT code FROM accounts WHERE id=$1 AND user_id=$2`, [line.account_id, req.userId]);
+        if (accCheck.rows[0]?.code === '2.1.01') {
+          const pId = `pay_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+          await client.query(
+            `INSERT INTO payables(id, user_id, vendor_id, description, total_amount, paid_amount, status, due_date)
+             VALUES($1,$2,$3,$4,$5,0,'pending',$6)`,
+            [pId, req.userId, line.auxiliary_id, description, line.credit, date]
+          );
+        }
+      }
     }
 
     await client.query('COMMIT');
