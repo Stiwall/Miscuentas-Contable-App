@@ -1694,6 +1694,159 @@ app.delete('/api/admin/users/:id', adminMiddleware, async (req, res) => {
 app.get('/', (_, res) => res.sendFile(__dirname + '/contabilidad.html'));
 app.get('/health', (_, res) => res.json({ status: 'healthy', groq: !!GROQ_API_KEY, gemini: !!GEMINI_API_KEY }));
 
+// ─── PRODUCTS (catalog, separate from inventory) ───────────────────────────────
+app.get('/api/products', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT * FROM products WHERE user_id=$1 ORDER BY name`, [req.userId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/products', authMiddleware, async (req, res) => {
+  try {
+    const { code, name, description, category, unit, cost_price, sale_price, stock_minimum, stock_current } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name required' });
+    const id = `prod_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO products(id,user_id,code,name,description,category,unit,cost_price,sale_price,stock_minimum,stock_current)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [id, req.userId, code||null, name, description||null, category||'General', unit||'unidad', cost_price||0, sale_price||0, stock_minimum||0, stock_current||0]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/products/:id', authMiddleware, async (req, res) => {
+  try {
+    const { code, name, description, category, unit, cost_price, sale_price, stock_minimum } = req.body;
+    await query(
+      `UPDATE products SET code=$1,name=$2,description=$3,category=$4,unit=$5,cost_price=$6,sale_price=$7,stock_minimum=$8 WHERE id=$9 AND user_id=$10`,
+      [code||null, name, description||null, category||'General', unit||'unidad', cost_price||0, sale_price||0, stock_minimum||0, req.params.id, req.userId]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/products/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM products WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── INVOICES ─────────────────────────────────────────────────────────────────
+app.get('/api/invoices', authMiddleware, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const r = await query(`SELECT * FROM invoices WHERE user_id=$1 ORDER BY date DESC, created_at DESC LIMIT $2`, [req.userId, limit]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/invoices/next-number', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
+    const next = (r.rows[0]?.last_number || 0) + 1;
+    res.json({ invoice_number: String(next).padStart(6, '0') });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/invoices', authMiddleware, async (req, res) => {
+  try {
+    const { invoice_number, client_name, client_rnc, client_address, subtotal, tax, total, status, date, due_date, notes, items } = req.body;
+    if (!invoice_number || !total) return res.status(400).json({ error: 'invoice_number and total required' });
+    const id = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,subtotal,tax,total,status,date,due_date,notes)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [id, req.userId, invoice_number, client_name||null, client_rnc||null, client_address||null, subtotal||0, tax||0, total, status||'pending', date||null, due_date||null, notes||null]
+    );
+    // Update counter
+    const num = parseInt(invoice_number) || 1;
+    await query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT DO UPDATE SET last_number=$2`, [req.userId, num]);
+    // Insert items
+    if (items && items.length > 0) {
+      for (const item of items) {
+        const itemId = `item_${Date.now()}_${Math.random().toString(36).substr(2,4)}`;
+        await query(`INSERT INTO invoice_items(id,invoice_id,description,qty,price,total) VALUES($1,$2,$3,$4,$5,$6)`,
+          [itemId, id, item.description, item.qty||1, item.price, item.total]);
+      }
+    }
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/invoices/:id', authMiddleware, async (req, res) => {
+  try {
+    const inv = await query(`SELECT * FROM invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    if (!inv.rows[0]) return res.status(404).json({ error: 'Not found' });
+    const items = await query(`SELECT * FROM invoice_items WHERE invoice_id=$1`, [req.params.id]);
+    res.json({ ...inv.rows[0], items: items.rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
+  try {
+    const { status } = req.body;
+    await query(`UPDATE invoices SET status=$1 WHERE id=$2 AND user_id=$3`, [status, req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/invoices/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── FIXED ASSETS ─────────────────────────────────────────────────────────────
+app.get('/api/assets', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT * FROM fixed_assets WHERE user_id=$1 ORDER BY name`, [req.userId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/assets', authMiddleware, async (req, res) => {
+  try {
+    const { name, description, category, purchase_date, purchase_value, useful_life_years, salvage_value } = req.body;
+    if (!name || purchase_value == null) return res.status(400).json({ error: 'name and purchase_value required' });
+    const id = `asset_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO fixed_assets(id,user_id,name,description,category,purchase_date,purchase_value,useful_life_years,salvage_value)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, req.userId, name, description||null, category||'General', purchase_date||null, purchase_value, useful_life_years||5, salvage_value||0]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/assets/:id', authMiddleware, async (req, res) => {
+  try {
+    const { name, description, category, purchase_date, purchase_value, useful_life_years, salvage_value } = req.body;
+    await query(
+      `UPDATE fixed_assets SET name=$1,description=$2,category=$3,purchase_date=$4,purchase_value=$5,useful_life_years=$6,salvage_value=$7 WHERE id=$8 AND user_id=$9`,
+      [name, description||null, category||'General', purchase_date||null, purchase_value, useful_life_years||5, salvage_value||0, req.params.id, req.userId]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/assets/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM fixed_assets WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/assets/:id/depreciation', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT * FROM asset_depreciation WHERE asset_id=$1 ORDER BY period`, [req.params.id]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── INCOME TYPES ─────────────────────────────────────────────────────────────
 app.get('/api/income-types', authMiddleware, async (req, res) => {
   try {
@@ -3228,6 +3381,74 @@ async function initDB() {
       description TEXT,
       date        DATE NOT NULL DEFAULT CURRENT_DATE,
       reference   TEXT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+
+    // ── Products (product catalog, separate from inventory movements) ──
+    `CREATE TABLE IF NOT EXISTS products (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      code        TEXT,
+      name        TEXT NOT NULL,
+      description TEXT,
+      category    TEXT DEFAULT 'General',
+      unit        TEXT DEFAULT 'unidad',
+      cost_price  NUMERIC(12,2) DEFAULT 0,
+      sale_price  NUMERIC(12,2) DEFAULT 0,
+      stock_minimum NUMERIC(12,2) DEFAULT 0,
+      stock_current NUMERIC(12,2) DEFAULT 0,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+
+    // ── Invoices ──
+    `CREATE TABLE IF NOT EXISTS invoices (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      invoice_number  TEXT NOT NULL,
+      client_name     TEXT,
+      client_rnc      TEXT,
+      client_address  TEXT,
+      subtotal        NUMERIC(12,2) DEFAULT 0,
+      tax             NUMERIC(12,2) DEFAULT 0,
+      total           NUMERIC(12,2) DEFAULT 0,
+      status          TEXT DEFAULT 'pending' CHECK (status IN ('pending','paid','cancelled')),
+      date            DATE NOT NULL DEFAULT CURRENT_DATE,
+      due_date        DATE,
+      notes           TEXT,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS invoice_items (
+      id          TEXT PRIMARY KEY,
+      invoice_id  TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      description TEXT NOT NULL,
+      qty         NUMERIC(12,2) NOT NULL DEFAULT 1,
+      price       NUMERIC(12,2) NOT NULL,
+      total       NUMERIC(12,2) NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS invoice_counter (
+      user_id     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      last_number INTEGER NOT NULL DEFAULT 0
+    )`,
+
+    // ── Fixed Assets ──
+    `CREATE TABLE IF NOT EXISTS fixed_assets (
+      id            TEXT PRIMARY KEY,
+      user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name          TEXT NOT NULL,
+      description   TEXT,
+      category      TEXT DEFAULT 'General',
+      purchase_date DATE,
+      purchase_value NUMERIC(12,2) NOT NULL DEFAULT 0,
+      useful_life_years INTEGER DEFAULT 5,
+      salvage_value  NUMERIC(12,2) DEFAULT 0,
+      depreciacion_metodo TEXT DEFAULT 'linea_recta',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS asset_depreciation (
+      id          TEXT PRIMARY KEY,
+      asset_id    TEXT NOT NULL REFERENCES fixed_assets(id) ON DELETE CASCADE,
+      period      TEXT NOT NULL,
+      amount      NUMERIC(12,2) NOT NULL,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
 
