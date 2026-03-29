@@ -1620,6 +1620,16 @@ app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/admin/bootstrap — make first user admin (one-time use, no auth needed)
+app.get('/api/admin/bootstrap', async (req, res) => {
+  try {
+    const r = await query(`SELECT id FROM users ORDER BY created_at ASC LIMIT 1`);
+    if (!r.rows[0]) return res.status(404).json({ error: 'No users found' });
+    await query(`UPDATE users SET is_admin=TRUE WHERE id=$1`, [r.rows[0].id]);
+    res.json({ ok: true, message: 'User promoted to admin', userId: r.rows[0].id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/admin/users — list all users (admin only)
 app.get('/api/admin/users', adminMiddleware, async (req, res) => {
   try {
