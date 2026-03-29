@@ -3549,6 +3549,8 @@ async function initDB() {
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS client_rnc TEXT`); } catch(e) {}
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS client_address TEXT`); } catch(e) {}
   try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS qty NUMERIC(12,2) NOT NULL DEFAULT 1`); } catch(e) {}
+  // Fix invoice_counter - drop FK if exists, recreate without FK
+  try { await query(`ALTER TABLE invoice_counter DROP CONSTRAINT IF EXISTS invoice_counter_user_id_fkey`); } catch(e) {}
   // Migrations for products
   try { await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_current NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
   // Migrations for fixed_assets
