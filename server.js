@@ -104,6 +104,17 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+async function adminMiddleware(req, res, next) {
+  const token = req.headers['x-session-token'];
+  if (!token) return res.status(401).json({ error: 'unauthorized' });
+  const userId = verifyToken(token);
+  if (!userId) return res.status(401).json({ error: 'invalid token' });
+  const r = await query(`SELECT is_admin FROM users WHERE id=$1`, [userId]);
+  if (!r.rows[0]?.is_admin) return res.status(403).json({ error: 'admin only' });
+  req.userId = userId;
+  next();
+}
+
 async function query(sql, params = []) {
   const client = await pool.connect();
   try {
@@ -1530,11 +1541,15 @@ app.post('/api/auth/register', async (req, res) => {
     const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
 
     // Upsert user (creates if not exists)
+    // First user ever becomes admin
+    const userCount = await query(`SELECT COUNT(*) as cnt FROM users`);
+    const isFirstUser = Number(userCount.rows[0].cnt) === 0;
     await query(
-      `INSERT INTO users(id, lang) VALUES($1, 'es')
-       ON CONFLICT(id) DO NOTHING`,
-      [userId]
+      `INSERT INTO users(id, lang, is_admin) VALUES($1, 'es', $2)
+       ON CONFLICT(id) DO UPDATE SET is_admin = EXCLUDED.is_admin`,
+      [userId, isFirstUser]
     );
+    if (isFirstUser) console.log('👑 First user registered as admin:', username);
     await createSystemAccounts(userId);
 
     // Insert credentials
@@ -1545,7 +1560,7 @@ app.post('/api/auth/register', async (req, res) => {
     );
 
     const token = generateToken(userId);
-    res.json({ ok: true, token, userId });
+    res.json({ ok: true, token, userId, isAdmin: isFirstUser });
   } catch (e) {
     console.error('Register error:', e.message);
     res.status(500).json({ error: e.message });
@@ -1571,7 +1586,8 @@ app.post('/api/auth/login', async (req, res) => {
     if (hash !== storedHash) return res.status(401).json({ error: 'Invalid username or password' });
 
     const token = generateToken(userId);
-    res.json({ ok: true, token, userId });
+    const adminR = await query(`SELECT is_admin FROM users WHERE id=$1`, [userId]);
+    res.json({ ok: true, token, userId, isAdmin: adminR.rows[0]?.is_admin || false });
   } catch (e) {
     console.error('Login error:', e.message);
     res.status(500).json({ error: e.message });
@@ -1602,6 +1618,47 @@ app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// GET /api/admin/users — list all users (admin only)
+app.get('/api/admin/users', adminMiddleware, async (req, res) => {
+  try {
+    const r = await query(`
+      SELECT u.id, u.is_admin, u.created_at, u.registered,
+             uc.username
+      FROM users u
+      LEFT JOIN user_credentials uc ON uc.user_id = u.id
+      ORDER BY u.created_at DESC
+    `);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/admin/users/:id/admin — promote to admin
+app.put('/api/admin/users/:id/admin', adminMiddleware, async (req, res) => {
+  try {
+    if (req.params.id === req.userId) return res.status(400).json({ error: 'Cannot modify yourself' });
+    await query(`UPDATE users SET is_admin=TRUE WHERE id=$1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/admin/users/:id/admin — demote from admin
+app.delete('/api/admin/users/:id/admin', adminMiddleware, async (req, res) => {
+  try {
+    if (req.params.id === req.userId) return res.status(400).json({ error: 'Cannot modify yourself' });
+    await query(`UPDATE users SET is_admin=FALSE WHERE id=$1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/admin/users/:id — delete a user (admin only)
+app.delete('/api/admin/users/:id', adminMiddleware, async (req, res) => {
+  try {
+    if (req.params.id === req.userId) return res.status(400).json({ error: 'Cannot delete yourself' });
+    await query(`DELETE FROM users WHERE id=$1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/', (_, res) => res.sendFile(__dirname + '/contabilidad.html'));
@@ -2774,6 +2831,7 @@ async function initDB() {
       id          TEXT PRIMARY KEY,
       registered  BOOLEAN NOT NULL DEFAULT TRUE,
       lang        TEXT NOT NULL DEFAULT 'es',
+      is_admin    BOOLEAN NOT NULL DEFAULT FALSE,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
     `CREATE TABLE IF NOT EXISTS transactions (
@@ -2946,6 +3004,17 @@ async function initDB() {
   try { await query(`CREATE INDEX IF NOT EXISTS idx_journal_lines_entry ON journal_lines(journal_entry_id)`); } catch(e) {}
   try { await query(`CREATE INDEX IF NOT EXISTS idx_receivables_user ON receivables(user_id)`); } catch(e) {}
   try { await query(`CREATE INDEX IF NOT EXISTS idx_payables_user ON payables(user_id)`); } catch(e) {}
+
+  // Migration: add is_admin column if not exists
+  try { await query(`ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE`); } catch(e) {}
+
+  // Make first registered user an admin
+  try {
+    const r = await query(`SELECT id FROM users ORDER BY created_at ASC LIMIT 1`);
+    if (r.rows.length > 0) {
+      await query(`UPDATE users SET is_admin=TRUE WHERE id=$1`, [r.rows[0].id]);
+    }
+  } catch(e) {}
 
   console.log('✅  Database schema ready');
 }
