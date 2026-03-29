@@ -2908,8 +2908,8 @@ async function viewInvoice(id) {
           <tbody>
             ${lines.map(l => `<tr>
               <td style="padding:6px 8px;border-bottom:1px solid #eee">${l.description || ''}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${l.quantity || 1}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">RD$ ${fmtDOP(l.unit_price || l.price)}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${l.qty || 1}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">RD$ ${fmtDOP(l.price || 0)}</td>
               <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">RD$ ${fmtDOP(l.total)}</td>
             </tr>`).join('')}
           </tbody>
@@ -2964,8 +2964,8 @@ function downloadInvoicePdf() {
   doc.setFont('helvetica', 'normal');
   lines.forEach(l => {
     doc.text(String(l.description||'').substring(0,45), 20, y);
-    doc.text(String(l.quantity||1), 130, y);
-    doc.text(fmtDOP(l.unit_price||l.price), 150, y);
+    doc.text(String(l.qty||1), 130, y);
+    doc.text(fmtDOP(l.price||0), 150, y);
     doc.text(fmtDOP(l.total), 180, y);
     y += 6;
   });
@@ -3135,12 +3135,12 @@ async function showInvoiceDetail(id) {
       <div style="overflow-x:auto;margin-bottom:16px">
         <table class="data-table">
           <thead><tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Desc%</th><th class="num">Subtotal</th></tr></thead>
-          <tbody>${inv.lines.map(l=>`<tr>
-            <td>${l.description}${l.product_code?`<div style="font-size:9px;color:var(--text-muted)">${l.product_code}</div>`:''}</td>
-            <td class="num">${l.quantity}</td>
-            <td class="num">${fmt(l.unit_price)}</td>
-            <td class="num">${l.discount_pct>0?l.discount_pct+'%':'—'}</td>
-            <td class="num" style="font-weight:600">${fmt(l.subtotal)}</td>
+          <tbody>${(inv.items||[]).map(l=>`<tr>
+            <td>${l.description||''}${l.product_id?`<div style="font-size:9px;color:var(--text-muted)">Referencia</div>`:''}</td>
+            <td class="num">${l.qty||1}</td>
+            <td class="num">RD$ ${fmt(l.price||0)}</td>
+            <td class="num">—</td>
+            <td class="num" style="font-weight:600">RD$ ${fmt(l.total||0)}</td>
           </tr>`).join('')}</tbody>
         </table>
       </div>
@@ -3186,13 +3186,12 @@ async function deleteInvoice(id) {
 async function printInvoice(id) {
   try {
     const inv = await apiFetch('/api/invoices/'+id);
-    const lineRows = inv.lines.map(l=>`
+    const lineRows = (inv.items||[]).map(l=>`
       <tr>
-        <td>${l.description}</td>
-        <td style="text-align:right">${l.quantity}</td>
-        <td style="text-align:right">RD$ ${fmt(l.unit_price)}</td>
-        ${l.discount_pct>0?`<td style="text-align:right">${l.discount_pct}%</td>`:'<td>—</td>'}
-        <td style="text-align:right;font-weight:600">RD$ ${fmt(l.subtotal)}</td>
+        <td>${l.description||''}</td>
+        <td style="text-align:right">${l.qty||1}</td>
+        <td style="text-align:right">RD$ ${fmt(l.price||0)}</td>
+        <td style="text-align:right;font-weight:600">RD$ ${fmt(l.total||0)}</td>
       </tr>`).join('');
     const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
       <title>Factura ${inv.invoice_number}</title>
