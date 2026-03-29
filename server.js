@@ -1349,6 +1349,8 @@ const ALLOWED_ORIGINS = [
   'https://stiwall.github.io/miscuentas-bot',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
+  'https://miscuentas-contable-app-production.up.railway.app',
+  'https://miscuentas-contable-production-34aa.up.railway.app',
 ];
 } // end HAS_TELEGRAM webhook
 
