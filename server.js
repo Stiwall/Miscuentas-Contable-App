@@ -1738,7 +1738,13 @@ app.delete('/api/products/:id', authMiddleware, async (req, res) => {
 app.get('/api/invoices', authMiddleware, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
-    const r = await query(`SELECT * FROM invoices WHERE user_id=$1 ORDER BY date DESC, created_at DESC LIMIT $2`, [req.userId, limit]);
+    const { status } = req.query;
+    let sql = `SELECT * FROM invoices WHERE user_id=$1`;
+    const params = [req.userId];
+    if (status) { sql += ` AND status=$2`; params.push(status); }
+    sql += ` ORDER BY date DESC, created_at DESC LIMIT $${params.length+1}`;
+    params.push(limit);
+    const r = await query(sql, params);
     res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
