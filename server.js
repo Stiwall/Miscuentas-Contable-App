@@ -1986,7 +1986,7 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
       }
     }
 
-    // When invoice is PAID: update CxC to paid
+    // When invoice is PAID: update CxC to paid + create income record
     if (status === 'paid') {
       await query(
         `UPDATE receivables SET status='paid', paid_amount=total_amount
@@ -1997,10 +1997,34 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
         `UPDATE invoices SET paid_amount=total WHERE id=$1 AND user_id=$2`,
         [req.params.id, req.userId]
       );
+
+      // Auto-create income record on payment
+      const pmeth = inv.payment_method || 'credit';
+      const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
+      const pmLabel = pmLabels[pmeth] || '📋 Crédito/CxC';
+      let incTypeId = null;
+      const itR = await query(`SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`, [req.userId, pmLabel]);
+      if (itR.rows[0]) {
+        incTypeId = itR.rows[0].id;
+      } else {
+        incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        const icon = pmeth==='cash'?'💵':pmeth==='bank'?'🏦':pmeth==='card'?'💳':'📋';
+        await query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
+          [incTypeId, req.userId, pmLabel, 'Generado automáticamente', icon, '#00e5a0']);
+      }
+      const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await query(
+        `INSERT INTO income_records(id,user_id,type_id,amount,description,date,reference)
+         VALUES($1,$2,$3,$4,$5,$6,$7)`,
+        [incId, req.userId, incTypeId, inv.total,
+         `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
+         inv.date||new Date().toISOString().split('T')[0],
+         inv.invoice_number]
+      );
     }
 
-    // When invoice is CANCELLED: reverse journal entry + cancel CxC
-    if (status === 'cancelled' && prevStatus !== 'cancelled') {
+    // When invoice is CANCELLED: reverse journal entry + cancel CxC (works from any status)
+    if (status === 'cancelled') {
       // Cancel CxC
       await query(
         `UPDATE receivables SET status='cancelled'
@@ -2008,11 +2032,23 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
         [req.userId, `%Factura ${inv.invoice_number}%`]
       );
 
-      // Remove income record for this invoice
-      await query(
-        `DELETE FROM income_records WHERE user_id=$1 AND reference=$2`,
-        [req.userId, inv.invoice_number]
-      );
+      // Remove income record and reverse paid_amount if invoice was paid
+      if (prevStatus === 'paid') {
+        await query(
+          `UPDATE invoices SET paid_amount=0 WHERE id=$1 AND user_id=$2`,
+          [req.params.id, req.userId]
+        );
+        await query(
+          `DELETE FROM income_records WHERE user_id=$1 AND reference=$2`,
+          [req.userId, inv.invoice_number]
+        );
+      } else {
+        // For non-paid invoices, just delete income record if any
+        await query(
+          `DELETE FROM income_records WHERE user_id=$1 AND reference=$2`,
+          [req.userId, inv.invoice_number]
+        );
+      }
 
       // Find original journal entry for this invoice
       const jeR = await query(
