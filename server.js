@@ -1912,6 +1912,23 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
         }
       }
       }  // closes pmeth === 'cash'
+
+      // Para crédito: crear journal entry de venta (CxC vs Ventas)
+      if (pmeth === 'credit' && debitAcct && salesAcct) {
+        const jeId = `je_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        await client.query(`INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
+          [jeId, req.userId, date||new Date().toISOString().split('T')[0],
+           `Factura ${resolvedInvoiceNumber} — ${client_name||'Cliente'} [Crédito]`, 'invoice', id]);
+        const jLines = [{acct:debitAcct,d:total,c:0},{acct:salesAcct,d:0,c:sub}];
+        if (tax>0 && acctMap['2.1.02']) jLines.push({acct:acctMap['2.1.02'],d:0,c:tax});
+        for (const ln of jLines) {
+          const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+          await client.query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,$5)`,
+            [lnId, jeId, ln.acct, ln.d, ln.c]);
+          await client.query(`INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
+            [ln.acct, ln.d-ln.c]);
+        }
+      }
     }
 
     // For credit: only CxC is created above; bank/card income waits until marked paid
