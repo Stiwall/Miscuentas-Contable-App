@@ -1783,7 +1783,47 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
           [itemId, id, item.description || '', qty, price, lineTotal]);
       }
     }
-    res.json({ ok: true, id });
+    // If created as issued directly, also auto-create CxC + journal
+    if ((status || 'draft') === 'issued') {
+      const total = parseFloat(req.body.total || 0);
+      const tax   = parseFloat(req.body.tax || 0);
+      const sub   = parseFloat(req.body.subtotal || total);
+      const cxcId = `rec_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      let clientId = null;
+      if (req.body.client_name) {
+        const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, req.body.client_name]);
+        if (cl.rows[0]) clientId = cl.rows[0].id;
+      }
+      if (clientId || req.body.client_name) {
+        await query(
+          `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
+          [cxcId, req.userId, clientId||null,
+           `Factura ${invoice_number}${req.body.client_name?' — '+req.body.client_name:''}`,
+           total, 0, 'pending', req.body.due_date||null]
+        );
+      }
+      const accts = await query(`SELECT id, code FROM accounts WHERE user_id=$1 AND code IN ('1201','4101','4201','2102')`, [req.userId]);
+      const acctMap = {}; accts.rows.forEach(a => { acctMap[a.code] = a.id; });
+      const clientAcct = acctMap['1201'];
+      const salesAcct  = acctMap['4101'] || acctMap['4201'];
+      if (clientAcct && salesAcct) {
+        const jeId = `je_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        await query(`INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
+          [jeId, req.userId, req.body.date||new Date().toISOString().split('T')[0],
+           `Factura ${invoice_number} — ${req.body.client_name||'Cliente'}`, 'invoice', id]);
+        const jLines = [{acct:clientAcct,d:total,c:0},{acct:salesAcct,d:0,c:sub}];
+        if (tax>0 && acctMap['2102']) jLines.push({acct:acctMap['2102'],d:0,c:tax});
+        for (const ln of jLines) {
+          const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+          await query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,$5)`,
+            [lnId, jeId, ln.acct, ln.d, ln.c]);
+          await query(`UPDATE accounts SET balance=balance+$1 WHERE id=$2`, [ln.d-ln.c, ln.acct]);
+        }
+      }
+    }
+
+    res.json({ ok: true, id, invoice_number, total: req.body.total });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1799,7 +1839,103 @@ app.get('/api/invoices/:id', authMiddleware, async (req, res) => {
 app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
   try {
     const { status } = req.body;
+    const prevR = await query(`SELECT * FROM invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    if (!prevR.rows[0]) return res.status(404).json({ error: 'Invoice not found' });
+    const inv = prevR.rows[0];
+    const prevStatus = inv.status;
+
     await query(`UPDATE invoices SET status=$1 WHERE id=$2 AND user_id=$3`, [status, req.params.id, req.userId]);
+
+    // When invoice is ISSUED: create CxC + journal entry
+    if (status === 'issued' && prevStatus === 'draft') {
+      const total = parseFloat(inv.total || 0);
+      const tax   = parseFloat(inv.tax || 0);
+      const sub   = parseFloat(inv.subtotal || total);
+
+      // 1) Create CxC (Cuentas por Cobrar)
+      const cxcId = `rec_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      // Find client_id if client_name matches
+      let clientId = null;
+      if (inv.client_name) {
+        const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, inv.client_name]);
+        if (cl.rows[0]) clientId = cl.rows[0].id;
+      }
+      if (clientId || inv.client_name) {
+        await query(
+          `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT DO NOTHING`,
+          [cxcId, req.userId, clientId||null,
+           `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
+           total, 0, 'pending', inv.due_date||null]
+        );
+      }
+
+      // 2) Create journal entry
+      // Find accounts: Clientes (1201), Ventas (4101/4102), ITBIS Cobrado (2102)
+      const accts = await query(
+        `SELECT id, code, name FROM accounts WHERE user_id=$1 AND code IN ('1201','4101','4102','4201','2102') ORDER BY code`,
+        [req.userId]
+      );
+      const acctMap = {};
+      accts.rows.forEach(a => { acctMap[a.code] = a.id; });
+
+      const clientAcct  = acctMap['1201'];
+      const salesAcct   = acctMap['4101'] || acctMap['4201'];
+      const itbisAcct   = acctMap['2102'];
+
+      if (clientAcct && salesAcct) {
+        const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        await query(
+          `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
+           VALUES($1,$2,$3,$4,$5,$6)`,
+          [jeId, req.userId, inv.date||new Date().toISOString().split('T')[0],
+           `Factura ${inv.invoice_number} — ${inv.client_name||'Cliente'}`,
+           'invoice', inv.id]
+        );
+
+        const lines = [];
+        // Debit: Clientes (CxC) por el total
+        lines.push({ acct: clientAcct, debit: total, credit: 0 });
+        // Credit: Ventas por subtotal
+        lines.push({ acct: salesAcct, debit: 0, credit: sub });
+        // Credit: ITBIS Cobrado si hay impuesto
+        if (tax > 0 && itbisAcct) {
+          lines.push({ acct: itbisAcct, debit: 0, credit: tax });
+        } else if (tax > 0) {
+          // If no ITBIS account, add to sales
+          lines[1].credit += tax;
+        }
+
+        for (const ln of lines) {
+          const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+          await query(
+            `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit)
+             VALUES($1,$2,$3,$4,$5)`,
+            [lnId, jeId, ln.acct, ln.debit, ln.credit]
+          );
+          // Update account balance
+          await query(
+            `UPDATE accounts SET balance = balance + $1 WHERE id = $2`,
+            [ln.debit - ln.credit, ln.acct]
+          );
+        }
+      }
+    }
+
+    // When invoice is PAID: update CxC to paid
+    if (status === 'paid') {
+      await query(
+        `UPDATE receivables SET status='paid', paid_amount=total_amount
+         WHERE user_id=$1 AND description ILIKE $2`,
+        [req.userId, `%Factura ${inv.invoice_number}%`]
+      );
+      await query(
+        `UPDATE invoices SET paid_amount=total WHERE id=$1 AND user_id=$2`,
+        [req.params.id, req.userId]
+      );
+    }
+
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
