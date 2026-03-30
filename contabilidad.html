@@ -2984,9 +2984,10 @@ function downloadInvoicePdf() {
 }
 
 async function saveInvoice(status='draft') {
+  const allLines = getInvoiceLines();
+  const lines = allLines.filter(l=>l.description||l.unit_price>0);
+  if (!lines.length) { toast('⚠️ Agrega al menos una línea con descripción o precio','error'); return; }
   toast('⏳ Guardando...', 'info');
-  const lines = getInvoiceLines().filter(l=>l.description&&l.quantity>0);
-  if (!lines.length) { toast('Agrega al menos una línea con descripción y cantidad','error'); return; }
   // Calculate totals client-side
   const taxRate  = parseFloat(el('nf-tax').value)||0;
   const discPct  = parseFloat(el('nf-discount').value)||0;
