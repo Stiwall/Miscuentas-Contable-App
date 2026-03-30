@@ -1809,21 +1809,24 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
       const pmeth  = req.body.payment_method || 'credit'; // cash | bank | card | credit
 
       // Find accounts
-      const accts = await query(`SELECT id, code FROM accounts WHERE user_id=$1 AND code IN ('1101','1102','1201','4101','4201','2102')`, [req.userId]);
+      const accts = await query(`SELECT id, code FROM accounts WHERE user_id=$1 AND code IN ('1.1.01','1.1.02','1.2.01','4.1.01','4.2.01','2.1.02')`, [req.userId]);
       const acctMap = {}; accts.rows.forEach(a => { acctMap[a.code] = a.id; });
-      const salesAcct = acctMap['4101'] || acctMap['4201'];
+      const salesAcct = acctMap['4.1.01'] || acctMap['4.2.01'];
+      if (!salesAcct) {
+        return res.status(400).json({ error: 'Cuenta de ventas (4.1.01) no encontrada. Configura tu plan de cuentas.' });
+      }
 
       // Determine debit account based on payment method
       let debitAcct = null;
       let payDesc   = '';
       if (pmeth === 'cash') {
-        debitAcct = acctMap['1102']; // Caja
+        debitAcct = acctMap['1.1.02']; // Caja
         payDesc = 'Efectivo';
       } else if (pmeth === 'bank' || pmeth === 'card') {
-        debitAcct = acctMap['1101']; // Banco
+        debitAcct = acctMap['1.1.01']; // Banco
         payDesc = pmeth === 'bank' ? 'Transferencia' : 'Tarjeta';
       } else {
-        debitAcct = acctMap['1201']; // CxC (crédito)
+        debitAcct = acctMap['1.2.01']; // CxC (crédito)
         payDesc = 'Crédito';
       }
 
@@ -1863,18 +1866,17 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
           [incTypeId, req.userId, pmLabel, 'Generado automáticamente desde facturas',
            pmeth==='cash'?'💵':pmeth==='bank'?'🏦':pmeth==='card'?'💳':'📋', '#00e5a0']);
       }
-      const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-      await client.query(
-        `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
-         VALUES($1,$2,$3,$4,$5,$6,$7)`,
-        [incId, req.userId, incTypeId, total,
-         `Factura ${invoice_number}${client_name?' — '+client_name:''}`,
-         date||new Date().toISOString().split('T')[0],
-         invoice_number]
-      );
-
       // Create journal entry
       if (debitAcct && salesAcct) {
+        const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        await client.query(
+          `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
+           VALUES($1,$2,$3,$4,$5,$6,$7)`,
+          [incId, req.userId, incTypeId, total,
+           `Factura ${invoice_number}${client_name?' — '+client_name:''}`,
+           date||new Date().toISOString().split('T')[0],
+           invoice_number]
+        );
         const jeId = `je_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
         await client.query(`INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
           [jeId, req.userId, date||new Date().toISOString().split('T')[0],
@@ -1946,17 +1948,17 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
       }
 
       // 2) Create journal entry
-      // Find accounts: Clientes (1201), Ventas (4101/4102), ITBIS Cobrado (2102)
+      // Find accounts: Clientes (1.2.01), Ventas (4.1.01/4.1.02), ITBIS Cobrado (2.1.02)
       const accts = await query(
-        `SELECT id, code, name FROM accounts WHERE user_id=$1 AND code IN ('1201','4101','4102','4201','2102') ORDER BY code`,
+        `SELECT id, code, name FROM accounts WHERE user_id=$1 AND code IN ('1.2.01','4.1.01','4.1.02','4.2.01','2.1.02') ORDER BY code`,
         [req.userId]
       );
       const acctMap = {};
       accts.rows.forEach(a => { acctMap[a.code] = a.id; });
 
-      const clientAcct  = acctMap['1201'];
-      const salesAcct   = acctMap['4101'] || acctMap['4201'];
-      const itbisAcct   = acctMap['2102'];
+      const clientAcct  = acctMap['1.2.01'];
+      const salesAcct   = acctMap['4.1.01'] || acctMap['4.1.02'] || acctMap['4.2.01'];
+      const itbisAcct   = acctMap['2.1.02'];
 
       if (clientAcct && salesAcct) {
         const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
@@ -1990,8 +1992,8 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
           );
           // Update account balance
           await query(
-            `INSERT INTO account_balances(account_id,balance) VALUES($2,$1) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$1`,
-            [ln.debit - ln.credit, ln.acct]
+            `INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
+            [ln.acct, ln.debit - ln.credit]
           );
         }
       }
@@ -2014,7 +2016,7 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
       const pmeth = inv.payment_method || 'credit';
       const cajaAcct  = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.1.01' LIMIT 1`, [req.userId]);
       const bancoAcct = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.1.02' LIMIT 1`, [req.userId]);
-      const clientAcct = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1201' LIMIT 1`, [req.userId]);
+      const clientAcct = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.2.01' LIMIT 1`, [req.userId]);
       // Pick cash account based on payment method
       const cashAcct = (pmeth === 'bank' || pmeth === 'card')
         ? (bancoAcct.rows[0]?.id || cajaAcct.rows[0]?.id)
@@ -2093,14 +2095,14 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
           [req.params.id, req.userId]
         );
         await query(
-          `DELETE FROM income_records WHERE user_id=$1 AND reference=$2`,
-          [req.userId, inv.invoice_number]
+          `DELETE FROM income_records WHERE user_id=$1 AND reference=$2 AND description ILIKE $3`,
+          [req.userId, inv.invoice_number, `%${inv.invoice_number}%`]
         );
       } else {
         // For non-paid invoices, just delete income record if any
         await query(
-          `DELETE FROM income_records WHERE user_id=$1 AND reference=$2`,
-          [req.userId, inv.invoice_number]
+          `DELETE FROM income_records WHERE user_id=$1 AND reference=$2 AND description ILIKE $3`,
+          [req.userId, inv.invoice_number, `%${inv.invoice_number}%`]
         );
       }
 
@@ -2171,8 +2173,8 @@ app.delete('/api/invoices/:id', authMiddleware, async (req, res) => {
     }
 
     // Delete related income records
-    await query(`DELETE FROM income_records WHERE user_id=$1 AND reference=$2`,
-      [req.userId, invoice.invoice_number]);
+    await query(`DELETE FROM income_records WHERE user_id=$1 AND reference=$2 AND description ILIKE $3`,
+      [req.userId, invoice.invoice_number, `%${invoice.invoice_number}%`]);
 
     // Delete related receivables
     await query(`DELETE FROM receivables WHERE user_id=$1 AND description ILIKE $2`,
