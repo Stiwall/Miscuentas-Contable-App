@@ -1,11 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="80" fill="#1A4731"/>
-  <rect x="80" y="120" width="352" height="272" rx="16" fill="#F5F0E8"/>
-  <rect x="80" y="120" width="352" height="40" rx="16" fill="#0D3B28"/>
-  <line x1="120" y1="200" x2="392" y2="200" stroke="#1A4731" stroke-width="6" stroke-linecap="round"/>
-  <line x1="120" y1="240" x2="392" y2="240" stroke="#1A4731" stroke-width="6" stroke-linecap="round"/>
-  <line x1="120" y1="280" x2="392" y2="280" stroke="#1A4731" stroke-width="6" stroke-linecap="round"/>
-  <line x1="120" y1="320" x2="392" y2="320" stroke="#1A4731" stroke-width="6" stroke-linecap="round"/>
-  <line x1="120" y1="360" x2="280" y2="360" stroke="#1A4731" stroke-width="6" stroke-linecap="round"/>
-  <text x="256" y="90" font-family="serif" font-size="64" font-weight="bold" fill="#F5F0E8" text-anchor="middle">$</text>
+  <!-- Background: dark green rounded square -->
+  <rect width="512" height="512" rx="90" fill="#2D5A27"/>
+  <!-- White page area -->
+  <rect x="80" y="70" width="352" height="340" rx="20" fill="#F8F8F8"/>
+  <!-- Horizontal ruled lines -->
+  <line x1="120" y1="150" x2="392" y2="150" stroke="#2D5A27" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="120" y1="190" x2="392" y2="190" stroke="#2D5A27" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="120" y1="230" x2="392" y2="230" stroke="#2D5A27" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="120" y1="270" x2="392" y2="270" stroke="#2D5A27" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="120" y1="310" x2="392" y2="310" stroke="#2D5A27" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="120" y1="350" x2="392" y2="350" stroke="#2D5A27" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="120" y1="390" x2="392" y2="390" stroke="#2D5A27" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+  <!-- Vertical margin line -->
+  <line x1="155" y1="110" x2="155" y2="380" stroke="#E84040" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
+  <!-- Ribbon bookmark -->
+  <polygon points="300,70 300,130 330,110 360,130 360,70" fill="#E84040"/>
+  <!-- "notas" text at bottom -->
+  <text x="256" y="445" font-family="Arial, sans-serif" font-size="52" font-weight="bold" fill="#F8F8F8" text-anchor="middle" letter-spacing="4">notas</text>
 </svg>
