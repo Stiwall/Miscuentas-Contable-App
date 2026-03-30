@@ -1408,10 +1408,10 @@ async function showApp() {
   el('appShell').style.display='block';
   el('userLabel').textContent = currentUser.username || '—';
   if (currentUser.isAdmin) el('adminNav').style.display='block';
-  if (!accounts.length) openWizard();
   showLoading(true);
   await loadAllData();
   showLoading(false);
+  if (!accounts.length) openWizard();
   // Render all pages so data is ready when user navigates
   renderDashboard();
   renderPlan();
