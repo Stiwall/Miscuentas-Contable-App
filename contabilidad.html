@@ -1347,7 +1347,7 @@ function authHeaders() { return { 'Content-Type':'application/json', 'x-session-
 
 async function apiFetch(endpoint, options={}) {
   const res = await fetch(SERVER_URL + endpoint, { ...options, headers: { 'Content-Type':'application/json', 'x-session-token': currentUser?.token||'', ...(options.headers||{}) } });
-  if (res.status === 401) { clearSession(); location.reload(); throw new Error('Sesión expirada'); }
+  if (res.status === 401) { clearSession(); throw new Error('Sesión expirada'); }
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -1560,9 +1560,9 @@ function calcMargin() {
 
 // Add margin calc listeners
 document.addEventListener('DOMContentLoaded', ()=>{
-  // Restore session from localStorage
+  // Restore session from localStorage only if not previously expired
   loadSession();
-  if (currentUser?.token) {
+  if (currentUser?.token && !window.__sessionExpired) {
     showApp().catch(() => clearSession());
   }
   // Margin calculator
