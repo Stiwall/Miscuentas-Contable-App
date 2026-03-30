@@ -2984,29 +2984,45 @@ function downloadInvoicePdf() {
 }
 
 async function saveInvoice(status='draft') {
+  // Validate invoice number
+  const invNum = el('nf-number')?.value?.trim();
+  if (!invNum) { toast('⚠️ Falta el número de factura','error'); return; }
+
+  // Get and validate lines
   const allLines = getInvoiceLines();
-  const lines = allLines.filter(l=>l.description||l.unit_price>0);
-  if (!lines.length) { toast('⚠️ Agrega al menos una línea con descripción o precio','error'); return; }
+  const lines = allLines.filter(l => l.description && l.description.trim() !== '');
+  if (!lines.length) { toast('⚠️ Agrega al menos una línea con descripción','error'); return; }
+
   toast('⏳ Guardando...', 'info');
-  // Calculate totals client-side
-  const taxRate  = parseFloat(el('nf-tax').value)||0;
-  const discPct  = parseFloat(el('nf-discount').value)||0;
-  let subtotal   = 0;
-  lines.forEach(l => { subtotal += l.quantity * l.unit_price * (1 - l.discount_pct/100); });
-  const discAmt  = subtotal * discPct / 100;
-  const taxable  = subtotal - discAmt;
-  const taxAmt   = taxable * taxRate / 100;
-  const total    = taxable + taxAmt;
+
+  // Calculate totals
+  const taxRate = parseFloat(el('nf-tax')?.value) || 0;
+  const discPct = parseFloat(el('nf-discount')?.value) || 0;
+  let subtotal  = 0;
+  lines.forEach(l => { subtotal += Number(l.quantity||1) * Number(l.unit_price||0); });
+  const discAmt = subtotal * discPct / 100;
+  const taxable = subtotal - discAmt;
+  const taxAmt  = taxable * taxRate / 100;
+  const total   = taxable + taxAmt;
+
   const body = {
-    invoice_number: el('nf-number').value.trim()||null,
-    client_name:    el('nf-client-name').value.trim()||null,
-    client_rnc:     el('nf-rnc').value.trim()||null,
-    client_address: el('nf-address').value.trim()||null,
-    date:           el('nf-date').value||null,
-    due_date:       el('nf-due').value||null,
-    subtotal: subtotal||0, tax: taxAmt||0, total: total||subtotal||0.01,
-    notes:          el('nf-notes').value.trim()||null,
-    status, lines
+    invoice_number: invNum,
+    client_name:    el('nf-client-name')?.value?.trim() || null,
+    client_rnc:     el('nf-rnc')?.value?.trim() || null,
+    client_address: el('nf-address')?.value?.trim() || null,
+    date:           el('nf-date')?.value || new Date().toISOString().split('T')[0],
+    due_date:       el('nf-due')?.value || null,
+    subtotal:       Math.round(subtotal*100)/100,
+    tax:            Math.round(taxAmt*100)/100,
+    total:          Math.round((total||0.01)*100)/100,
+    notes:          el('nf-notes')?.value?.trim() || null,
+    status,
+    lines: lines.map(l => ({
+      description: l.description,
+      quantity:    Number(l.quantity||1),
+      unit_price:  Number(l.unit_price||0),
+      discount_pct:Number(l.discount_pct||0)
+    }))
   };
   try {
     const r = await apiFetch('/api/invoices',{method:'POST',body:JSON.stringify(body)});
