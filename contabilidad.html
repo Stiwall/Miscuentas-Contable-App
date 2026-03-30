@@ -3695,38 +3695,56 @@ const WIZARD_STEPS = {
   general:    { icon: '🏢', label: 'Negocios en General',   key: 'general',     desc: 'Cualquier otro tipo de negocio' },
 };
 
-function openWizard() {
-  el('wizardModal').style.display='flex';
-  wizardStep1();
-}
-
-function wizardStep1() {
-  el('wizardContent').innerHTML=`
-    <div style="text-align:center;margin-bottom:24px">
-      <div style="font-size:36px;margin-bottom:8px">🚀</div>
-      <div style="font-family:var(--font-head);font-size:20px;font-weight:800">¡Bienvenido!</div>
-      <div style="font-size:var(--fs-sm);color:var(--text-muted);margin-top:4px">Configuremos tu plan de cuentas en 3 pasos</div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-      ${Object.entries(WIZARD_STEPS).map(([k,v])=>`
-        <div class="wizard-card" id="wiz-${k}" onclick="wizardSelect('${k}')" style="background:var(--surface2);border:2px solid var(--border);border-radius:var(--radius-xs);padding:14px;cursor:pointer;text-align:center;transition:all 0.15s">
-          <div style="font-size:28px;margin-bottom:6px">${v.icon}</div>
-          <div style="font-weight:700;font-size:var(--fs-xs)">${v.label}</div>
-          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${v.desc}</div>
-        </div>
-      `).join('')}
-    </div>
-    <div id="wiz-selected-name" style="display:none;margin-bottom:12px;background:var(--surface3);border-radius:var(--radius-xs);padding:10px;text-align:center;font-size:var(--fs-sm)"></div>
-    <button id="wiz-next-btn" class="btn btn-primary btn-full" style="margin-bottom:8px" disabled onclick="wizardStep2()">Siguiente →</button>
-    <button class="btn btn-ghost btn-full" style="font-size:var(--fs-xs)" onclick="closeWizard()">Omitir por ahora</button>
-    <style>
-      .wizard-card:hover { border-color:var(--orange) !important; transform:scale(1.02); }
-      .wizard-card.selected { border-color:var(--orange) !important; background:var(--orange-dim) !important; }
-    </style>
-  `;
-}
+const PRESET_PREVIEW = {
+  restaurante: [
+    {code:'1101',name:'Bancos'},{code:'1102',name:'Caja Chica'},{code:'1201',name:'Clientes (CxC)'},
+    {code:'1501',name:'Equipos de Cocina'},{code:'1502',name:'Mobiliario'},
+    {code:'2101',name:'Proveedores (CxP)'},{code:'2102',name:'ITBIS por Pagar'},
+    {code:'3101',name:'Capital Social'},{code:'4101',name:'Ventas de Comida'},{code:'4102',name:'Ventas de Bebidas'},
+    {code:'5101',name:'Costo de Ventas (CMV)'},{code:'5102',name:'Costo Bebidas'},
+    {code:'6101',name:'Alquiler'},{code:'6102',name:'Sueldos y Salarios'},{code:'6103',name:'Gastos de Luz'},
+    {code:'6104',name:'Gastos de Agua'},{code:'6105',name:'Gastos de Internet'},{code:'6106',name:'Marketing'},
+    {code:'6107',name:'Gastos Bancarios'},{code:'6108',name:'Depreciación'},{code:'6109',name:'Suministros'},{code:'6110',name:'Seguros'},
+    {code:'6111',name:'Mantenimiento'},
+  ],
+  tienda: [
+    {code:'1101',name:'Bancos'},{code:'1102',name:'Caja'},{code:'1103',name:'Inventario Mercancías'},
+    {code:'1201',name:'Clientes'},{code:'1501',name:'Mobiliario y Equipos'},
+    {code:'2101',name:'Proveedores'},{code:'3101',name:'Capital Social'},
+    {code:'4101',name:'Ventas'},{code:'5101',name:'Costo de Ventas'},{code:'6101',name:'Alquiler'},
+    {code:'6102',name:'Sueldos'},{code:'6103',name:'Gastos Bancarios'},{code:'6104',name:'Impuestos'},
+  ],
+  servicios: [
+    {code:'1101',name:'Bancos'},{code:'1102',name:'Caja'},{code:'1201',name:'Cuentas por Cobrar'},
+    {code:'1301',name:'Gastos Pagados x Adelantado'},{code:'1501',name:'Equipos de Oficina'},
+    {code:'2101',name:'Cuentas por Pagar'},{code:'2102',name:'ITBIS por Pagar'},
+    {code:'3101',name:'Capital Social'},{code:'3201',name:'Utilidades Retenidas'},
+    {code:'4101',name:'Ingresos por Servicios'},{code:'4102',name:'Ingresos por Consultorías'},{code:'4103',name:'Otros Ingresos'},
+    {code:'6101',name:'Alquiler'},{code:'6102',name:'Sueldos y Salarios'},{code:'6103',name:'Gastos de Luz'},
+    {code:'6104',name:'Internet y Telefonía'},{code:'6105',name:'Gastos Bancarios'},
+  ],
+  general: [
+    {code:'1101',name:'Bancos'},{code:'1102',name:'Caja'},{code:'1103',name:'Inventario'},
+    {code:'1201',name:'Cuentas por Cobrar'},{code:'1501',name:'Activos Fijos'},
+    {code:'2101',name:'Cuentas por Pagar'},{code:'3101',name:'Capital Social'},
+    {code:'4101',name:'Ingresos'},{code:'5101',name:'Costo de Ventas'},
+    {code:'6101',name:'Gastos Generales'},{code:'6102',name:'Gastos Operativos'},{code:'6103',name:'Gastos de Operación'},
+  ],
+};
 
 let _wizardSelected = null;
+let _wizardStep = 1;
+
+function openWizard() {
+  el('wizardModal').style.display='block';
+  renderWizardStep(1);
+}
+
+function closeWizard() {
+  el('wizardModal').style.display='none';
+  _wizardStep = 1;
+}
+
 function wizardSelect(key) {
   _wizardSelected = key;
   document.querySelectorAll('.wizard-card').forEach(c=>c.classList.remove('selected'));
@@ -3735,6 +3753,15 @@ function wizardSelect(key) {
   const v = WIZARD_STEPS[key];
   el('wiz-selected-name').style.display='block';
   el('wiz-selected-name').innerHTML=`📋 Plan: <strong>${v.label}</strong> — <span style="color:var(--text-muted)">~${key==='restaurante'?23:key==='tienda'?19:key==='servicios'?18:17} cuentas</span>`;
+}
+
+function wizardSubmitStep2() {
+  if (!_wizardSelected) return;
+  wizardStep2();
+}
+
+function wizardStep1() {
+  renderWizardStep(2);
 }
 
 function wizardStep2() {
@@ -3755,75 +3782,144 @@ function wizardStep2() {
   `;
 }
 
-const PRESET_PREVIEW = {
-  restaurante: [
-    {code:'1101',name:'Bancos'},{code:'1103',name:'Inventario Comida'},{code:'1501',name:'Equipos de Cocina'},
-    {code:'2101',name:'Proveedores'},{code:'3101',name:'Capital Social'},
-    {code:'4101',name:'Ventas de Comida'},{code:'5101',name:'CMV'},{code:'6101',name:'Alquiler'},
-    {code:'6104',name:'Sueldos y Salarios'},'...y más',
-  ],
-  tienda: [
-    {code:'1101',name:'Bancos'},{code:'1102',name:'Caja'},{code:'1201',name:'Inventario'},
-    {code:'2101',name:'Proveedores'},{code:'3101',name:'Capital Social'},
-    {code:'4101',name:'Ventas'},{code:'5101',name:'Costo de Ventas'},{code:'6101',name:'Alquiler'},'...y más',
-  ],
-  servicios: [
-    {code:'1101',name:'Bancos'},{code:'1102',name:'Cuentas por Cobrar'},{code:'1501',name:'Equipos de Oficina'},
-    {code:'2101',name:'Cuentas por Pagar'},{code:'3101',name:'Capital Social'},
-    {code:'4101',name:'Ingresos por Servicios'},{code:'6101',name:'Alquiler'},{code:'6102',name:'Sueldos'},'...y más',
-  ],
-  general: [
-    {code:'1101',name:'Bancos'},{code:'1201',name:'Inventario'},{code:'1501',name:'Activos Fijos'},
-    {code:'2101',name:'Proveedores'},{code:'3101',name:'Capital'},{code:'4101',name:'Ventas'},
-    {code:'5101',name:'Costo de Ventas'},{code:'6101',name:'Gastos Generales'},'...y más',
-  ],
-};
+function renderWizardStep(step) {
+  _wizardStep = step;
+  const steps = [
+    { title: '🎯 Objetivo', icon: '🎯' },
+    { title: '📋 Plan de Cuentas', icon: '📋' },
+    { title: '👥 Clientes y Proveedores', icon: '👥' },
+    { title: '📦 Productos', icon: '📦' },
+    { title: '🧾 Facturas', icon: '🧾' },
+  ];
+  const progress = ((step - 1) / steps.length) * 100;
 
-async function wizardSubmit() {
-  const btn = el('wizardContent').querySelector('button');
-  btn.textContent='⏳ Creando...'; btn.disabled=true;
-  try {
-    const res = await apiFetch('/api/setup/wizard', {
-      method:'POST',
-      body: JSON.stringify({ businessType: _wizardSelected })
-    });
-    el('wizardContent').innerHTML=`
-      <div style="text-align:center;padding:20px 0">
-        <div style="font-size:48px;margin-bottom:12px">🎉</div>
-        <div style="font-family:var(--font-head);font-size:20px;font-weight:800;margin-bottom:8px">¡Listo!</div>
-        <div style="font-size:var(--fs-sm);color:var(--text-muted)">Se crearon <strong>${res.count}</strong> cuentas para <strong>${res.label}</strong></div>
-        <div style="margin-top:20px;font-size:var(--fs-xs);color:var(--text-muted)">Redirigiendo...</div>
-      </div>
-    `;
-    setTimeout(()=>{ closeWizard(); showPage('diario'); loadPlanCuentas(); }, 1500);
-  } catch(e) {
-    el('wizardContent').innerHTML=`
-      <div style="text-align:center;padding:20px 0">
-        <div style="font-size:36px;margin-bottom:8px">⚠️</div>
-        <div style="color:var(--accent2);font-weight:700;margin-bottom:4px">Error</div>
-        <div style="font-size:var(--fs-sm);color:var(--text-muted)">${e.message}</div>
-        <button class="btn btn-primary" style="margin-top:16px" onclick="wizardStep2()">← Volver</button>
-      </div>
-    `;
+  let body = '';
+  if (step === 1) {
+    body = `
+      <div style="text-align:left;max-width:420px;margin:0 auto">
+        <h2 style="font-family:var(--font-head);font-size:20px;font-weight:800;margin-bottom:16px;text-align:center">🚀 Guía de Inicio Rápido</h2>
+        <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:16px;margin-bottom:16px;border-left:3px solid var(--orange)">
+          <div style="font-weight:700;margin-bottom:8px;color:var(--orange)">¿Cómo funciona la app?</div>
+          <div style="font-size:var(--fs-sm);color:var(--text-secondary);line-height:1.8">
+            <b>1.</b> Creas tu <b>Plan de Cuentas</b> (categorías contables)<br>
+            <b>2.</b> Registras <b>Clientes</b> y <b>Proveedores</b><br>
+            <b>3.</b> Añades tus <b>Productos</b> al inventario<br>
+            <b>4.</b> Emites <b>Facturas</b> — se crea automáticamente:
+            <div style="margin-top:8px;padding:8px;background:var(--surface3);border-radius:6px;font-size:var(--fs-xs);line-height:1.8">
+              ✅ <b>CxC</b> si es a crédito<br>
+              ✅ <b>Asiento contable</b> (partida doble)<br>
+              ✅ <b>Ingreso</b> cuando te pagan
+            </div>
+          </div>
+        </div>
+        <div style="background:#00e5a010;border-radius:var(--radius-xs);padding:14px;border-left:3px solid #00e5a0">
+          <div style="font-weight:700;margin-bottom:6px;color:#00e5a0">💡 Consejo</div>
+          <div style="font-size:var(--fs-xs);color:var(--text-secondary)">Todo está interconectado. Cuando emites una factura, los ingresos, CxC y asientos se crean solos.</div>
+        </div>
+      </div>`;
+  } else if (step === 2) {
+    body = `
+      <div style="text-align:left;max-width:420px;margin:0 auto">
+        <h2 style="font-family:var(--font-head);font-size:20px;font-weight:800;margin-bottom:4px;text-align:center">📋 Plan de Cuentas</h2>
+        <p style="font-size:var(--fs-xs);color:var(--text-muted);text-align:center;margin-bottom:16px">Abre <b>Plan de Cuentas</b> en el menú lateral</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          ${Object.entries(WIZARD_STEPS).map(([k,v])=>`
+            <div class="wizard-card" id="wiz-${k}" onclick="wizardSelect('${k}')" style="background:var(--surface2);border:2px solid var(--border);border-radius:var(--radius-xs);padding:14px;cursor:pointer;text-align:center">
+              <div style="font-size:28px;margin-bottom:6px">${v.icon}</div>
+              <div style="font-weight:700;font-size:var(--fs-xs)">${v.label}</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${v.desc}</div>
+            </div>`).join('')}
+        </div>
+        <div id="wiz-selected-name" style="display:none;margin-bottom:12px;background:var(--surface3);border-radius:var(--radius-xs);padding:10px;text-align:center;font-size:var(--fs-sm)"></div>
+        <button id="wiz-next-btn" class="btn btn-primary btn-full" style="margin-bottom:8px" disabled onclick="wizardSubmitStep2()">Siguiente →</button>
+        <style>.wizard-card:hover { border-color:var(--orange) !important; transform:scale(1.02); }
+               .wizard-card.selected { border-color:var(--orange) !important; background:var(--orange-dim) !important; }</style>
+      </div>`;
+  } else if (step === 3) {
+    body = `
+      <div style="text-align:left;max-width:420px;margin:0 auto">
+        <h2 style="font-family:var(--font-head);font-size:20px;font-weight:800;margin-bottom:4px;text-align:center">👥 Clientes y Proveedores</h2>
+        <p style="font-size:var(--fs-xs);color:var(--text-muted);text-align:center;margin-bottom:16px">Abre desde el menú</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          <div style="background:#00e5a010;border-radius:var(--radius-xs);padding:16px;text-align:center;border:1px solid #00e5a030">
+            <div style="font-size:28px;margin-bottom:8px">👤</div>
+            <div style="font-weight:700;font-size:var(--fs-sm);margin-bottom:4px">Clientes</div>
+            <div style="font-size:var(--fs-xs);color:var(--text-muted)">Te compran a crédito</div>
+            <div style="font-size:var(--fs-2xs);color:#00e5a0;margin-top:6px">→ Crean CxC</div>
+          </div>
+          <div style="background:#ff8c0010;border-radius:var(--radius-xs);padding:16px;text-align:center;border:1px solid #ff8c0030">
+            <div style="font-size:28px;margin-bottom:8px">🏪</div>
+            <div style="font-weight:700;font-size:var(--fs-sm);margin-bottom:4px">Proveedores</div>
+            <div style="font-size:var(--fs-xs);color:var(--text-muted)">Les compras a crédito</div>
+            <div style="font-size:var(--fs-2xs);color:#ff8c00;margin-top:6px">→ Crean CxP</div>
+          </div>
+        </div>
+        <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;border-left:3px solid var(--orange)">
+          <div style="font-size:var(--fs-xs)"><b>📌 Tip:</b> Al crear un asiento con cuenta Clientes o Proveedores + auxiliar, la CxC o CxP se crea sola.</div>
+        </div>
+      </div>`;
+  } else if (step === 4) {
+    body = `
+      <div style="text-align:left;max-width:420px;margin:0 auto">
+        <h2 style="font-family:var(--font-head);font-size:20px;font-weight:800;margin-bottom:4px;text-align:center">📦 Productos</h2>
+        <p style="font-size:var(--fs-xs);color:var(--text-muted);text-align:center;margin-bottom:16px">Abre <b>Productos</b> desde el menú</p>
+        <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:16px;margin-bottom:16px">
+          <div style="font-weight:700;margin-bottom:10px">Campos importantes:</div>
+          <div style="font-size:var(--fs-xs);display:grid;gap:8px">
+            <div style="display:flex;justify-content:space-between"><span>Nombre</span><span style="color:var(--text-muted)">Ej: Chicharrón 100g</span></div>
+            <div style="display:flex;justify-content:space-between"><span>Código</span><span style="color:var(--text-muted)">Ej: CHI001</span></div>
+            <div style="display:flex;justify-content:space-between"><span>Precio Venta</span><span style="color:var(--text-muted)">RD$ 350.00</span></div>
+            <div style="display:flex;justify-content:space-between"><span>Stock Mínimo</span><span style="color:var(--text-muted)">Para alertas</span></div>
+          </div>
+        </div>
+        <div style="background:#00e5a010;border-radius:var(--radius-xs);padding:12px;border-left:3px solid #00e5a0">
+          <div style="font-size:var(--fs-xs)">💡 Los productos van directo a las facturas. Registra Entradas y Salidas de inventario desde el módulo.</div>
+        </div>
+      </div>`;
+  } else if (step === 5) {
+    body = `
+      <div style="text-align:left;max-width:420px;margin:0 auto">
+        <h2 style="font-family:var(--font-head);font-size:20px;font-weight:800;margin-bottom:4px;text-align:center">🧾 Tu Primera Factura</h2>
+        <p style="font-size:var(--fs-xs);color:var(--text-muted);text-align:center;margin-bottom:16px">Ve a <b>Facturas → Nueva Factura</b></p>
+        <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:14px;margin-bottom:12px">
+          <div style="font-weight:700;margin-bottom:10px">Flujo:</div>
+          <div style="font-size:var(--fs-xs);line-height:2">
+            <b>1.</b> Selecciona cliente o "Sin cliente"<br>
+            <b>2.</b> Agrega líneas de productos<br>
+            <b>3.</b> Elige <b>Método de Pago</b>:<br>
+            <div style="margin-left:16px;margin-top:4px;margin-bottom:8px">
+              • <b>Efectivo</b> → Ingreso a Caja<br>
+              • <b>Transferencia</b> → Ingreso a Banco<br>
+              • <b>Tarjeta</b> → Ingreso a Banco<br>
+              • <b>Crédito</b> → Se crea CxC pendiente
+            </div>
+            <b>4.</b> Guarda como <b>Borrador</b> o <b>Emite</b><br>
+            <b>5.</b> Al cobrar CxC → se registra el Ingreso
+          </div>
+        </div>
+        <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;border-left:3px solid var(--orange);margin-bottom:12px">
+          <div style="font-size:var(--fs-xs)"><b>📌 NCF:</b> Opcional. Solo obligatorio para facturas formales con NCF de DGII.</div>
+        </div>
+        <div style="background:#00e5a010;border-radius:var(--radius-xs);padding:12px;border-left:3px solid #00e5a0">
+          <div style="font-size:var(--fs-xs)">✅ <b>Anular:</b> Cualquier factura puede anularse. Se revierten todos los movimientos automáticamente.</div>
+        </div>
+      </div>`;
   }
+
+  el('wizardContent').innerHTML = `
+    <div class="modal-box" style="margin:20px auto;max-width:480px">
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <button onclick="closeWizard()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:4px">✕</button>
+          <span style="font-size:var(--fs-2xs);color:var(--text-muted)">Paso ${step} de ${steps.length}</span>
+        </div>
+        <div style="height:3px;background:var(--border);border-radius:2px"><div style="height:3px;background:var(--orange);border-radius:2px;width:${progress}%"></div></div>
+      </div>
+      ${body}
+      <div style="display:flex;gap:8px;margin-top:16px">
+        ${step > 1 ? `<button class="btn btn-secondary" style="flex:1" onclick="renderWizardStep(${step-1})">← Atrás</button>` : ''}
+        ${step < steps.length ? `<button class="btn btn-primary" style="flex:1" onclick="renderWizardStep(${step+1})">${step===1?'Comenzar':'Siguiente'} →</button>` : `<button class="btn btn-primary btn-full" onclick="closeWizard()">¡Entendido! 🚀</button>`}
+      </div>
+    </div>`;
 }
 
-function closeWizard() { el('wizardModal').style.display='none'; _wizardSelected=null; }
-
-async function checkWizard() {
-  try {
-    const res = await apiFetch('/api/setup/status');
-    if (!res.hasAccounts) openWizard();
-  } catch(e) { /* silently ignore */ }
-}
-
-// ─── INIT ─────────────────────────────────────────────────────────────────────
-(async function init() {
-  loadSession();
-  if (currentUser) {
-    await showApp();
-  }
-})();
-</script>
-</body>
-</html>
