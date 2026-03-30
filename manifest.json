@@ -4,7 +4,7 @@
   "description": "Sistema de contabilidad para negocios dominicanos",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#FF8C00",
+  "background_color": "#1A1A1B",
   "theme_color": "#FF8C00",
   "orientation": "portrait-primary",
   "scope": "/",
