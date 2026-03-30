@@ -1988,7 +1988,7 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
       }
     }
 
-    // When invoice is PAID: update CxC to paid + create income record
+    // When invoice is PAID: update CxC to paid + create journal entry + income record
     if (status === 'paid') {
       await query(
         `UPDATE receivables SET status='paid', paid_amount=total_amount
@@ -2000,8 +2000,51 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
         [req.params.id, req.userId]
       );
 
-      // Auto-create income record on payment
+      // Generate journal entry: Debit Caja/Banco, Credit Clientes (CxC)
+      const total = parseFloat(inv.total || 0);
       const pmeth = inv.payment_method || 'credit';
+      const cajaAcct  = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.1.01' LIMIT 1`, [req.userId]);
+      const bancoAcct = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.1.02' LIMIT 1`, [req.userId]);
+      const clientAcct = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1201' LIMIT 1`, [req.userId]);
+      // Pick cash account based on payment method
+      const cashAcct = (pmeth === 'bank' || pmeth === 'card')
+        ? (bancoAcct.rows[0]?.id || cajaAcct.rows[0]?.id)
+        : (cajaAcct.rows[0]?.id || bancoAcct.rows[0]?.id);
+      if (cashAcct && clientAcct.rows[0]) {
+        const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        await query(
+          `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
+           VALUES($1,$2,$3,$4,'invoice',$5)`,
+          [jeId, req.userId, new Date().toISOString().split('T')[0],
+           `Cobro Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
+           inv.id]
+        );
+        const debitLine  = `jl_${Date.now()}_d_${Math.random().toString(36).substr(2,4)}`;
+        const creditLine = `jl_${Date.now()}_c_${Math.random().toString(36).substr(2,4)}`;
+        await query(
+          `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit)
+           VALUES($1,$2,$3,$4,0)`,
+          [debitLine, jeId, cashAcct, total]
+        );
+        await query(
+          `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit)
+           VALUES($1,$2,$3,0,$4)`,
+          [creditLine, jeId, clientAcct.rows[0].id, total]
+        );
+        // Update account balances
+        await query(
+          `INSERT INTO account_balances(account_id,balance) VALUES($1,$2)
+           ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
+          [cashAcct, total]
+        );
+        await query(
+          `INSERT INTO account_balances(account_id,balance) VALUES($1,$2)
+           ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance-$2`,
+          [clientAcct.rows[0].id, total]
+        );
+      }
+
+      // Auto-create income record on payment
       const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
       const pmLabel = pmLabels[pmeth] || '📋 Crédito/CxC';
       let incTypeId = null;

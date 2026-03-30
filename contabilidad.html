@@ -1279,6 +1279,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     <div id="payModalInfo" style="font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:14px;text-align:center"></div>
     <div id="payModalError" style="display:none;background:var(--accent2-dim);border:1px solid #ff4d6d40;border-radius:var(--radius-xs);padding:8px;color:var(--accent2);font-size:var(--fs-sm);font-weight:600;margin-bottom:12px"></div>
     <div class="form-group" style="margin-bottom:14px"><label class="form-label">Monto a registrar (RD$)</label><input class="form-input" id="payAmount" type="number" inputmode="decimal" placeholder="0.00"></div>
+    <div class="form-group" style="margin-bottom:14px"><label class="form-label">Fecha del pago</label><input class="form-input" id="payDate" type="date"></div>
     <button class="btn btn-primary btn-full" onclick="submitPay()">Confirmar Pago</button>
   </div>
 </div>
@@ -2128,18 +2129,20 @@ function renderCxp() {
 function openPayModal(type, id, max) {
   _payType=type; _payId=id; _payMax=max;
   el('payAmount').value=''; el('payAmount').max=max;
+  el('payDate').value=new Date().toISOString().split('T')[0];
   el('payModalInfo').textContent='Máximo: RD$ '+fmt(max);
   el('payModalError').style.display='none';
   openModal('payModal');
 }
 async function submitPay() {
   const amount=parseFloat(el('payAmount').value);
+  const payment_date=el('payDate').value||new Date().toISOString().split('T')[0];
   const errEl=el('payModalError');
   if (!amount||amount<=0) { errEl.textContent='Ingresa un monto válido'; errEl.style.display='block'; return; }
   if (amount>_payMax) { errEl.textContent='El monto excede lo pendiente'; errEl.style.display='block'; return; }
   try {
     const endpoint = _payType==='cxc' ? `/api/receivables/${_payId}/payments` : `/api/payables/${_payId}/payments`;
-    await apiFetch(endpoint,{method:'POST',body:JSON.stringify({amount})});
+    await apiFetch(endpoint,{method:'POST',body:JSON.stringify({amount, payment_date})});
     toast('✅ Pago registrado'); closeModal('payModal');
     receivables=await apiFetch('/api/receivables'); payables=await apiFetch('/api/payables');
     renderCxc(); renderCxp(); renderDashboard();
@@ -3117,7 +3120,7 @@ async function loadInvoices() {
             <div style="font-family:monospace;font-weight:700;font-size:var(--fs-base)">${inv.invoice_number}</div>
             ${inv.ncf?`<div style="font-size:var(--fs-2xs);color:var(--text-muted)">NCF: ${inv.ncf}</div>`:''}
             <div style="font-size:var(--fs-xs);color:var(--text-secondary);margin-top:2px">${inv.client_name||'Sin cliente'}</div>
-            <div style="font-size:var(--fs-2xs);color:var(--text-muted)">${inv.issue_date} ${inv.due_date?'· Vence: '+inv.due_date:''}</div>
+            <div style="font-size:var(--fs-2xs);color:var(--text-muted)">${inv.date||inv.issue_date||''} ${inv.due_date?'· Vence: '+inv.due_date:''}</div>
           </div>
           <div style="text-align:right">
             <span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:50px;background:${statusColor}20;color:${statusColor}">${INV_STATUS_LABEL[inv.status]||inv.status}</span>
@@ -3155,7 +3158,7 @@ async function showInvoiceDetail(id) {
         </div>
         <div style="text-align:right">
           <span style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:50px;background:${statusColor}20;color:${statusColor}">${INV_STATUS_LABEL[inv.status]||inv.status}</span>
-          <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:4px">Fecha: ${inv.issue_date}</div>
+          <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:4px">Fecha: ${inv.date||inv.issue_date||'N/A'}</div>
           ${inv.due_date?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">Vence: ${inv.due_date}</div>`:''}
         </div>
       </div>
@@ -3250,7 +3253,7 @@ async function printInvoice(id) {
       </div>
       <div class="info-grid">
         <div class="info-block"><label>Cliente</label><span>${inv.client_name||'Consumidor Final'}</span>${inv.client_rnc?`<br><label>RNC/Cédula</label><span>${inv.client_rnc}</span>`:''}</div>
-        <div class="info-block"><label>Fecha Emisión</label><span>${inv.issue_date}</span>${inv.due_date?`<br><label>Fecha Vencimiento</label><span>${inv.due_date}</span>`:''}</div>
+        <div class="info-block"><label>Fecha Emisión</label><span>${inv.date||inv.issue_date||'N/A'}</span>${inv.due_date?`<br><label>Fecha Vencimiento</label><span>${inv.due_date}</span>`:''}</div>
       </div>
       <table><thead><tr><th>Descripción</th><th style="text-align:right">Cant.</th><th style="text-align:right">Precio</th><th style="text-align:right">Desc.</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${lineRows}</tbody></table>
       <div class="totals">
