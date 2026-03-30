@@ -1868,8 +1868,9 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
       // Find or create a matching income type based on payment method
       const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
       const pmLabel = pmLabels[pmeth] || '💰 Venta';
+      const pmIcon = pmeth==='cash'?'💵':pmeth==='bank'?'🏦':pmeth==='card'?'💳':'📋';
       let incTypeId = null;
-      const itR = await client.query(`SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`, [req.userId, pmLabel]);
+      const itR = await client.query(`SELECT id FROM income_types WHERE user_id=$1 AND (name=$2 OR icon=$3) LIMIT 1`, [req.userId, pmLabel, pmIcon]);
       if (itR.rows[0]) {
         incTypeId = itR.rows[0].id;
       } else {
@@ -2070,8 +2071,9 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
       // Auto-create income record on payment
       const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
       const pmLabel = pmLabels[pmeth] || '📋 Crédito/CxC';
+      const pmIcon = pmeth==='cash'?'💵':pmeth==='bank'?'🏦':pmeth==='card'?'💳':'📋';
       let incTypeId = null;
-      const itR = await query(`SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`, [req.userId, pmLabel]);
+      const itR = await query(`SELECT id FROM income_types WHERE user_id=$1 AND (name=$2 OR icon=$3) LIMIT 1`, [req.userId, pmLabel, pmIcon]);
       if (itR.rows[0]) {
         incTypeId = itR.rows[0].id;
       } else {
