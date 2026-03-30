@@ -201,6 +201,9 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   /* Hide some header items on small screens */
   .hdr-btn span { display:none; }
   .user-badge span { max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .header-actions { overflow-x:auto; max-width:100%; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  .header-actions::-webkit-scrollbar { display:none; }
+  .personal-link { display:none; }
   /* Page header stacks on mobile */
   .page-header { flex-direction:column; align-items:flex-start; }
   .page-header .btn { width:100%; justify-content:center; }
@@ -304,7 +307,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   <div class="header-mid"></div>
   <div class="header-actions">
     <div class="user-badge"><div class="dot"></div><span id="userLabel" style="font-size:var(--fs-xs);font-weight:600">—</span></div>
-    <a href="index.html" class="hdr-btn" title="Ir a Finanzas Personales">
+    <a href="index.html" class="hdr-btn personal-link" title="Ir a Finanzas Personales">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       Personal
     </a>
