@@ -3745,6 +3745,22 @@ function closeWizard() {
   _wizardStep = 1;
 }
 
+async function wizardSubmit() {
+  if (!_wizardSelected) return;
+  const btn = el('wiz-submit-btn');
+  if (btn) { btn.disabled=true; btn.textContent='⏳ Creando...'; }
+  try {
+    await apiFetch('/api/setup/wizard',{method:'POST',body:JSON.stringify({businessType:_wizardSelected})});
+    accounts = await apiFetch('/api/accounts');
+    toast('✅ Plan de cuentas creado');
+    closeWizard();
+    renderPlan();
+  } catch(e) {
+    toast('Error: '+e.message,'error');
+    if (btn) { btn.disabled=false; btn.textContent='✅ Añadir Cuentas'; }
+  }
+}
+
 function wizardSelect(key) {
   _wizardSelected = key;
   document.querySelectorAll('.wizard-card').forEach(c=>c.classList.remove('selected'));
@@ -3777,7 +3793,7 @@ function wizardStep2() {
       <div style="font-size:var(--fs-xs);font-weight:700;color:var(--orange);margin-bottom:8px">📋 PLAN DE CUENTAS — ${v.label}</div>
       ${preview.map(a=>`<div style="font-size:var(--fs-xs);padding:3px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span>${a.name}</span><span style="color:var(--text-muted)">${a.code}</span></div>`).join('')}
     </div>
-    <button class="btn btn-primary btn-full" style="margin-bottom:8px" onclick="wizardSubmit()">✅ Añadir Cuentas</button>
+    <button class="btn btn-primary btn-full" style="margin-bottom:8px" id="wiz-submit-btn" onclick="wizardSubmit()">✅ Añadir Cuentas</button>
     <button class="btn btn-ghost btn-full" style="font-size:var(--fs-xs)" onclick="wizardStep1()">← Volver</button>
   `;
 }
