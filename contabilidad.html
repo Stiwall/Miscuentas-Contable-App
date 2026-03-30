@@ -413,6 +413,10 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>
       Reportes
     </div>
+    <div class="nav-item" id="nav-conciliacion" onclick="showPage('conciliacion',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      📋 Conciliación
+    </div>
   </div>
   <div class="sidebar-section" id="adminNav" style="display:none">
     <div class="sidebar-label">Administración</div>
@@ -899,6 +903,12 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     <div class="modal-title"><span id="invDetailTitle">Factura</span> <button class="modal-close" onclick="closeModal('invoiceDetailModal')">✕</button></div>
     <div id="invoiceDetailContent"></div>
     <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap" id="invoiceDetailActions"></div>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+      <div style="font-size:var(--fs-xs);font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px">📒 Asientos Contables</div>
+      <div id="invoiceJournalEntries">
+        <div class="empty" style="padding:16px 0"><div class="empty-icon">⏳</div><div class="empty-title">Cargando asientos...</div></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1279,6 +1289,38 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   </div>
 </div>
 
+<!-- CONCILIACIÓN BANCARIA -->
+<div id="page-conciliacion" class="page">
+  <div class="page-header">
+    <div><div class="page-title">📋 Conciliación Bancaria</div><div class="page-subtitle">Marcar asientos como conciliados</div></div>
+  </div>
+  <div class="card" style="margin-bottom:var(--space-md)">
+    <div class="card-header"><span class="card-title">Filtros</span></div>
+    <div style="padding:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div class="form-group" style="margin:0;flex:1;min-width:120px">
+        <label class="form-label">Desde</label>
+        <input class="form-input" id="conc-from" type="date" onchange="loadConciliacion()">
+      </div>
+      <div class="form-group" style="margin:0;flex:1;min-width:120px">
+        <label class="form-label">Hasta</label>
+        <input class="form-input" id="conc-to" type="date" onchange="loadConciliacion()">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Solo sin conciliar</label>
+        <input type="checkbox" id="conc-unconciled" onchange="loadConciliacion()" style="width:18px;height:18px;accent-color:var(--orange)">
+      </div>
+      <button class="btn btn-primary" onclick="loadConciliacion()">🔍 Filtrar</button>
+    </div>
+  </div>
+  <div id="concBalanceAlert"></div>
+  <div class="card">
+    <div class="card-header"><span class="card-title">Asientos Contables</span><span id="concCount" style="font-size:var(--fs-2xs);color:var(--text-muted)"></span></div>
+    <div class="card-body" id="conciliacionList">
+      <div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin asientos</div><div class="empty-sub">Aplica un filtro de fechas</div></div>
+    </div>
+  </div>
+</div>
+
 <!-- ADMIN PAGE -->
   <div id="page-admin" class="page" style="position:fixed;top:var(--header-h);left:0;right:0;bottom:0;z-index:90;overflow-y:auto;padding:var(--space-md) var(--pad-x) 80px;background:var(--bg)">
     <div class="page-header">
@@ -1289,6 +1331,14 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
       <div id="adminLoading" style="text-align:center;padding:40px;color:var(--text-muted)">⏳ Cargando...</div>
     </div>
   </div>
+
+<!-- MODAL: VER ASIENTO CONTABLE -->
+<div class="modal-backdrop" id="jeViewModal">
+  <div class="modal-box" style="max-width:580px">
+    <div class="modal-title"><span id="jeViewTitle">Asiento Contable</span> <button class="modal-close" onclick="closeModal('jeViewModal')">✕</button></div>
+    <div id="jeViewContent"></div>
+  </div>
+</div>
 
 <!-- MODAL: REGISTRAR PAGO -->
 <div class="modal-backdrop" id="payModal">
@@ -1465,8 +1515,73 @@ let _currentPage = 'dashboard';
 function fabAction() { const fn = FAB_ACTIONS[_currentPage]; if(fn) fn(); }
 
 // ─── NAV ──────────────────────────────────────────────────────────────────────
+
+async function loadConciliacion() {
+  const from = el('conc-from').value;
+  const to = el('conc-to').value;
+  const onlyUnconciled = el('conc-unconciled').checked;
+  const container = el('conciliacionList');
+  container.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Cargando...</div></div>';
+  el('concBalanceAlert').innerHTML = '';
+  try {
+    let url = '/api/journal?limit=200';
+    if (from) url += '&from=' + from;
+    if (to) url += '&to=' + to;
+    const entries = await apiFetch(url);
+    let filtered = entries.filter(e => {
+      if (onlyUnconciled && e.reconciled) return false;
+      return true;
+    });
+    if (!filtered.length) {
+      container.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin asientos</div><div class="empty-sub">No hay asientos en el periodo</div></div>';
+      return;
+    }
+    let totalDebit = 0, totalCredit = 0;
+    el('concCount').textContent = filtered.length + ' asientos';
+    container.innerHTML = filtered.map(e => {
+      totalDebit += Number(e.debit||0);
+      totalCredit += Number(e.credit||0);
+      return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:12px;margin-bottom:6px;display:flex;align-items:center;gap:10px'+(e.reconciled?';opacity:0.6':'')+'">'+
+        '<input type="checkbox" class="conc-check" data-id="'+e.id+'" '+(e.reconciled?'checked ':'')+'onchange="toggleConciliacion(\''+e.id+'\',this.checked)" style="width:18px;height:18px;flex-shrink:0">'+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-weight:700;font-size:var(--fs-xs)">'+e.description+'</div>'+
+          '<div style="font-size:var(--fs-2xs);color:var(--text-muted)">'+(e.date||'')+'</div>'+
+        '</div>'+
+        '<div style="text-align:right;flex-shrink:0">'+
+          '<div style="color:var(--accent2);font-family:monospace;font-size:var(--fs-xs)">RD$ '+fmt(e.debit||0)+'</div>'+
+          '<div style="color:var(--accent);font-family:monospace;font-size:var(--fs-xs)">RD$ '+fmt(e.credit||0)+'</div>'+
+        '</div>'+
+        '<div style="flex-shrink:0">'+(e.reconciled?'<span style="color:var(--accent);font-size:var(--fs-2xs)">✅</span>':'<span style="color:var(--text-muted);font-size:var(--fs-2xs)">⏳</span>')+'</div>'+
+      '</div>';
+    }).join('');
+    const diff = Math.abs(totalDebit - totalCredit);
+    if (diff > 0.01) {
+      el('concBalanceAlert').innerHTML = '<div style="background:#ff444420;border:1px solid #ff4444;border-radius:8px;padding:10px 14px;font-size:var(--fs-xs);color:#ff4444;margin-bottom:12px">⚠️ Diferencia: RD$ '+fmt(diff)+'</div>';
+    }
+  } catch(e) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">'+e.message+'</div></div>';
+  }
+}
+
+async function toggleConciliacion(id, checked) {
+  try {
+    await apiFetch('/api/journal/'+id, {method:'PUT', body: JSON.stringify({reconciled: checked})});
+    loadConciliacion();
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
 function showPage(id, btn) {
   _currentPage = id;
+  if (id === 'conciliacion') {
+    if (!el('conc-from').value) {
+      const now = new Date();
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      el('conc-from').value = firstDay;
+      el('conc-to').value = now.toISOString().split('T')[0];
+    }
+    loadConciliacion();
+  }
+
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
   const pageEl = el('page-'+id);
@@ -1493,6 +1608,7 @@ function showPage(id, btn) {
   if (id==='facturas')        loadInvoices();
   if (id==='nueva-factura')   initNewInvoice();
   if (id==='reportes')        { const now=new Date(); el('rep-month').value=now.getMonth()+1; }
+  if (id==='conciliacion')    loadConciliacion();
   if (id==='admin')           renderAdmin();
 }
 
@@ -1896,6 +2012,10 @@ async function renderMovimientosInv() {
       const qty     = isEntry?'+'+m.quantity:'-'+m.quantity;
       const color   = MOV_TYPE_COLORS[m.type]||'var(--text-muted)';
       const total   = isEntry ? m.quantity*m.unit_cost : m.quantity*m.unit_price;
+      // Journal entry link if exists
+      const jeLink = m.je_id || m.journal_entry_id
+        ? `<button class="btn btn-sm btn-secondary" onclick="viewMovementJournalEntry('${m.je_id||m.journal_entry_id}')" style="margin-top:6px;font-size:10px;padding:3px 8px">📒 Asiento #${m.je_id||m.journal_entry_id}</button>`
+        : '';
       return `<div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--radius-xs);padding:12px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
           <div style="flex:1;min-width:0">
@@ -1911,9 +2031,43 @@ async function renderMovimientosInv() {
           ${isEntry?`<span>Costo unit: <strong>RD$ ${fmt(m.unit_cost)}</strong></span>`:`<span>Precio unit: <strong>RD$ ${fmt(m.unit_price)}</strong></span>`}
           <span>Total: <strong style="color:${color}">RD$ ${fmt(total)}</strong></span>
         </div>
+        ${jeLink}
       </div>`;
     }).join('')+'</div>';
   } catch(e) { container.innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">'+e.message+'</div></div>'; }
+}
+
+// View journal entry from inventory movement
+async function viewMovementJournalEntry(jeId) {
+  el('jeViewTitle').textContent = `Asiento #${jeId}`;
+  el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⏳</div><div class="empty-title">Cargando...</div></div>';
+  openModal('jeViewModal');
+  apiFetch('/api/journal/' + jeId).then(entry => {
+    if (!entry) throw new Error('No encontrado');
+    const lines = entry.lines || [];
+    let debits = 0, credits = 0;
+    el('jeViewContent').innerHTML = `<div style="overflow-x:auto">
+      <table class="data-table"><thead><tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead><tbody>
+        ${lines.map(l => {
+          debits += Number(l.debit||0);
+          credits += Number(l.credit||0);
+          return `<tr>
+            <td class="num" style="font-weight:700">${entry.je_number||entry.id}</td>
+            <td style="font-size:var(--fs-2xs)">${entry.date||'—'}</td>
+            <td style="font-size:var(--fs-xs)">${entry.description||'—'}</td>
+            <td>${l.account_name||'—'}</td>
+            <td class="num" style="color:var(--accent2)">RD$ ${fmt(l.debit||0)}</td>
+            <td class="num" style="color:var(--accent)">RD$ ${fmt(l.credit||0)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody></table></div>
+      <div class="balance-indicator ${Math.abs(debits-credits)<0.01?'ok':'mismatch'}" style="margin-top:8px">
+        Débito: RD$ ${fmt(debits)} | Crédito: RD$ ${fmt(credits)}
+        ${Math.abs(debits-credits)<0.01?' ✅':' ⚠️ Desc'}
+      </div>`;
+  }).catch(() => {
+    el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⚠️</div><div class="empty-title">Asiento no encontrado</div></div>';
+  });
 }
 
 async function renderStock() {
@@ -2113,10 +2267,42 @@ function renderCxc() {
       <div style="font-size:var(--fs-2xs);color:var(--text-muted);margin-bottom:8px">📅 ${due}</div>
       <div style="display:flex;gap:6px">
         ${pendFinal>0?`<button class="btn btn-sm btn-secondary" onclick="openPayModal('cxc','${r.id}',${pendFinal})" style="flex:1;justify-content:center">💰 Registrar Pago</button>`:''}
+        <button class="btn btn-sm btn-secondary" onclick="showCxcJournalEntry('${r.id}')" style="padding:5px 8px;font-size:11px">📒 Asiento</button>
         <button onclick="deleteCxc('${r.id}')" style="background:var(--accent2-dim);border:1px solid var(--accent2)50;border-radius:6px;padding:5px 10px;color:var(--accent2);font-size:12px;cursor:pointer">🗑️</button>
       </div>
     </div>`;
   }).join('')+'</div>';
+}
+
+// Modal for viewing CXC journal entry
+function showCxcJournalEntry(receivableId) {
+  const rec = receivables.find(r => r.id === receivableId);
+  if (!rec) return;
+  el('jeViewTitle').textContent = `Asiento — CxC ${rec.description || ''}`;
+  el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⏳</div><div class="empty-title">Buscando asiento...</div></div>';
+  openModal('jeViewModal');
+  // Find journal entries by invoice_number or ref_type/ref_id
+  apiFetch('/api/journal?ref_type=receivable&ref_id=' + receivableId).then(entries => {
+    if (!entries || !entries.length) {
+      el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">📋</div><div class="empty-title">Sin asiento contable</div><div class="empty-sub">Esta CxC aún no tiene asiento generado</div></div>';
+      return;
+    }
+    let debits = 0, credits = 0;
+    el('jeViewContent').innerHTML = `<div style="overflow-x:auto">
+      <table class="data-table"><thead><tr><th>#</th><th>Fecha</th><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead><tbody>
+        ${entries.map(e => {
+          debits += Number(e.debit||0);
+          credits += Number(e.credit||0);
+          return `<tr><td class="num" style="font-weight:700">${e.je_number||e.id}</td><td style="font-size:var(--fs-2xs)">${e.date||'—'}</td><td>${e.account_name||'—'}</td><td class="num" style="color:var(--accent2)">RD$ ${fmt(e.debit||0)}</td><td class="num" style="color:var(--accent)">RD$ ${fmt(e.credit||0)}</td></tr>`;
+        }).join('')}
+      </tbody></table></div>
+      <div class="balance-indicator ${Math.abs(debits-credits)<0.01?'ok':'mismatch'}" style="margin-top:8px">
+        Débito: RD$ ${fmt(debits)} | Crédito: RD$ ${fmt(credits)}
+        ${Math.abs(debits-credits)<0.01?' ✅':' ⚠️ Desc'}
+      </div>`;
+  }).catch(() => {
+    el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⚠️</div><div class="empty-title">Sin asiento</div><div class="empty-sub">No se encontraron asientos contables para esta CxC</div></div>';
+  });
 }
 
 // ─── CXP ──────────────────────────────────────────────────────────────────────
@@ -3092,7 +3278,8 @@ async function saveInvoice(status='draft') {
   try {
     const r = await apiFetch('/api/invoices',{method:'POST',body:JSON.stringify(body)});
     const label = status==='draft'?'💾 Borrador guardado':'✅ Factura EMITIDA';
-    toast(`${label} — No. ${r.invoice_number||''} — RD$ ${fmt(r.total||total)}`);
+    const cxcNote = status==='issued' && body.payment_method==='credit' ? ' + CxC creada' : (status==='issued' && body.payment_method==='cash' ? ' + Asiento generado' : '');
+    toast(`${label} — No. ${r.invoice_number||''} — RD$ ${fmt(r.total||total)}${cxcNote}`);
     // PDF generation (optional, only on desktop)
     if (status === 'issued' && window.jspdf) {
       try {
@@ -3246,10 +3433,53 @@ async function showInvoiceDetail(id) {
       ${inv.status==='draft'?`<button onclick="changeInvoiceStatus('${inv.id}','issued');closeModal('invoiceDetailModal')" class="btn btn-primary">📤 Emitir</button>`:''}
       ${(inv.status==='issued'||inv.status==='partial')?`<button onclick="changeInvoiceStatus('${inv.id}','paid');closeModal('invoiceDetailModal')" class="btn btn-primary">✅ Marcar pagada</button>`:''}
       ${inv.status==='issued'?`<button onclick="changeInvoiceStatus('${inv.id}','cancelled');closeModal('invoiceDetailModal')" class="btn btn-danger">❌ Cancelar</button>`:''}`;
+
+      // Load journal entries for this invoice
+      loadInvoiceJournalEntries(inv.id);
   } catch(e) { el('invoiceDetailContent').innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">'+e.message+'</div></div>'; }
 }
 
+async function loadInvoiceJournalEntries(invoiceId) {
+  const container = el('invoiceJournalEntries');
+  container.innerHTML = '<div class="empty" style="padding:16px 0"><div class="empty-icon">⏳</div><div class="empty-title">Cargando asientos...</div></div>';
+  try {
+    // TODO: endpoint pendiente — cuando el backend implemente /api/invoices/{id}/journal-entries
+    const entries = await apiFetch(`/api/invoices/${invoiceId}/journal-entries`).catch(() => null);
+    if (!entries || !entries.length) {
+      container.innerHTML = '<div class="empty" style="padding:16px 0"><div class="empty-icon">📋</div><div class="empty-title">Sin asientos contables</div><div class="empty-sub">Esta factura aún no tiene asientos generados</div></div>';
+      return;
+    }
+    let totalDebit = 0, totalCredit = 0;
+    container.innerHTML = `
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead><tr><th># Asiento</th><th>Fecha</th><th>Descripción</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead>
+          <tbody>
+            ${entries.map(e => {
+              totalDebit += Number(e.debit||0);
+              totalCredit += Number(e.credit||0);
+              return `<tr>
+                <td class="num" style="font-weight:700">${e.je_number||e.id||'—'}</td>
+                <td style="font-size:var(--fs-2xs)">${e.date||'—'}</td>
+                <td style="font-size:var(--fs-xs)">${e.description||'—'}</td>
+                <td class="num" style="color:var(--accent2)">RD$ ${fmt(e.debit||0)}</td>
+                <td class="num" style="color:var(--accent)">RD$ ${fmt(e.credit||0)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="balance-indicator ${Math.abs(totalDebit-totalCredit)<0.01?'ok':'mismatch'}" style="margin-top:8px">
+        Totales: Débito RD$ ${fmt(totalDebit)} | Crédito RD$ ${fmt(totalCredit)}
+        ${Math.abs(totalDebit-totalCredit)<0.01?' ✅ Cuadrado':' ⚠️ Desc cuadrado'}
+      </div>`;
+  } catch(e) {
+    container.innerHTML = '<div class="empty" style="padding:16px 0"><div class="empty-icon">⚠️</div><div class="empty-title">Sin asientos</div><div class="empty-sub">No se pudieron cargar los asientos contables</div></div>';
+  }
+}
+
 async function changeInvoiceStatus(id, status) {
+  if (status === 'cancelled' && !confirm('¿Anular factura? Esto revertirá los asientos contables asociados.')) return;
   const labels = {issued:'📤 EMITIENDO...', paid:'✅ Marcando como pagada...', cancelled:'❌ Cancelando...', draft:'💾 Guardando...'};
   toast(labels[status] || 'Actualizando...');
   try {
@@ -3271,6 +3501,13 @@ async function changeInvoiceStatus(id, status) {
 async function deleteInvoice(id) {
   if (!confirm('¿Eliminar esta factura? Se cancelarán los movimientos relacionados.')) return;
   try {
+    // Check if invoice has payments
+    const cxc = await apiFetch('/api/receivables?invoice_id='+id).catch(() => ({rows:[]}));
+    const hasPayments = cxc.rows && cxc.rows.some(r => r.status === 'paid' && parseFloat(r.paid_amount) > 0);
+    if (hasPayments) {
+      toast('No puede eliminarse: la factura tiene pagos registrados. Anule primero.', 'error');
+      return;
+    }
     await apiFetch('/api/invoices/'+id,{method:'DELETE'});
     toast('✅ Factura eliminada');
     invoices = await apiFetch('/api/invoices?limit=20');
