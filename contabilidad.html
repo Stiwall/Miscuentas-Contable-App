@@ -1256,6 +1256,12 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
         <div class="form-group"><label class="form-label">Monto Total (RD$) *</label><input class="form-input" id="cxp-monto" type="number" placeholder="0.00"></div>
         <div class="form-group"><label class="form-label">Fecha de Vencimiento</label><input class="form-input" id="cxp-fecha" type="date"></div>
       </div>
+      <div class="form-group">
+        <label class="form-label">Cuenta de Gasto / Costo</label>
+        <select class="form-input form-select" id="cxp-expense-account">
+          <option value="">Predeterminada (6.1.01)</option>
+        </select>
+      </div>
       <button class="btn btn-primary btn-full" onclick="saveCxp()">Guardar</button>
     </div>
   </div>
@@ -1556,7 +1562,7 @@ function calcMargin() {
 document.addEventListener('DOMContentLoaded', ()=>{
   // Restore session from localStorage
   loadSession();
-  if (currentUser) {
+  if (currentUser?.token) {
     showApp().catch(() => clearSession());
   }
   // Margin calculator
@@ -2095,12 +2101,16 @@ function renderCxc() {
 function openCxpModal() {
   ['cxp-desc','cxp-monto','cxp-fecha'].forEach(id=>el(id).value='');
   const sel=el('cxp-vendor-id'); sel.innerHTML='<option value="">Seleccionar proveedor...</option>'+vendors.map(v=>`<option value="${v.id}">${v.name}</option>`).join('');
+  const expSel=el('cxp-expense-account');
+  const expenseAccounts = accounts.filter(a=>a.class===5||a.class===6);
+  expSel.innerHTML='<option value="">Predeterminada (6.1.01)</option>'+expenseAccounts.map(a=>`<option value="${a.code}">${a.code} — ${a.name}</option>`).join('');
   openModal('cxpModal');
 }
 async function saveCxp() {
   const vendorId=el('cxp-vendor-id').value, desc=el('cxp-desc').value.trim(), monto=parseFloat(el('cxp-monto').value), fecha=el('cxp-fecha').value;
+  const expenseAccountCode=el('cxp-expense-account').value;
   if (!vendorId||!desc||!monto) { toast('Completa los campos requeridos','error'); return; }
-  try { await apiFetch('/api/payables',{method:'POST',body:JSON.stringify({vendor_id:vendorId,description:desc,total_amount:monto,due_date:fecha||null})}); toast('✅ Deuda creada'); closeModal('cxpModal'); payables=await apiFetch('/api/payables'); renderCxp(); renderDashboard(); } catch(e){toast('Error: '+e.message,'error');}
+  try { await apiFetch('/api/payables',{method:'POST',body:JSON.stringify({vendor_id:vendorId,description:desc,total_amount:monto,due_date:fecha||null,expense_account_code:expenseAccountCode||null})}); toast('✅ Deuda creada'); closeModal('cxpModal'); payables=await apiFetch('/api/payables'); renderCxp(); renderDashboard(); } catch(e){toast('Error: '+e.message,'error');}
 }
 async function deleteCxp(id) {
   if (!confirm('¿Eliminar esta deuda?')) return;
@@ -3069,7 +3079,8 @@ async function saveInvoice(status='draft') {
         y += 4; doc.setDrawColor(200); doc.line(20, y, 190, y); y += 4;
         doc.setFont('helvetica', 'normal');
         lines.forEach(item => {
-          const lineTotal = (item.quantity||1)*(item.unit_price||0);
+          const disc = parseFloat(item.discount_pct) || 0;
+          const lineTotal = (item.quantity||1)*(item.unit_price||0)*(1 - disc/100);
           doc.text(String(item.description||'').substring(0,50), 20, y);
           doc.text(String(item.quantity||1), 120, y);
           doc.text(fmt(item.unit_price||0), 140, y);
