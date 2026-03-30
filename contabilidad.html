@@ -1372,7 +1372,10 @@ async function doLogin() {
     if (!res.ok) throw new Error(d.error||'Login fallido');
     saveSession(d.userId, d.token, username, d.isAdmin);
     showApp();
-  } catch(e) { showErr('loginError', e.message); }
+  } catch(e) {
+    window.alert('Error: ' + e.message);
+    showErr('loginError', e.message);
+  }
   finally { btn.textContent='Entrar'; btn.disabled=false; }
 }
 
