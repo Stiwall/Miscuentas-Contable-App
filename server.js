@@ -2189,6 +2189,7 @@ app.put('/api/income-types/:id', authMiddleware, async (req, res) => {
 
 app.delete('/api/income-types/:id', authMiddleware, async (req, res) => {
   try {
+    await query(`DELETE FROM income_records WHERE income_type_id=$1`, [req.params.id]);
     await query(`DELETE FROM income_types WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
