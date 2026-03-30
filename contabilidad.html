@@ -3751,10 +3751,11 @@ async function wizardSubmit() {
   if (btn) { btn.disabled=true; btn.textContent='⏳ Creando...'; }
   try {
     await apiFetch('/api/setup/wizard',{method:'POST',body:JSON.stringify({businessType:_wizardSelected})});
-    accounts = await apiFetch('/api/accounts');
+    await loadAllData();
     toast('✅ Plan de cuentas creado');
     closeWizard();
-    renderPlan();
+    showPage('dashboard');
+    renderDashboard();
   } catch(e) {
     toast('Error: '+e.message,'error');
     if (btn) { btn.disabled=false; btn.textContent='✅ Añadir Cuentas'; }
