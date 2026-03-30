@@ -1770,21 +1770,23 @@ app.get('/api/invoices/next-number', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/invoices', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { invoice_number, client_name, client_rnc, client_address, subtotal, tax, total, status, date, due_date, notes, items } = req.body;
-    if (!invoice_number || !total) return res.status(400).json({ error: 'invoice_number and total required' });
+    await client.query('BEGIN');
+    const { invoice_number, client_name, client_rnc, client_address, subtotal, tax, total, discount_amount, discount_pct, status, date, due_date, notes, items } = req.body;
+    if (!invoice_number || !total) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'invoice_number and total required' }); }
     // Check for duplicate invoice number
-    const dupCheck = await query(`SELECT id FROM invoices WHERE user_id=$1 AND invoice_number=$2`, [req.userId, invoice_number]);
-    if (dupCheck.rows[0]) return res.status(400).json({ error: `El número de factura ${invoice_number} ya existe` });
+    const dupCheck = await client.query(`SELECT id FROM invoices WHERE user_id=$1 AND invoice_number=$2`, [req.userId, invoice_number]);
+    if (dupCheck.rows[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: `El número de factura ${invoice_number} ya existe` }); }
     const id = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    await query(
-      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,subtotal,tax,total,status,date,due_date,notes)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [id, req.userId, invoice_number, client_name||null, client_rnc||null, client_address||null, subtotal||0, tax||0, total, status||'pending', date||null, due_date||null, notes||null]
+    await client.query(
+      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,subtotal,tax,total,discount_amount,discount_pct,status,date,due_date,notes)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      [id, req.userId, invoice_number, client_name||null, client_rnc||null, client_address||null, subtotal||0, tax||0, total, discount_amount||0, discount_pct||0, status||'pending', date||null, due_date||null, notes||null]
     );
     // Update counter
     const num = parseInt(invoice_number) || 1;
-    await query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, num]);
+    await client.query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, num]);
     // Insert items (frontend sends 'lines' array)
     const rawItems = req.body.lines || items || [];
     if (rawItems.length > 0) {
@@ -1793,9 +1795,10 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
         const qty = parseFloat(item.quantity || item.qty || 1);
         const price = parseFloat(item.unit_price || item.price || 0);
         const disc = parseFloat(item.discount_pct || 0);
-        const lineTotal = qty * price * (1 - disc / 100);
-        await query(`INSERT INTO invoice_items(id,invoice_id,description,qty,price,total) VALUES($1,$2,$3,$4,$5,$6)`,
-          [itemId, id, item.description || '', qty, price, lineTotal]);
+        const unitPrice = price * (1 - disc / 100);
+        const lineTotal = qty * unitPrice;
+        await client.query(`INSERT INTO invoice_items(id,invoice_id,description,qty,price,total,discount_pct) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+          [itemId, id, item.description || '', qty, unitPrice, lineTotal, disc]);
       }
     }
     // If created as issued directly, also auto-create CxC/journal based on payment method
