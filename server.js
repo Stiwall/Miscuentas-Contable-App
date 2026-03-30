@@ -652,7 +652,7 @@ async function handleText(msgText, chatId) {
         return;
       }
       const username = pending.username;
-      const hash = crypto.pbkdf2Sync(password, username, 100000, 64, 'sha512').toString('hex');
+      const hash = crypto.pbkdf2Sync(password, username.toLowerCase(), 100000, 64, 'sha512').toString('hex');
       try {
         await query(
           `INSERT INTO user_credentials(user_id, username, password_hash) VALUES($1,$2,$3)
@@ -687,7 +687,7 @@ async function handleText(msgText, chatId) {
     if (pending.step === 'await_link_password') {
       const password = msg.trim();
       const username = pending.username;
-      const hash = crypto.pbkdf2Sync(password, username, 100000, 64, 'sha512').toString('hex');
+      const hash = crypto.pbkdf2Sync(password, username.toLowerCase(), 100000, 64, 'sha512').toString('hex');
       // Verify credentials
       const cred = await query(
         'SELECT user_id, password_hash FROM user_credentials WHERE username=$1',
@@ -1580,9 +1580,11 @@ app.post('/api/auth/login', async (req, res) => {
     if (!creds.rows[0]) return res.status(401).json({ error: 'Invalid username or password' });
 
     const { user_id: userId, password_hash: storedHash } = creds.rows[0];
-    const salt = username.toLowerCase();
-    const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-
+    // Try lowercase first, then original (for backward compat)
+    let hash = crypto.pbkdf2Sync(password, username.toLowerCase(), 100000, 64, 'sha512').toString('hex');
+    if (hash !== storedHash) {
+      hash = crypto.pbkdf2Sync(password, username, 100000, 64, 'sha512').toString('hex');
+    }
     if (hash !== storedHash) return res.status(401).json({ error: 'Invalid username or password' });
 
     const token = generateToken(userId);
