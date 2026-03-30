@@ -2153,6 +2153,22 @@ app.get('/api/income-types', authMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/income-types/with-totals — income types with record counts and totals
+app.get('/api/income-types/with-totals', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`
+      SELECT it.id, it.name, it.icon, it.color,
+             COALESCE(SUM(ir.amount), 0) as total_amount,
+             COUNT(ir.id) as record_count
+      FROM income_types it
+      LEFT JOIN income_records ir ON ir.income_type_id = it.id
+      WHERE it.user_id=$1
+      GROUP BY it.id, it.name, it.icon, it.color
+      ORDER BY it.name`, [req.userId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/income-types', authMiddleware, async (req, res) => {
   try {
     const { name, description, icon, color } = req.body;

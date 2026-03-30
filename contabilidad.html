@@ -1422,7 +1422,7 @@ async function loadAllData() {
   try { payables    = await apiFetch('/api/payables'); }    catch { payables=[]; }
   try { products    = await apiFetch('/api/products'); }    catch { products=[]; }
   try { assets      = await apiFetch('/api/assets'); }      catch { assets=[]; }
-  try { incomeTypes = await apiFetch('/api/income-types'); } catch { incomeTypes=[]; }
+  try { incomeTypes = await apiFetch('/api/income-types/with-totals'); } catch { incomeTypes=[]; }
   try { invoices    = await apiFetch('/api/invoices?limit=20'); } catch { invoices=[]; }
 }
 
@@ -2649,7 +2649,7 @@ async function saveIncomeRecord() {
     })});
     toast('✅ Ingreso registrado');
     closeModal('incomeModal');
-    incomeTypes = await apiFetch('/api/income-types');
+    incomeTypes = await apiFetch('/api/income-types/with-totals');
     renderIngresos();
     renderDashboard();
   } catch(e) { let msg=e.message; try{msg=JSON.parse(msg).error||msg;}catch{} toast(msg,'error'); }
@@ -2709,7 +2709,7 @@ async function loadIncomeRecords() {
             </div>
             <div style="font-weight:700;font-size:var(--fs-base)">${r.description}</div>
             <div style="font-size:var(--fs-2xs);color:var(--text-muted);margin-top:2px">
-              ${r.income_date||''} ${r.reference?'· Ref: '+r.reference:''} ${r.client_name?'· '+r.client_name:''}
+              ${(r.date||'').split('T')[0]} ${r.reference?'· Ref: '+r.reference:''} ${r.client_name?'· '+r.client_name:''}
             </div>
           </div>
           <div style="text-align:right;flex-shrink:0;margin-left:12px">
@@ -2754,7 +2754,7 @@ async function saveIncomeType() {
       toast('✅ Tipo creado');
     }
     closeModal('incomeTypeModal');
-    incomeTypes = await apiFetch('/api/income-types');
+    incomeTypes = await apiFetch('/api/income-types/with-totals');
     renderTiposIngreso();
   } catch(e) { let msg=e.message; try{msg=JSON.parse(msg).error||msg;}catch{} toast(msg,'error'); }
 }
@@ -2764,7 +2764,7 @@ async function deleteIncomeType(id) {
   try {
     await apiFetch('/api/income-types/'+id,{method:'DELETE'});
     toast('✅ Eliminado');
-    incomeTypes = await apiFetch('/api/income-types');
+    incomeTypes = await apiFetch('/api/income-types/with-totals');
     renderTiposIngreso();
   } catch(e) { let msg=e.message; try{msg=JSON.parse(msg).error||msg;}catch{} toast(msg,'error'); }
 }
