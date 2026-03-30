@@ -1860,7 +1860,7 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
       }
       const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
       await query(
-        `INSERT INTO income_records(id,user_id,type_id,amount,description,date,reference)
+        `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
          VALUES($1,$2,$3,$4,$5,$6,$7)`,
         [incId, req.userId, incTypeId, total,
          `Factura ${invoice_number}${req.body.client_name?' — '+req.body.client_name:''}`,
@@ -2014,7 +2014,7 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
       }
       const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
       await query(
-        `INSERT INTO income_records(id,user_id,type_id,amount,description,date,reference)
+        `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
          VALUES($1,$2,$3,$4,$5,$6,$7)`,
         [incId, req.userId, incTypeId, inv.total,
          `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
@@ -2185,7 +2185,7 @@ app.get('/api/income-records', authMiddleware, async (req, res) => {
     const r = await query(`
       SELECT ir.*, it.name as type_name, it.icon as type_icon, it.color as type_color
       FROM income_records ir
-      LEFT JOIN income_types it ON it.id = ir.type_id
+      LEFT JOIN income_types it ON it.id = ir.income_type_id
       WHERE ir.user_id=$1
       ORDER BY ir.date DESC, ir.created_at DESC
       LIMIT $2`, [req.userId, limit]);
@@ -2199,7 +2199,7 @@ app.post('/api/income-records', authMiddleware, async (req, res) => {
     if (!type_id || !amount) return res.status(400).json({ error: 'type_id and amount required' });
     const id = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await query(
-      `INSERT INTO income_records(id,user_id,type_id,amount,description,date,reference)
+      `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
        VALUES($1,$2,$3,$4,$5,$6,$7)`,
       [id, req.userId, type_id, amount, description||null, date||null, reference||null]
     );
@@ -3853,12 +3853,15 @@ async function initDB() {
   // Migrations for fixed_assets
   try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS depreciacion_metodo TEXT DEFAULT 'linea_recta'`); } catch(e) {}
   // Migration: income_records - add all missing columns
-  try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS type_id TEXT`); } catch(e) {}
   try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS date DATE NOT NULL DEFAULT CURRENT_DATE`); } catch(e) {}
-  try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS reference TEXT`); } catch(e) {}
   try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS amount NUMERIC(12,2)`); } catch(e) {}
   try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS description TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS reference TEXT`); } catch(e) {}
   try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`); } catch(e) {}
+  // Ensure income_type_id column exists (not type_id)
+  try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS income_type_id TEXT`); } catch(e) {}
+  // If type_id exists but income_type_id doesn't, rename
+  try { await query(`ALTER TABLE income_records DROP COLUMN IF EXISTS type_id`); } catch(e) {}
   // Migration: add payment_method to invoices
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'credit'`); } catch(e) {}
 
