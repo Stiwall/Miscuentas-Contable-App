@@ -1832,10 +1832,10 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
       let debitAcct = null;
       let payDesc   = '';
       if (pmeth === 'cash') {
-        debitAcct = acctMap['1.1.02']; // Caja
+        debitAcct = acctMap['1.1.01']; // Caja
         payDesc = 'Efectivo';
       } else if (pmeth === 'bank' || pmeth === 'card') {
-        debitAcct = acctMap['1.1.01']; // Banco
+        debitAcct = acctMap['1.1.02']; // Banco
         payDesc = pmeth === 'bank' ? 'Transferencia' : 'Tarjeta';
       } else {
         debitAcct = acctMap['1.2.01']; // CxC (crédito)
