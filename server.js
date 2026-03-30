@@ -2093,7 +2093,43 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
 
 app.delete('/api/invoices/:id', authMiddleware, async (req, res) => {
   try {
+    const inv = await query(`SELECT * FROM invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    if (!inv.rows[0]) return res.status(404).json({ error: 'Invoice not found' });
+    const invoice = inv.rows[0];
+
+    // Get journal entries for this invoice to reverse balances
+    const jeR = await query(`SELECT id FROM journal_entries WHERE user_id=$1 AND ref_type='invoice' AND ref_id=$2`,
+      [req.userId, req.params.id]);
+
+    // For each journal entry, reverse the balances
+    for (const je of jeR.rows) {
+      const linesR = await query(`SELECT * FROM journal_lines WHERE journal_entry_id=$1`, [je.id]);
+      for (const ln of linesR.rows) {
+        await query(
+          `INSERT INTO account_balances(account_id,balance) VALUES($1,$2)
+           ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
+          [ln.account_id, parseFloat(ln.credit) - parseFloat(ln.debit)]
+        );
+      }
+      // Delete journal lines and entry
+      await query(`DELETE FROM journal_lines WHERE journal_entry_id=$1`, [je.id]);
+      await query(`DELETE FROM journal_entries WHERE id=$1`, [je.id]);
+    }
+
+    // Delete related income records
+    await query(`DELETE FROM income_records WHERE user_id=$1 AND reference=$2`,
+      [req.userId, invoice.invoice_number]);
+
+    // Delete related receivables
+    await query(`DELETE FROM receivables WHERE user_id=$1 AND description ILIKE $2`,
+      [req.userId, `%Factura ${invoice.invoice_number}%`]);
+
+    // Delete invoice items
+    await query(`DELETE FROM invoice_items WHERE invoice_id=$1`, [req.params.id]);
+
+    // Delete invoice
     await query(`DELETE FROM invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });

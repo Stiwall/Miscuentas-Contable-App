@@ -3130,7 +3130,7 @@ async function loadInvoices() {
           <button onclick="printInvoice('${inv.id}')" class="btn btn-sm btn-secondary">🖨️ Imprimir</button>
           ${inv.status==='draft'?`<button onclick="changeInvoiceStatus('${inv.id}','issued')" class="btn btn-sm btn-primary">📤 Emitir</button>`:''}
           ${(inv.status==='issued'||inv.status==='partial')?`<button onclick="changeInvoiceStatus('${inv.id}','paid')" class="btn btn-sm btn-primary">✅ Marcar pagada</button>`:''}
-          ${inv.status==='draft'?`<button onclick="deleteInvoice('${inv.id}')" class="btn btn-sm btn-danger">🗑️</button>`:''}
+          ${inv.status!=='cancelled'?`<button onclick="deleteInvoice('${inv.id}')" class="btn btn-sm btn-danger">🗑️</button>`:''}
         </div>
       </div>`;
     }).join('')+'</div>';
@@ -3202,7 +3202,7 @@ async function changeInvoiceStatus(id, status) {
 }
 
 async function deleteInvoice(id) {
-  if (!confirm('¿Eliminar esta factura? Solo se pueden eliminar borradores.')) return;
+  if (!confirm('¿Eliminar esta factura? Se cancelarán los movimientos relacionados.')) return;
   try {
     await apiFetch('/api/invoices/'+id,{method:'DELETE'});
     toast('✅ Factura eliminada');
