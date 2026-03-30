@@ -11,6 +11,18 @@ const { Pool } = require('pg');
 
 const app = express();
 app.use(express.json());
+// Serve static PWA files
+const path = require('path');
+app.use(express.static(__dirname, {
+  index: false,
+  setHeaders: (res, filepath) => {
+    const ext = path.extname(filepath);
+    if (['.png','.json','.js'].includes(ext)) {
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://miscuentas-contable-app-production.up.railway.app https://api.minimax.io https://cdnjs.cloudflare.com https://openapi.baidu.com;");
+    }
+  }
+}));
+
 // ─── ENV ──────────────────────────────────────────────────────────────────────
 const {
   TELEGRAM_BOT_TOKEN,

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF8C00;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#E05A00;stop-opacity:1" />
+    </linearGradient>
+    <clipPath id="roundedRect">
+      <rect x="0" y="0" width="200" height="200" rx="44" ry="44"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect x="0" y="0" width="200" height="200" rx="44" ry="44" fill="url(#orangeGrad)"/>
+
+  <!-- Open book icon -->
+  <!-- Left page -->
+  <path d="M100 68
+             C100 68 78 62 54 66
+             L54 138
+             C54 138 76 134 100 140
+             Z"
+        fill="#1a0a00" opacity="0.92"/>
+
+  <!-- Right page -->
+  <path d="M100 68
+             C100 68 122 62 146 66
+             L146 138
+             C146 138 124 134 100 140
+             Z"
+        fill="#1a0a00" opacity="0.92"/>
+
+  <!-- Center spine line -->
+  <line x1="100" y1="68" x2="100" y2="140" stroke="#FF8C00" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Left page inner highlight line -->
+  <line x1="72" y1="80" x2="72" y2="128" stroke="#FF8C00" stroke-width="1.2" stroke-linecap="round" opacity="0.35"/>
+
+  <!-- Right page inner highlight line -->
+  <line x1="128" y1="80" x2="128" y2="128" stroke="#FF8C00" stroke-width="1.2" stroke-linecap="round" opacity="0.35"/>
+</svg>
