@@ -3004,7 +3004,7 @@ async function saveInvoice(status='draft') {
     client_address: el('nf-address').value.trim()||null,
     date:           el('nf-date').value||null,
     due_date:       el('nf-due').value||null,
-    subtotal, tax: taxAmt, total,
+    subtotal: subtotal||0, tax: taxAmt||0, total: total||subtotal||0.01,
     notes:          el('nf-notes').value.trim()||null,
     status, lines
   };
@@ -3048,7 +3048,12 @@ async function saveInvoice(status='draft') {
     receivables = await apiFetch('/api/receivables');
 
     showPage('facturas', el('nav-facturas'));
-  } catch(e) { let msg=e.message; try{msg=JSON.parse(msg).error||msg;}catch{} toast(msg,'error'); }
+  } catch(e) {
+    let msg = e.message || 'Error desconocido';
+    try { const parsed = JSON.parse(msg); msg = parsed.error || parsed.message || msg; } catch {}
+    toast('❌ ' + msg, 'error');
+    console.error('saveInvoice error:', e);
+  }
 }
 
 async function loadInvoices() {
