@@ -2695,11 +2695,22 @@ async function deleteIncomeRecord(id) {
   } catch(e) { let msg=e.message; try{msg=JSON.parse(msg).error||msg;}catch{} toast(msg,'error'); }
 }
 
+async function deleteIncomeType(id) {
+  if (!confirm('¿Eliminar este tipo de ingreso?')) return;
+  try {
+    await apiFetch(`/api/income-types/${id}`,{method:'DELETE'});
+    incomeTypes = await apiFetch('/api/income-types/with-totals');
+    renderIngresos();
+    toast('✅ Tipo eliminado');
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
 async function renderIngresos() {
   // KPIs by type
   const kpis = el('incomeKpis');
   kpis.innerHTML = incomeTypes.map(t=>
-    `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;border-left:3px solid ${t.color}">
+    `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;border-left:3px solid ${t.color};position:relative">
+      ${t.record_count==='0'||t.record_count==0?'<button onclick="deleteIncomeType(\''+t.id+'\')" style="position:absolute;top:6px;right:6px;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:12px;padding:2px 4px">✕</button>':''}
       <div style="font-size:18px;margin-bottom:4px">${t.icon}</div>
       <div style="font-size:var(--fs-2xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">${t.name}</div>
       <div style="font-family:monospace;font-weight:700;font-size:var(--fs-sm);color:${t.color}">RD$ ${fmt(t.total_amount||0)}</div>
