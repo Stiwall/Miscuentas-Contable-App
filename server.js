@@ -2617,27 +2617,31 @@ app.post('/api/journal', authMiddleware, async (req, res) => {
         [line.account_id, line.debit || 0, line.credit || 0]
       );
 
-      // Auto-create receivable: debit on 1.2.01 with client auxiliary
+      // Auto-create receivable: debit on any Clientes/CxC account with client auxiliary
       if (line.auxiliary_type === 'client' && Number(line.debit) > 0) {
-        const accCheck = await client.query(`SELECT code FROM accounts WHERE id=$1 AND user_id=$2`, [line.account_id, req.userId]);
-        if (accCheck.rows[0]?.code === '1.2.01') {
+        const accCheck = await client.query(`SELECT code, type FROM accounts WHERE id=$1 AND user_id=$2`, [line.account_id, req.userId]);
+        const code = accCheck.rows[0]?.code || '';
+        const isCxC = ['1.2.01','1201','1202','1200'].includes(code) || code.startsWith('12');
+        if (isCxC) {
           const rId = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
           await client.query(
             `INSERT INTO receivables(id, user_id, client_id, description, total_amount, paid_amount, status, due_date)
-             VALUES($1,$2,$3,$4,$5,0,'pending',$6)`,
+             VALUES($1,$2,$3,$4,$5,0,'pending',$6) ON CONFLICT DO NOTHING`,
             [rId, req.userId, line.auxiliary_id, description, line.debit, date]
           );
         }
       }
 
-      // Auto-create payable: credit on 2.1.01 with vendor auxiliary
+      // Auto-create payable: credit on any Proveedores/CxP account with vendor auxiliary
       if (line.auxiliary_type === 'vendor' && Number(line.credit) > 0) {
-        const accCheck = await client.query(`SELECT code FROM accounts WHERE id=$1 AND user_id=$2`, [line.account_id, req.userId]);
-        if (accCheck.rows[0]?.code === '2.1.01') {
+        const accCheck = await client.query(`SELECT code, type FROM accounts WHERE id=$1 AND user_id=$2`, [line.account_id, req.userId]);
+        const code = accCheck.rows[0]?.code || '';
+        const isCxP = ['2.1.01','2101','2100','2201','2301'].includes(code) || code.startsWith('21') || code.startsWith('22');
+        if (isCxP) {
           const pId = `pay_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
           await client.query(
             `INSERT INTO payables(id, user_id, vendor_id, description, total_amount, paid_amount, status, due_date)
-             VALUES($1,$2,$3,$4,$5,0,'pending',$6)`,
+             VALUES($1,$2,$3,$4,$5,0,'pending',$6) ON CONFLICT DO NOTHING`,
             [pId, req.userId, line.auxiliary_id, description, line.credit, date]
           );
         }
