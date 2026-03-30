@@ -1844,6 +1844,30 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
         await query(`UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2`, [total, id]);
       }
 
+      // Auto-create income record
+      // Find or create a matching income type based on payment method
+      const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
+      const pmLabel = pmLabels[pmeth] || '💰 Venta';
+      let incTypeId = null;
+      const itR = await query(`SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`, [req.userId, pmLabel]);
+      if (itR.rows[0]) {
+        incTypeId = itR.rows[0].id;
+      } else {
+        incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        await query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
+          [incTypeId, req.userId, pmLabel, 'Generado automáticamente desde facturas',
+           pmeth==='cash'?'💵':pmeth==='bank'?'🏦':pmeth==='card'?'💳':'📋', '#00e5a0']);
+      }
+      const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await query(
+        `INSERT INTO income_records(id,user_id,type_id,amount,description,date,reference)
+         VALUES($1,$2,$3,$4,$5,$6,$7)`,
+        [incId, req.userId, incTypeId, total,
+         `Factura ${invoice_number}${req.body.client_name?' — '+req.body.client_name:''}`,
+         req.body.date||new Date().toISOString().split('T')[0],
+         invoice_number]
+      );
+
       // Create journal entry
       if (debitAcct && salesAcct) {
         const jeId = `je_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
@@ -1982,6 +2006,12 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
         `UPDATE receivables SET status='cancelled'
          WHERE user_id=$1 AND description ILIKE $2`,
         [req.userId, `%Factura ${inv.invoice_number}%`]
+      );
+
+      // Remove income record for this invoice
+      await query(
+        `DELETE FROM income_records WHERE user_id=$1 AND reference=$2`,
+        [req.userId, inv.invoice_number]
       );
 
       // Find original journal entry for this invoice
