@@ -190,6 +190,8 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 .mob-menu-btn { background:none; border:1px solid var(--border2); border-radius:8px; width:36px; height:36px; display:none; align-items:center; justify-content:center; color:var(--text-secondary); cursor:pointer; }
 
 @media (max-width:640px) {
+  .header { overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  .header::-webkit-scrollbar { display:none; }
   .sidebar { transform:translateX(-100%); position:fixed; z-index:190; }
   .sidebar.open { transform:translateX(0); box-shadow:4px 0 24px rgba(0,0,0,0.6); }
   .main { margin-left:0 !important; }
