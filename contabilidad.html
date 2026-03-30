@@ -1397,7 +1397,7 @@ async function showApp() {
   el('appShell').style.display='block';
   el('userLabel').textContent = currentUser.username || '—';
   if (currentUser.isAdmin) el('adminNav').style.display='block';
-  checkWizard();
+  if (!accounts.length) openWizard();
   showLoading(true);
   await loadAllData();
   showLoading(false);
