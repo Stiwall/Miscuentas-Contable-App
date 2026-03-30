@@ -1364,7 +1364,7 @@ async function doLogin() {
   const username = el('loginUsername').value.trim();
   const password = el('loginPassword').value;
   el('loginError').style.display = 'none';
-  if (!username || !password) { showErr('loginError','Completa todos los campos'); return; }
+  if (!username || !password) { el('loginError').textContent='Completa usuario y contraseña'; el('loginError').style.display='block'; return; }
   const btn = el('loginBtn'); btn.textContent='Verificando...'; btn.disabled=true;
   try {
     const res = await fetch(SERVER_URL+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
@@ -1373,8 +1373,8 @@ async function doLogin() {
     saveSession(d.userId, d.token, username, d.isAdmin);
     showApp();
   } catch(e) {
-    window.alert('Error: ' + e.message);
-    showErr('loginError', e.message);
+    el('loginError').textContent=e.message;
+    el('loginError').style.display='block';
   }
   finally { btn.textContent='Entrar'; btn.disabled=false; }
 }
@@ -1568,6 +1568,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (currentUser?.token && !window.__sessionExpired) {
     showApp().catch(() => clearSession());
   }
+  // Backup click handler for login button
+  const loginBtn = document.getElementById('loginBtn');
+  if (loginBtn) loginBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (typeof doLogin === 'function') doLogin();
+    else alert('Error: doLogin no disponible. Recarga la página.');
+  });
   // Margin calculator
   ['prod-cost','prod-price','edit-prod-cost','edit-prod-price'].forEach(id=>{
     const el2=document.getElementById(id); if(el2) el2.addEventListener('input',calcMargin);
