@@ -1341,6 +1341,7 @@ function authHeaders() { return { 'Content-Type':'application/json', 'x-session-
 
 async function apiFetch(endpoint, options={}) {
   const res = await fetch(SERVER_URL + endpoint, { ...options, headers: { 'Content-Type':'application/json', 'x-session-token': currentUser?.token||'', ...(options.headers||{}) } });
+  if (res.status === 401) { clearSession(); location.reload(); throw new Error('Sesión expirada'); }
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -1553,6 +1554,12 @@ function calcMargin() {
 
 // Add margin calc listeners
 document.addEventListener('DOMContentLoaded', ()=>{
+  // Restore session from localStorage
+  loadSession();
+  if (currentUser) {
+    showApp().catch(() => clearSession());
+  }
+  // Margin calculator
   ['prod-cost','prod-price','edit-prod-cost','edit-prod-price'].forEach(id=>{
     const el2=document.getElementById(id); if(el2) el2.addEventListener('input',calcMargin);
   });
@@ -3012,7 +3019,7 @@ async function saveInvoice(status='draft') {
   const taxRate = parseFloat(el('nf-tax')?.value) || 0;
   const discPct = parseFloat(el('nf-discount')?.value) || 0;
   let subtotal  = 0;
-  lines.forEach(l => { subtotal += Number(l.quantity||1) * Number(l.unit_price||0); });
+  lines.forEach(l => { subtotal += Number(l.quantity||1) * Number(l.unit_price||0) * (1 - Number(l.discount_pct||0)/100); });
   const discAmt = subtotal * discPct / 100;
   const taxable = subtotal - discAmt;
   const taxAmt  = taxable * taxRate / 100;
@@ -3028,6 +3035,8 @@ async function saveInvoice(status='draft') {
     subtotal:       Math.round(subtotal*100)/100,
     tax:            Math.round(taxAmt*100)/100,
     total:          Math.round((total||0.01)*100)/100,
+    discount_amount: Math.round(discAmt*100)/100,
+    discount_pct:   discPct,
     notes:          el('nf-notes')?.value?.trim() || null,
     payment_method: el('nf-payment-method')?.value || 'credit',
     status,

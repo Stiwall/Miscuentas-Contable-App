@@ -1854,45 +1854,51 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
       const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
       const pmLabel = pmLabels[pmeth] || '💰 Venta';
       let incTypeId = null;
-      const itR = await query(`SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`, [req.userId, pmLabel]);
+      const itR = await client.query(`SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`, [req.userId, pmLabel]);
       if (itR.rows[0]) {
         incTypeId = itR.rows[0].id;
       } else {
         incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
+        await client.query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
           [incTypeId, req.userId, pmLabel, 'Generado automáticamente desde facturas',
            pmeth==='cash'?'💵':pmeth==='bank'?'🏦':pmeth==='card'?'💳':'📋', '#00e5a0']);
       }
       const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-      await query(
+      await client.query(
         `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
          VALUES($1,$2,$3,$4,$5,$6,$7)`,
         [incId, req.userId, incTypeId, total,
-         `Factura ${invoice_number}${req.body.client_name?' — '+req.body.client_name:''}`,
-         req.body.date||new Date().toISOString().split('T')[0],
+         `Factura ${invoice_number}${client_name?' — '+client_name:''}`,
+         date||new Date().toISOString().split('T')[0],
          invoice_number]
       );
 
       // Create journal entry
       if (debitAcct && salesAcct) {
         const jeId = `je_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await query(`INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
-          [jeId, req.userId, req.body.date||new Date().toISOString().split('T')[0],
-           `Factura ${invoice_number} — ${req.body.client_name||'Cliente'} [${payDesc}]`, 'invoice', id]);
+        await client.query(`INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
+          [jeId, req.userId, date||new Date().toISOString().split('T')[0],
+           `Factura ${invoice_number} — ${client_name||'Cliente'} [${payDesc}]`, 'invoice', id]);
         const jLines = [{acct:debitAcct,d:total,c:0},{acct:salesAcct,d:0,c:sub}];
         if (tax>0 && acctMap['2102']) jLines.push({acct:acctMap['2102'],d:0,c:tax});
         else if (tax>0) jLines[1].c += tax;
         for (const ln of jLines) {
           const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-          await query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,$5)`,
+          await client.query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,$5)`,
             [lnId, jeId, ln.acct, ln.d, ln.c]);
-          await query(`INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`, [ln.acct, ln.d-ln.c]);
+          await client.query(`INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`, [ln.acct, ln.d-ln.c]);
         }
       }
     }
 
-    res.json({ ok: true, id, invoice_number, total: req.body.total });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    await client.query('COMMIT');
+    res.json({ ok: true, id, invoice_number, total });
+  } catch(e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
+  }
 });
 
 app.get('/api/invoices/:id', authMiddleware, async (req, res) => {
@@ -3064,13 +3070,14 @@ app.post('/api/receivables/:id/payments', authMiddleware, async (req, res) => {
       );
       const debitLine  = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
       const creditLine = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+      const clientId = rec.rows[0].client_id;
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
          VALUES($1,$2,$3,$4,0)`, [debitLine, jeId, cashAcc, amount]
       );
       await client.query(
-        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,0,$4)`, [creditLine, jeId, cxc.rows[0].id, amount]
+        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
+         VALUES($1,$2,$3,0,$4,'client',$5,$6)`, [creditLine, jeId, cxc.rows[0].id, amount, clientId||null, rec.rows[0].client_name||null]
       );
       await client.query(
         `INSERT INTO account_balances(account_id, balance)
@@ -3182,16 +3189,17 @@ app.post('/api/payables', authMiddleware, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { vendor_id, description, total_amount, due_date } = req.body;
-    if (!vendor_id || !description || !total_amount) return res.status(400).json({ error: 'Missing fields' });
+    const { vendor_id, description, total_amount, due_date, expense_account_code } = req.body;
+    if (!vendor_id || !description || !total_amount) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Missing fields' }); }
     const id = `pay_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     await client.query(
       `INSERT INTO payables(id, user_id, vendor_id, description, total_amount, due_date)
        VALUES($1,$2,$3,$4,$5,$6)`,
       [id, req.userId, vendor_id, description, total_amount, due_date]
     );
-    // Auto-journal: Debit "Gastos Operativos" (expense), Credit "Cuentas por Pagar" (liability)
-    const exp = await client.query(`SELECT id FROM accounts WHERE code='6.1.01' AND user_id=$1`, [req.userId]);
+    // Auto-journal: Debit configurable expense account, Credit "Cuentas por Pagar" (liability)
+    const expAcctCode = expense_account_code || '6.1.01';
+    const exp = await client.query(`SELECT id FROM accounts WHERE code=$1 AND user_id=$2`, [expAcctCode, req.userId]);
     const cxp = await client.query(`SELECT id FROM accounts WHERE code='2.1.01' AND user_id=$1`, [req.userId]);
     const vendorInfo = await client.query(`SELECT name FROM vendors WHERE id=$1`, [vendor_id]);
     const vendorName = vendorInfo.rows[0]?.name || 'Proveedor';
