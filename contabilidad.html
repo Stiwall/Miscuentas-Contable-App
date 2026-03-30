@@ -569,7 +569,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     </div>
     <!-- Filter bar -->
     <div style="display:flex;gap:8px;margin-bottom:var(--space-sm);flex-wrap:wrap">
-      <input class="form-input" id="prod-search" placeholder="🔍 Buscar producto..." oninput="filterProducts()" style="flex:1;min-width:160px;padding:7px 10px">
+      <input class="form-input" id="prod-search" placeholder="🔍 Buscar producto..." oninput="debounceFilterProducts()" style="flex:1;min-width:160px;padding:7px 10px">
       <select class="form-input form-select" id="prod-cat-filter" onchange="filterProducts()" style="width:140px;padding:7px 28px 7px 10px">
         <option value="">Todas las categorías</option>
       </select>
@@ -717,7 +717,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
         <option value="partial">Parcial</option>
         <option value="cancelled">Cancelada</option>
       </select>
-      <input class="form-input" id="inv-search" placeholder="🔍 Buscar..." oninput="loadInvoices()" style="flex:1;min-width:120px;padding:7px 10px">
+      <input class="form-input" id="inv-search" placeholder="🔍 Buscar..." oninput="debounceLoadInvoices()" style="flex:1;min-width:120px;padding:7px 10px">
     </div>
     <div class="card"><div class="card-body" id="invoicesList"></div></div>
   </div>
@@ -780,6 +780,11 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
                 <option value="cash">Efectivo</option>
                 <option value="bank">Transferencia / Banco</option>
                 <option value="card">Tarjeta</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Tipo de Ingreso</label>
+              <select class="form-input form-select" id="nf-income-type">
+                <option value="">Sin clasificar</option>
               </select>
             </div>
             <div class="form-grid form-grid-2" style="margin-top:10px">
@@ -1610,6 +1615,8 @@ function showPage(id, btn) {
   if (id==='reportes')        { const now=new Date(); el('rep-month').value=now.getMonth()+1; }
   if (id==='conciliacion')    loadConciliacion();
   if (id==='admin')           renderAdmin();
+  // Hash routing
+  try { history.replaceState(null, '', '#' + id); } catch(e) {}
 }
 
 function setMobActive(id) { document.querySelectorAll('.mob-nav-btn').forEach(b=>b.classList.remove('active')); el(id).classList.add('active'); }
@@ -1696,6 +1703,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (currentUser?.token && !window.__sessionExpired) {
     showApp().catch(() => clearSession());
   }
+  // Hash routing: navigate to hash on load
+  const hash = location.hash?.replace('#', '');
+  if (hash && typeof showPage === 'function') {
+    setTimeout(() => showPage(hash), 100);
+  }
   // Backup click handler for login button
   const loginBtn = document.getElementById('loginBtn');
   if (loginBtn) loginBtn.addEventListener('click', function(e) {
@@ -1707,6 +1719,29 @@ document.addEventListener('DOMContentLoaded', ()=>{
   ['prod-cost','prod-price','edit-prod-cost','edit-prod-price'].forEach(id=>{
     const el2=document.getElementById(id); if(el2) el2.addEventListener('input',calcMargin);
   });
+  // Autoguardado de borrador cada 30 segundos
+  setInterval(() => {
+    const activePage = document.querySelector('[id^="page-"]:not([style*="display: none"])');
+    const pageId = activePage?.id?.replace('page-','');
+    if (pageId === 'nueva-factura') {
+      const rows = window._invoiceRows || [];
+      if (rows.length > 0 || el('nf-client')?.value || el('nf-number')?.value) {
+        localStorage.setItem('invoiceDraft', JSON.stringify({
+          client: el('nf-client')?.value,
+          rnc: el('nf-rnc')?.value,
+          number: el('nf-number')?.value,
+          date: el('nf-date')?.value,
+          dueDate: el('nf-due-date')?.value,
+          paymentMethod: el('nf-payment-method')?.value,
+          rows: window._invoiceRows || [],
+          discount: el('nf-discount')?.value,
+          notes: el('nf-notes')?.value,
+          tax: el('nf-tax')?.value,
+          saved: new Date().toISOString()
+        }));
+      }
+    }
+  }, 30000);
 });
 
 async function saveProduct() {
@@ -1776,6 +1811,11 @@ async function deleteProduct(id) {
 }
 
 let _allProducts = [];
+// Debounce utility
+function debounce(fn, ms) { let t; return function(...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); }; }
+function debounceFilterProducts() { debounce(filterProducts, 300)(); }
+function debounceLoadInvoices() { debounce(loadInvoices, 300)(); }
+
 function filterProducts() {
   const search = (el('prod-search')?.value||'').toLowerCase();
   const cat    = el('prod-cat-filter')?.value||'';
@@ -3173,25 +3213,9 @@ async function viewInvoice(id) {
         </div>
         ${inv.notes ? `<div style="margin-top:16px;font-size:11px;color:#666"><strong>Notas:</strong> ${inv.notes}</div>` : ''}
       </div>`;
-    el('invoiceModalBody').innerHTML = html;
-    openModal('invoiceModal');
+    el('invoiceDetailContent').innerHTML = html;
+    openModal('invoiceDetailModal');
   } catch(e) { toast('Error cargando factura: '+e.message, 'error'); }
-}
-function printInvoice() {
-  if (!_currentInvoice) { toast('Abre la factura primero', 'error'); return; }
-  // Use the modal body HTML directly - it already has the formatted invoice
-  const modalContent = el('invoiceModalBody');
-  if (!modalContent || !modalContent.innerHTML) { toast('No hay contenido para imprimir', 'error'); return; }
-  const w = window.open('', 'PRINT', 'width=700,height=900');
-  if (!w) { toast('Desbloquea los popups para imprimir', 'error'); return; }
-  w.document.write('<html><head><title>Factura '+(_currentInvoice?.invoice_number||'')+'</title>');
-  w.document.write('<style>body{font-family:Helvetica,Arial,sans-serif;padding:20px;max-width:600px;margin:0 auto}table{width:100%;border-collapse:collapse}th,td{padding:6px 8px;border-bottom:1px solid #eee;text-align:left}th{background:#f0f0f0}</style>');
-  w.document.write('</head><body>');
-  w.document.write(modalContent.innerHTML);
-  w.document.write('</body></html>');
-  w.document.close();
-  w.focus();
-  setTimeout(() => { try { w.print(); w.close(); } catch(e) { toast('Error al imprimir: '+e.message, 'error'); } }, 300);
 }
 function downloadInvoicePdf() {
   if (!_currentInvoice) { toast('Abre la factura primero', 'error'); return; }
