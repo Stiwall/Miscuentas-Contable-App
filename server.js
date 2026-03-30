@@ -1751,8 +1751,18 @@ app.get('/api/invoices', authMiddleware, async (req, res) => {
 
 app.get('/api/invoices/next-number', authMiddleware, async (req, res) => {
   try {
-    const r = await query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
-    const next = (r.rows[0]?.last_number || 0) + 1;
+    // Use MAX of actual invoices to avoid duplicates
+    const r = await query(
+      `SELECT GREATEST(
+         COALESCE((SELECT last_number FROM invoice_counter WHERE user_id=$1), 0),
+         COALESCE((SELECT MAX(CAST(REGEXP_REPLACE(invoice_number,'[^0-9]','','g') AS INTEGER)) FROM invoices WHERE user_id=$1 AND invoice_number ~ '^[0-9]+$'), 0)
+       ) AS last_num`,
+      [req.userId]
+    );
+    const next = (parseInt(r.rows[0]?.last_num) || 0) + 1;
+    // Update counter to stay in sync
+    await query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`,
+      [req.userId, next]);
     res.json({ invoice_number: String(next).padStart(6, '0') });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
