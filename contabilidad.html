@@ -156,6 +156,10 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 .modal-close { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:20px; line-height:1; padding:2px 6px; }
 .modal-close:hover { color:var(--accent2); }
 
+/* ── INVOICE FORM MOBILE ── */
+@media (max-width:700px) {
+  .invoice-form-grid { grid-template-columns:1fr !important; }
+}
 /* ── EMPTY / ERROR ── */
 .empty { text-align:center; padding:40px 20px; color:var(--text-muted); }
 .empty-icon { font-size:36px; margin-bottom:10px; }
@@ -708,7 +712,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
       <div><div class="page-title">Nueva Factura</div><div class="page-subtitle">Crear comprobante de venta</div></div>
       <button class="btn btn-secondary" onclick="showPage('facturas',el('nav-facturas'))">← Volver</button>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 340px;gap:var(--space-md);align-items:flex-start">
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:var(--space-md);align-items:flex-start" class="invoice-form-grid">
       <!-- Left: form -->
       <div>
         <!-- Header -->
@@ -3004,48 +3008,43 @@ async function saveInvoice(status='draft') {
   };
   try {
     const r = await apiFetch('/api/invoices',{method:'POST',body:JSON.stringify(body)});
-    toast(`✅ Factura ${r.invoice_number || 'guardada'} ${status==='draft'?'guardada':'emitida'} — Total: RD$ ${fmt(r.total || total)}`);
-    if (status === 'issued') {
-      // Generate and download PDF
-      const inv = r;
-      const items = lines || [];
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF();
-      const pageW = doc.internal.pageSize.getWidth();
-      doc.setFontSize(14); doc.setFont('helvetica', 'bold');
-      doc.text('FACTURA', pageW/2, 15, { align: 'center' });
-      doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-      doc.text(`No: ${body.invoice_number || 'N/A'}`, pageW/2, 22, { align: 'center' });
-      doc.text(`Fecha: ${body.date || new Date().toLocaleDateString('es-DO')}`, 20, 30);
-      doc.text(`Cliente: ${body.client_name || 'N/A'}`, 20, 36);
-      if (body.client_rnc) doc.text(`RNC: ${body.client_rnc}`, 20, 42);
-      if (body.client_address) doc.text(`Dir: ${body.client_address}`, 20, 48);
-      let y = 56;
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-      doc.text('Descripcion', 20, y); doc.text('Qty', 120, y); doc.text('Precio', 140, y); doc.text('Total', 170, y);
-      y += 4;
-      doc.setFont('helvetica', 'normal');
-      doc.setDrawColor(200); doc.line(20, y, 190, y); y += 4;
-      items.forEach(item => {
-        const lineTotal = (item.quantity || 1) * (item.unit_price || item.price || 0);
-        doc.text(String(item.description || '').substring(0, 50), 20, y);
-        doc.text(String(item.quantity || 1), 120, y);
-        doc.text(fmt(item.unit_price || item.price || 0), 140, y);
-        doc.text(fmt(lineTotal), 170, y);
-        y += 6;
-      });
-      y += 4; doc.line(20, y, 190, y); y += 6;
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Subtotal: RD$ ${fmt(subtotal)}`, 140, y); y += 6;
-      if (discPct > 0) { doc.text(`Descuento (${discPct}%): RD$ ${fmt(discAmt)}`, 140, y); y += 6; }
-      doc.text(`ITBIS (${taxRate}%): RD$ ${fmt(taxAmt)}`, 140, y); y += 6;
-      doc.setFontSize(12);
-      doc.text(`TOTAL: RD$ ${fmt(total)}`, 140, y);
-      doc.save(`factura_${body.invoice_number || 'draft'}.pdf`);
+    const label = status==='draft'?'💾 Borrador guardado':'✅ Factura EMITIDA';
+    toast(`${label} — No. ${r.invoice_number||''} — RD$ ${fmt(r.total||total)}`);
+    // PDF generation (optional, only on desktop)
+    if (status === 'issued' && window.jspdf) {
+      try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const pageW = doc.internal.pageSize.getWidth();
+        doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+        doc.text('FACTURA', pageW/2, 15, { align: 'center' });
+        doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+        doc.text(`No: ${body.invoice_number || 'N/A'}`, pageW/2, 22, { align: 'center' });
+        doc.text(`Fecha: ${body.date || ''}`, 20, 30);
+        doc.text(`Cliente: ${body.client_name || 'N/A'}`, 20, 36);
+        let y = 48;
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+        doc.text('Descripcion', 20, y); doc.text('Qty', 120, y); doc.text('Precio', 140, y); doc.text('Total', 170, y);
+        y += 4; doc.setDrawColor(200); doc.line(20, y, 190, y); y += 4;
+        doc.setFont('helvetica', 'normal');
+        lines.forEach(item => {
+          const lineTotal = (item.quantity||1)*(item.unit_price||0);
+          doc.text(String(item.description||'').substring(0,50), 20, y);
+          doc.text(String(item.quantity||1), 120, y);
+          doc.text(fmt(item.unit_price||0), 140, y);
+          doc.text(fmt(lineTotal), 170, y);
+          y += 6;
+        });
+        y += 4; doc.line(20, y, 190, y); y += 6;
+        doc.setFont('helvetica', 'bold');
+        doc.text(`TOTAL: RD$ ${fmt(total)}`, 140, y);
+        doc.save(`factura_${body.invoice_number||'draft'}.pdf`);
+      } catch(pdfErr) { /* PDF failed silently on mobile */ }
     }
     invoices = await apiFetch('/api/invoices?limit=20');
     products = await apiFetch('/api/products');
     receivables = await apiFetch('/api/receivables');
+    closeModal('newInvoiceModal');
     showPage('facturas', el('nav-facturas'));
   } catch(e) { let msg=e.message; try{msg=JSON.parse(msg).error||msg;}catch{} toast(msg,'error'); }
 }
