@@ -1864,22 +1864,21 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
         await query(`UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2`, [total, id]);
       }
 
-      // Auto-create income record
-      // Find or create a matching income type based on payment method
-      const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
-      const pmLabel = pmLabels[pmeth] || '💰 Venta';
-      const pmIcon = pmeth==='cash'?'💵':pmeth==='bank'?'🏦':pmeth==='card'?'💳':'📋';
-      let incTypeId = null;
-      const itR = await client.query(`SELECT id FROM income_types WHERE user_id=$1 AND (name=$2 OR icon=$3) LIMIT 1`, [req.userId, pmLabel, pmIcon]);
-      if (itR.rows[0]) {
-        incTypeId = itR.rows[0].id;
-      } else {
-        incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await client.query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
-          [incTypeId, req.userId, pmLabel, 'Generado automáticamente desde facturas',
-           pmeth==='cash'?'💵':pmeth==='bank'?'🏦':pmeth==='card'?'💳':'📋', '#00e5a0']);
-      }
-      // Create journal entry
+      // Auto-create income record — ONLY for cash (efectivo); transfer/tarjeta wait until marked paid
+      if (pmeth === 'cash') {
+        const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
+        const pmLabel = pmLabels[pmeth] || '💰 Venta';
+        const pmIcon = '💵';
+        let incTypeId = null;
+        const itR = await client.query(`SELECT id FROM income_types WHERE user_id=$1 AND (name=$2 OR icon=$3) LIMIT 1`, [req.userId, pmLabel, pmIcon]);
+        if (itR.rows[0]) {
+          incTypeId = itR.rows[0].id;
+        } else {
+          incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+          await client.query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
+            [incTypeId, req.userId, pmLabel, 'Generado automáticamente desde facturas', '💵', '#00e5a0']);
+        }
+        // Create journal entry
       if (debitAcct && salesAcct) {
         const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
         await client.query(
@@ -1904,8 +1903,10 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
           await client.query(`INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`, [ln.acct, ln.d-ln.c]);
         }
       }
+      }  // closes pmeth === 'cash'
     }
 
+    // For credit: only CxC is created above; bank/card income waits until marked paid
     await client.query('COMMIT');
     res.json({ ok: true, id, invoice_number: resolvedInvoiceNumber, total });
   } catch(e) {
