@@ -1975,6 +1975,52 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
       );
     }
 
+    // When invoice is CANCELLED: reverse journal entry + cancel CxC
+    if (status === 'cancelled' && prevStatus !== 'cancelled') {
+      // Cancel CxC
+      await query(
+        `UPDATE receivables SET status='cancelled'
+         WHERE user_id=$1 AND description ILIKE $2`,
+        [req.userId, `%Factura ${inv.invoice_number}%`]
+      );
+
+      // Find original journal entry for this invoice
+      const jeR = await query(
+        `SELECT id FROM journal_entries WHERE user_id=$1 AND ref_type='invoice' AND ref_id=$2`,
+        [req.userId, inv.id]
+      );
+
+      for (const je of jeR.rows) {
+        // Get lines to reverse
+        const linesR = await query(`SELECT * FROM journal_lines WHERE journal_entry_id=$1`, [je.id]);
+
+        // Create reversal entry
+        const revId = `je_rev_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        await query(
+          `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
+           VALUES($1,$2,$3,$4,$5,$6)`,
+          [revId, req.userId, new Date().toISOString().split('T')[0],
+           `ANULACIÓN Factura ${inv.invoice_number}`, 'reversal', inv.id]
+        );
+
+        for (const ln of linesR.rows) {
+          const rlnId = `jl_rev_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+          // Swap debit/credit to reverse
+          await query(
+            `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit)
+             VALUES($1,$2,$3,$4,$5)`,
+            [rlnId, revId, ln.account_id, ln.credit, ln.debit]
+          );
+          // Reverse balance
+          await query(
+            `INSERT INTO account_balances(account_id,balance) VALUES($1,$2)
+             ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
+            [ln.account_id, parseFloat(ln.credit) - parseFloat(ln.debit)]
+          );
+        }
+      }
+    }
+
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
