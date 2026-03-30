@@ -1796,18 +1796,40 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
           [itemId, id, item.description || '', qty, price, lineTotal]);
       }
     }
-    // If created as issued directly, also auto-create CxC + journal
+    // If created as issued directly, also auto-create CxC/journal based on payment method
     if ((status || 'draft') === 'issued') {
-      const total = parseFloat(req.body.total || 0);
-      const tax   = parseFloat(req.body.tax || 0);
-      const sub   = parseFloat(req.body.subtotal || total);
-      const cxcId = `rec_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-      let clientId = null;
-      if (req.body.client_name) {
-        const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, req.body.client_name]);
-        if (cl.rows[0]) clientId = cl.rows[0].id;
+      const total  = parseFloat(req.body.total || 0);
+      const tax    = parseFloat(req.body.tax || 0);
+      const sub    = parseFloat(req.body.subtotal || total);
+      const pmeth  = req.body.payment_method || 'credit'; // cash | bank | card | credit
+
+      // Find accounts
+      const accts = await query(`SELECT id, code FROM accounts WHERE user_id=$1 AND code IN ('1101','1102','1201','4101','4201','2102')`, [req.userId]);
+      const acctMap = {}; accts.rows.forEach(a => { acctMap[a.code] = a.id; });
+      const salesAcct = acctMap['4101'] || acctMap['4201'];
+
+      // Determine debit account based on payment method
+      let debitAcct = null;
+      let payDesc   = '';
+      if (pmeth === 'cash') {
+        debitAcct = acctMap['1102']; // Caja
+        payDesc = 'Efectivo';
+      } else if (pmeth === 'bank' || pmeth === 'card') {
+        debitAcct = acctMap['1101']; // Banco
+        payDesc = pmeth === 'bank' ? 'Transferencia' : 'Tarjeta';
+      } else {
+        debitAcct = acctMap['1201']; // CxC (crédito)
+        payDesc = 'Crédito';
       }
-      if (clientId || req.body.client_name) {
+
+      // Create CxC only if payment is on credit
+      if (pmeth === 'credit' && (req.body.client_name || debitAcct)) {
+        const cxcId = `rec_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        let clientId = null;
+        if (req.body.client_name) {
+          const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, req.body.client_name]);
+          if (cl.rows[0]) clientId = cl.rows[0].id;
+        }
         await query(
           `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
            VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
@@ -1816,17 +1838,21 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
            total, 0, 'pending', req.body.due_date||null]
         );
       }
-      const accts = await query(`SELECT id, code FROM accounts WHERE user_id=$1 AND code IN ('1201','4101','4201','2102')`, [req.userId]);
-      const acctMap = {}; accts.rows.forEach(a => { acctMap[a.code] = a.id; });
-      const clientAcct = acctMap['1201'];
-      const salesAcct  = acctMap['4101'] || acctMap['4201'];
-      if (clientAcct && salesAcct) {
+
+      // If paid immediately (cash/bank/card), mark invoice as paid
+      if (pmeth !== 'credit') {
+        await query(`UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2`, [total, id]);
+      }
+
+      // Create journal entry
+      if (debitAcct && salesAcct) {
         const jeId = `je_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
         await query(`INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
           [jeId, req.userId, req.body.date||new Date().toISOString().split('T')[0],
-           `Factura ${invoice_number} — ${req.body.client_name||'Cliente'}`, 'invoice', id]);
-        const jLines = [{acct:clientAcct,d:total,c:0},{acct:salesAcct,d:0,c:sub}];
+           `Factura ${invoice_number} — ${req.body.client_name||'Cliente'} [${payDesc}]`, 'invoice', id]);
+        const jLines = [{acct:debitAcct,d:total,c:0},{acct:salesAcct,d:0,c:sub}];
         if (tax>0 && acctMap['2102']) jLines.push({acct:acctMap['2102'],d:0,c:tax});
+        else if (tax>0) jLines[1].c += tax;
         for (const ln of jLines) {
           const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
           await query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,$5)`,

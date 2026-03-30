@@ -761,6 +761,14 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
             <div class="form-group"><label class="form-label">Tipo de Ingreso</label>
               <select class="form-input form-select" id="nf-income-type"><option value="">Sin clasificar</option></select>
             </div>
+            <div class="form-group" style="margin-top:10px"><label class="form-label">Método de Pago</label>
+              <select class="form-input form-select" id="nf-payment-method">
+                <option value="credit">A Crédito (CxC)</option>
+                <option value="cash">Efectivo</option>
+                <option value="bank">Transferencia / Banco</option>
+                <option value="card">Tarjeta</option>
+              </select>
+            </div>
             <div class="form-grid form-grid-2" style="margin-top:10px">
               <div class="form-group"><label class="form-label">ITBIS %</label><input class="form-input" id="nf-tax" type="number" value="18" min="0" max="100" oninput="recalcInvoice()"></div>
               <div class="form-group"><label class="form-label">Descuento %</label><input class="form-input" id="nf-discount" type="number" value="0" min="0" max="100" oninput="recalcInvoice()"></div>
@@ -3016,6 +3024,7 @@ async function saveInvoice(status='draft') {
     tax:            Math.round(taxAmt*100)/100,
     total:          Math.round((total||0.01)*100)/100,
     notes:          el('nf-notes')?.value?.trim() || null,
+    payment_method: el('nf-payment-method')?.value || 'credit',
     status,
     lines: lines.map(l => ({
       description: l.description,
