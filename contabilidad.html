@@ -2293,7 +2293,6 @@ async function exportAllReports() {
     if (!jsPDF) throw new Error('jsPDF no disponible');
 
     const fmtDOP = (n) => Number(n||0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     const pageW = doc.internal.pageSize.getWidth();
 
