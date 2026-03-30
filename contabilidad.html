@@ -149,6 +149,8 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 .btn-danger:hover { border-color:var(--accent2); }
 .btn-sm { padding:5px 10px; font-size:var(--fs-2xs); }
 .btn-full { width:100%; justify-content:center; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.4); border-top-color:#fff; border-radius:50%; animation:spin 0.7s linear infinite; flex-shrink:0; }
 
 /* ── PANEL / DRAWER ── */
 .panel { background:var(--surface); border:1px solid var(--border2); border-radius:var(--radius); padding:var(--space-md); margin-bottom:var(--space-md); }
@@ -1432,7 +1434,7 @@ async function doLogin() {
   const password = el('loginPassword').value;
   el('loginError').style.display = 'none';
   if (!username || !password) { el('loginError').textContent='Completa usuario y contraseña'; el('loginError').style.display='block'; return; }
-  const btn = el('loginBtn'); btn.textContent='Verificando...'; btn.disabled=true;
+  const btn = el('loginBtn'); btn.innerHTML='<span class="spinner"></span> Verificando...'; btn.disabled=true;
   try {
     const res = await fetch(SERVER_URL+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
     const d = await res.json();
@@ -2866,7 +2868,7 @@ async function doChangePassword() {
   if (!current||!newPwd) { errEl.textContent='Completa todos los campos'; errEl.style.display='block'; return; }
   if (newPwd!==newPwd2)  { errEl.textContent='Las contraseñas no coinciden'; errEl.style.display='block'; return; }
   if (newPwd.length<6)   { errEl.textContent='Mínimo 6 caracteres'; errEl.style.display='block'; return; }
-  const btn=el('pwdSaveBtn'); btn.textContent='Guardando...'; btn.disabled=true;
+  const btn=el('pwdSaveBtn'); btn.innerHTML='<span class="spinner"></span> Guardando...'; btn.disabled=true;
   try {
     const res=await fetch(SERVER_URL+'/api/auth/change-password',{method:'POST',headers:authHeaders(),body:JSON.stringify({currentPassword:current,newPassword:newPwd})});
     const d=await res.json(); if(!res.ok) throw new Error(d.error||'Error');
@@ -4076,7 +4078,7 @@ function closeWizard() {
 async function wizardSubmit() {
   if (!_wizardSelected) return;
   const btn = el('wiz-submit-btn');
-  if (btn) { btn.disabled=true; btn.textContent='⏳ Creando...'; }
+  if (btn) { btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Creando...'; }
   try {
     await apiFetch('/api/setup/wizard',{method:'POST',body:JSON.stringify({businessType:_wizardSelected})});
     await loadAllData();
