@@ -1904,7 +1904,6 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
            `Factura ${invoice_number} — ${client_name||'Cliente'} [${payDesc}]`, 'invoice', id]);
         const jLines = [{acct:debitAcct,d:total,c:0},{acct:salesAcct,d:0,c:sub}];
         if (tax>0 && acctMap['2102']) jLines.push({acct:acctMap['2102'],d:0,c:tax});
-        else if (tax>0) jLines[1].c += tax;
         for (const ln of jLines) {
           const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
           await client.query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,$5)`,
@@ -2036,6 +2035,7 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
 
       // Generate journal entry: Debit Caja/Banco, Credit Clientes (CxC)
       const total = parseFloat(inv.total || 0);
+      const sub   = parseFloat(inv.subtotal || total);
       const pmeth = inv.payment_method || 'credit';
       const cajaAcct  = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.1.01' LIMIT 1`, [req.userId]);
       const bancoAcct = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.1.02' LIMIT 1`, [req.userId]);
@@ -2096,7 +2096,7 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
       await query(
         `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
          VALUES($1,$2,$3,$4,$5,$6,$7)`,
-        [incId, req.userId, incTypeId, inv.total,
+        [incId, req.userId, incTypeId, sub,
          `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
          inv.date||new Date().toISOString().split('T')[0],
          inv.invoice_number]
@@ -3033,8 +3033,8 @@ app.post('/api/receivables', authMiddleware, async (req, res) => {
         [debitLine, jeId, cxc.rows[0].id, total_amount, client_id, clientName]
       );
       await client.query(
-        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,0,$4)`, [creditLine, jeId, ing.rows[0].id, total_amount]
+        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
+         VALUES($1,$2,$3,0,$4,'client',$5,$6)`, [creditLine, jeId, ing.rows[0].id, total_amount, client_id, clientName]
       );
       await client.query(
         `INSERT INTO account_balances(account_id, balance)
@@ -3043,7 +3043,7 @@ app.post('/api/receivables', authMiddleware, async (req, res) => {
       );
       await client.query(
         `INSERT INTO account_balances(account_id, balance)
-         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance - $2`,
+         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2`,
         [ing.rows[0].id, total_amount]
       );
     }
@@ -3319,7 +3319,7 @@ app.post('/api/payables/:id/payments', authMiddleware, async (req, res) => {
       );
       await client.query(
         `INSERT INTO account_balances(account_id, balance)
-         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance - $2`,
+         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2`,
         [cxp.rows[0].id, amount]
       );
       await client.query(
