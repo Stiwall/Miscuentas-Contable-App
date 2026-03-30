@@ -3816,10 +3816,13 @@ async function initDB() {
   try { await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_current NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
   // Migrations for fixed_assets
   try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS depreciacion_metodo TEXT DEFAULT 'linea_recta'`); } catch(e) {}
-  // Migration: add type_id to income_records if missing
-  try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS type_id TEXT REFERENCES income_types(id)`); } catch(e) {}
-  // Migration: add reference column to income_records if missing
+  // Migration: income_records - add all missing columns
+  try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS type_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS date DATE NOT NULL DEFAULT CURRENT_DATE`); } catch(e) {}
   try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS reference TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS amount NUMERIC(12,2)`); } catch(e) {}
+  try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS description TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`); } catch(e) {}
   // Migration: add payment_method to invoices
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'credit'`); } catch(e) {}
 
