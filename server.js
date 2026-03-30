@@ -1771,6 +1771,9 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
   try {
     const { invoice_number, client_name, client_rnc, client_address, subtotal, tax, total, status, date, due_date, notes, items } = req.body;
     if (!invoice_number || !total) return res.status(400).json({ error: 'invoice_number and total required' });
+    // Check for duplicate invoice number
+    const dupCheck = await query(`SELECT id FROM invoices WHERE user_id=$1 AND invoice_number=$2`, [req.userId, invoice_number]);
+    if (dupCheck.rows[0]) return res.status(400).json({ error: `El número de factura ${invoice_number} ya existe` });
     const id = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await query(
       `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,subtotal,tax,total,status,date,due_date,notes)
@@ -1828,7 +1831,7 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
           const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
           await query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,$5)`,
             [lnId, jeId, ln.acct, ln.d, ln.c]);
-          await query(`UPDATE accounts SET balance=balance+$1 WHERE id=$2`, [ln.d-ln.c, ln.acct]);
+          await query(`INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`, [ln.acct, ln.d-ln.c]);
         }
       }
     }
@@ -1926,7 +1929,7 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
           );
           // Update account balance
           await query(
-            `UPDATE accounts SET balance = balance + $1 WHERE id = $2`,
+            `INSERT INTO account_balances(account_id,balance) VALUES($2,$1) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$1`,
             [ln.debit - ln.credit, ln.acct]
           );
         }
