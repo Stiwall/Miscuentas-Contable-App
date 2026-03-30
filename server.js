@@ -1774,18 +1774,30 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
   try {
     await client.query('BEGIN');
     const { invoice_number, client_name, client_rnc, client_address, subtotal, tax, total, discount_amount, discount_pct, status, date, due_date, notes, items } = req.body;
-    if (!invoice_number || !total) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'invoice_number and total required' }); }
-    // Check for duplicate invoice number
-    const dupCheck = await client.query(`SELECT id FROM invoices WHERE user_id=$1 AND invoice_number=$2`, [req.userId, invoice_number]);
-    if (dupCheck.rows[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: `El número de factura ${invoice_number} ya existe` }); }
+    if (!total) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'total is required' }); }
+    // Resolve invoice number: use submitted, or get next from counter
+    let resolvedInvoiceNumber = invoice_number;
+    if (!resolvedInvoiceNumber) {
+      const cntR = await client.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
+      const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
+      resolvedInvoiceNumber = String(nextNum).padStart(6, '0');
+    } else {
+      // If submitted number already exists, get a fresh one instead of failing
+      const dupCheck = await client.query(`SELECT id FROM invoices WHERE user_id=$1 AND invoice_number=$2`, [req.userId, invoice_number]);
+      if (dupCheck.rows[0]) {
+        const cntR = await client.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
+        const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
+        resolvedInvoiceNumber = String(nextNum).padStart(6, '0');
+      }
+    }
     const id = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await client.query(
       `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,subtotal,tax,total,discount_amount,discount_pct,status,date,due_date,notes)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-      [id, req.userId, invoice_number, client_name||null, client_rnc||null, client_address||null, subtotal||0, tax||0, total, discount_amount||0, discount_pct||0, status||'pending', date||null, due_date||null, notes||null]
+      [id, req.userId, resolvedInvoiceNumber, client_name||null, client_rnc||null, client_address||null, subtotal||0, tax||0, total, discount_amount||0, discount_pct||0, status||'pending', date||null, due_date||null, notes||null]
     );
     // Update counter
-    const num = parseInt(invoice_number) || 1;
+    const num = parseInt(resolvedInvoiceNumber) || 1;
     await client.query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, num]);
     // Insert items (frontend sends 'lines' array)
     const rawItems = req.body.lines || items || [];
@@ -1894,7 +1906,7 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.json({ ok: true, id, invoice_number, total });
+    res.json({ ok: true, id, invoice_number: resolvedInvoiceNumber, total });
   } catch(e) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: e.message });
