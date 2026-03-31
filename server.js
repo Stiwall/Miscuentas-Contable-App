@@ -3416,20 +3416,21 @@ app.delete('/api/accounts/:id', authMiddleware, async (req, res) => {
 app.get('/api/journal', authMiddleware, async (req, res) => {
   try {
     const { from, to, account_id } = req.query;
-    let sql = `SELECT je.id, je.date, je.description, je.ref_type, je.ref_id, je.created_at,
+    const uid = req.userId;
+    let dateFilter = '';
+    let params = [];
+    if (from) { dateFilter += ` AND je.date >= $${params.length + 1}::date`; params.push(from); }
+    if (to)   { dateFilter += ` AND je.date <= $${params.length + 1}::date`; params.push(to); }
+    if (account_id) { dateFilter += ` AND jl.account_id = $${params.length + 1}`; params.push(account_id); }
+    const sql = `SELECT je.id, je.date, je.description, je.ref_type, je.ref_id, je.created_at,
                       jl.id as line_id, jl.account_id, a.name as account_name, a.code as account_code,
                       jl.debit, jl.credit,
                       jl.auxiliary_type, jl.auxiliary_id, jl.auxiliary_name
                FROM journal_entries je
                JOIN journal_lines jl ON jl.journal_entry_id = je.id
                JOIN accounts a ON a.id = jl.account_id
-               WHERE je.user_id=$1`;
-    const params = [req.userId];
-    let p = 2;
-    if (from) { sql += ` AND je.date >= $${p++}::date`; params.push(from); }
-    if (to)   { sql += ` AND je.date <= $${p++}::date`; params.push(to); }
-    if (account_id) { sql += ` AND jl.account_id = $${p++}`; params.push(account_id); }
-    sql += ` ORDER BY je.date DESC, je.created_at DESC`;
+               WHERE je.user_id='${uid}'${dateFilter}
+               ORDER BY je.date DESC, je.created_at DESC`;
     const r = await query(sql, params);
 
     // Group by entry
@@ -4047,6 +4048,8 @@ app.get('/api/cashflow', authMiddleware, async (req, res) => {
       to   = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
     }
 
+    const uid = req.userId;
+
     // Buscar cuentas de caja y banco con múltiples formatos de código (wizard y sistema)
     const cashAccounts = await query(
       `SELECT id, code FROM accounts
@@ -4059,13 +4062,12 @@ app.get('/api/cashflow', authMiddleware, async (req, res) => {
 
     // Sin cuentas contables → fallback a tabla transactions
     if (!cashAccounts.rows.length) {
-      let txWhere = `WHERE user_id=$1`;
-      const txParams = [req.userId];
-      let p = 2;
-      if (from) { txWhere += ` AND tx_date >= $${p++}::date`; txParams.push(from); }
-      if (to)   { txWhere += ` AND tx_date <= $${p++}::date`; txParams.push(to); }
+      let txDateFilter = '';
+      let txParams = [];
+      if (from) { txDateFilter += ` AND tx_date >= $${txParams.length + 1}::date`; txParams.push(from); }
+      if (to)   { txDateFilter += ` AND tx_date <= $${txParams.length + 1}::date`; txParams.push(to); }
       const txr = await query(
-        `SELECT type, SUM(amount) as total FROM transactions ${txWhere} GROUP BY type`, txParams
+        `SELECT type, SUM(amount) as total FROM transactions WHERE user_id='${uid}'${txDateFilter} GROUP BY type`, txParams
       );
       const cashIn  = parseFloat(txr.rows.find(r => r.type === 'ingreso')?.total || 0);
       const cashOut = parseFloat(txr.rows.find(r => r.type === 'egreso')?.total  || 0);
@@ -4179,13 +4181,12 @@ app.get('/api/income-statement', authMiddleware, async (req, res) => {
       }
     } else {
       // Fallback: tabla transactions cuando no hay asientos
-      let txWhere = `WHERE user_id=$1`;
-      const txParams = [req.userId];
-      let tp = 2;
-      if (from) { txWhere += ` AND tx_date >= $${tp++}::date`; txParams.push(from); }
-      if (to)   { txWhere += ` AND tx_date <= $${tp++}::date`; txParams.push(to); }
+      let txDateFilter = '';
+      let txParams = [];
+      if (from) { txDateFilter += ` AND tx_date >= $${txParams.length + 1}::date`; txParams.push(from); }
+      if (to)   { txDateFilter += ` AND tx_date <= $${txParams.length + 1}::date`; txParams.push(to); }
       const txr = await query(
-        `SELECT type, SUM(amount) AS total FROM transactions ${txWhere} GROUP BY type`, txParams
+        `SELECT type, SUM(amount) AS total FROM transactions WHERE user_id='${uid}'${txDateFilter} GROUP BY type`, txParams
       );
       income   = parseFloat(txr.rows.find(rr => rr.type === 'ingreso')?.total || 0);
       expenses = parseFloat(txr.rows.find(rr => rr.type === 'egreso')?.total  || 0);
