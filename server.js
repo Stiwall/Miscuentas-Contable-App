@@ -1778,147 +1778,306 @@ app.get('/api/invoices/next-number', authMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─── HELPER: registrar asiento contable dentro de una transacción PG ─────────
+async function insertJournalEntry(pgClient, userId, date, description, refType, refId, lines) {
+  const q = pgClient
+    ? (sql, params) => pgClient.query(sql, params)
+    : (sql, params) => query(sql, params);
+
+  const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,8)}`;
+  await q(
+    `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
+    [jeId, userId, date, description, refType, refId]
+  );
+  for (const ln of lines) {
+    const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,8)}`;
+    await q(
+      `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit,auxiliary_type,auxiliary_id,auxiliary_name)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [lnId, jeId, ln.acct, ln.d||0, ln.c||0, ln.auxType||null, ln.auxId||null, ln.auxName||null]
+    );
+    await q(
+      `INSERT INTO account_balances(account_id,balance) VALUES($1,$2)
+       ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
+      [ln.acct, (ln.d||0)-(ln.c||0)]
+    );
+  }
+  return jeId;
+}
+
+// ─── HELPER: calcular y registrar CMV de los ítems de una factura ──────────
+async function processCMVForInvoice(pgClient, userId, invoiceId, invoiceNumber, rawItems, invoiceDate) {
+  const q = pgClient
+    ? (sql, params) => pgClient.query(sql, params)
+    : (sql, params) => query(sql, params);
+
+  // Buscar cuentas CMV e Inventario (con múltiples códigos posibles según plan)
+  const acctR = await q(
+    `SELECT id, code, name FROM accounts
+     WHERE user_id=$1 AND code IN ('5101','5.1.01','5102','5.1.02','1103','1.1.03','1301','1.3.01')
+     ORDER BY code`,
+    [userId]
+  );
+  const acctMap = {};
+  acctR.rows.forEach(a => { acctMap[a.code] = { id: a.id, name: a.name }; });
+
+  // CMV: preferir 5101 o 5.1.01
+  const cmvAcct = acctMap['5101'] || acctMap['5.1.01'] || acctMap['5102'] || acctMap['5.1.02'];
+  // Inventario: preferir 1103 o 1.1.03 o 1301
+  const invAcct = acctMap['1103'] || acctMap['1.1.03'] || acctMap['1301'] || acctMap['1.3.01'];
+
+  let totalCMV = 0;
+  const cmvDetails = [];
+
+  for (const item of rawItems) {
+    if (!item.product_id) continue;
+    const qty = parseFloat(item.quantity || item.qty || 1);
+    if (qty <= 0) continue;
+
+    const prodR = await q(
+      `SELECT id, name, cost_price, stock_current FROM products WHERE id=$1 AND user_id=$2`,
+      [item.product_id, userId]
+    );
+    if (!prodR.rows[0]) continue;
+    const prod = prodR.rows[0];
+    const costPrice = parseFloat(prod.cost_price || 0);
+    if (costPrice <= 0) continue;
+
+    const stockActual = parseFloat(prod.stock_current || 0);
+    const lineCMV = Math.round(qty * costPrice * 100) / 100;
+    totalCMV += lineCMV;
+
+    // Reducir stock en tabla products
+    const newStock = Math.max(0, stockActual - qty);
+    await q(
+      `UPDATE products SET stock_current=$1 WHERE id=$2 AND user_id=$3`,
+      [newStock, item.product_id, userId]
+    );
+
+    // Registrar salida en inventory_movements si el producto también existe en inventory_products
+    const invProdR = await q(
+      `SELECT id FROM inventory_products WHERE user_id=$1 AND code=(SELECT code FROM products WHERE id=$2 AND user_id=$1)`,
+      [userId, item.product_id]
+    );
+    if (invProdR.rows[0]) {
+      const movId = `mov_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await q(
+        `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
+         VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8)`,
+        [movId, userId, invProdR.rows[0].id, qty, costPrice,
+         `FAC-${invoiceNumber}`, `CMV automático Factura ${invoiceNumber}`, invoiceDate]
+      );
+    }
+
+    cmvDetails.push({ product: prod.name, qty, cost: costPrice, cmv: lineCMV, stockBefore: stockActual, stockAfter: newStock });
+  }
+
+  // Asiento CMV: Débito CMV / Crédito Inventario
+  if (totalCMV > 0 && cmvAcct && invAcct) {
+    await insertJournalEntry(pgClient, userId, invoiceDate,
+      `CMV Factura ${invoiceNumber} — Costo de mercancía vendida`,
+      'cmv', invoiceId,
+      [
+        { acct: cmvAcct.id, d: totalCMV, c: 0 },   // Débito CMV (costo)
+        { acct: invAcct.id, d: 0, c: totalCMV },    // Crédito Inventario (activo baja)
+      ]
+    );
+  }
+
+  return { totalCMV, cmvDetails, hasCMVAccounts: !!(cmvAcct && invAcct) };
+}
+
 app.post('/api/invoices', authMiddleware, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { invoice_number, client_name, client_rnc, client_address, subtotal, tax, total, discount_amount, discount_pct, status, date, due_date, notes, items } = req.body;
-    if (!total) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'total is required' }); }
-    // Resolve invoice number: use submitted, or get next from counter
-    let resolvedInvoiceNumber = invoice_number;
-    if (!resolvedInvoiceNumber) {
+    const {
+      invoice_number, client_name, client_rnc, client_address,
+      subtotal, tax, total, discount_amount, discount_pct,
+      status, date, due_date, notes, items
+    } = req.body;
+
+    if (!total) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'total es requerido' }); }
+
+    // ── Resolver número de factura ──
+    let resolvedNum = invoice_number;
+    if (!resolvedNum) {
       const cntR = await client.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
-      const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
-      resolvedInvoiceNumber = String(nextNum).padStart(6, '0');
+      resolvedNum = String((parseInt(cntR.rows[0]?.last_number) || 0) + 1).padStart(6, '0');
     } else {
-      // If submitted number already exists, get a fresh one instead of failing
-      const dupCheck = await client.query(`SELECT id FROM invoices WHERE user_id=$1 AND invoice_number=$2`, [req.userId, invoice_number]);
-      if (dupCheck.rows[0]) {
+      const dup = await client.query(`SELECT id FROM invoices WHERE user_id=$1 AND invoice_number=$2`, [req.userId, invoice_number]);
+      if (dup.rows[0]) {
         const cntR = await client.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
-        const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
-        resolvedInvoiceNumber = String(nextNum).padStart(6, '0');
+        resolvedNum = String((parseInt(cntR.rows[0]?.last_number) || 0) + 1).padStart(6, '0');
       }
     }
-    const id = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+
+    const invId = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const invDate = date || new Date().toISOString().split('T')[0];
+    const invStatus = status || 'draft';
+
     await client.query(
-      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,subtotal,tax,total,discount_amount,discount_pct,status,date,due_date,notes,payment_method,paid_amount)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-      [id, req.userId, resolvedInvoiceNumber, client_name||null, client_rnc||null, client_address||null, subtotal||0, tax||0, total, discount_amount||0, discount_pct||0, status||'pending', date||null, due_date||null, notes||null, req.body.payment_method||'credit', 0]
+      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,
+        subtotal,tax,total,discount_amount,discount_pct,status,date,due_date,notes,payment_method)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+      [invId, req.userId, resolvedNum, client_name||null, client_rnc||null, client_address||null,
+       subtotal||0, tax||0, total, discount_amount||0, discount_pct||0,
+       invStatus, invDate, due_date||null, notes||null, req.body.payment_method||'credit']
     );
-    // Update counter
-    const num = parseInt(resolvedInvoiceNumber) || 1;
-    await client.query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, num]);
-    // Insert items (frontend sends 'lines' array)
+
+    // Actualizar contador
+    await client.query(
+      `INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2)
+       ON CONFLICT(user_id) DO UPDATE SET last_number=$2`,
+      [req.userId, parseInt(resolvedNum) || 1]
+    );
+
+    // ── Insertar ítems ──
     const rawItems = req.body.lines || items || [];
-    if (rawItems.length > 0) {
-      for (const item of rawItems) {
-        const itemId = `item_${Date.now()}_${Math.random().toString(36).substr(2,4)}`;
-        const qty = parseFloat(item.quantity || item.qty || 1);
-        const price = parseFloat(item.unit_price || item.price || 0);
-        const disc = parseFloat(item.discount_pct || 0);
-        const unitPrice = price * (1 - disc / 100);
-        const lineTotal = qty * unitPrice;
-        await client.query(`INSERT INTO invoice_items(id,invoice_id,description,qty,price,total,discount_pct) VALUES($1,$2,$3,$4,$5,$6,$7)`,
-          [itemId, id, item.description || '', qty, unitPrice, lineTotal, disc]);
-      }
+    for (const item of rawItems) {
+      const itemId = `item_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      const qty      = parseFloat(item.quantity || item.qty || 1);
+      const price    = parseFloat(item.unit_price || item.price || 0);
+      const disc     = parseFloat(item.discount_pct || 0);
+      const unitPrice = price * (1 - disc / 100);
+      const lineTotal = Math.round(qty * unitPrice * 100) / 100;
+      await client.query(
+        `INSERT INTO invoice_items(id,invoice_id,description,qty,price,total,discount_pct,product_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [itemId, invId, item.description||'', qty, unitPrice, lineTotal, disc, item.product_id||null]
+      );
     }
-    // If created as issued directly, also auto-create CxC/journal based on payment method
-    if ((status || 'draft') === 'issued') {
-      const total  = parseFloat(req.body.total || 0);
-      const tax    = parseFloat(req.body.tax || 0);
-      const sub    = parseFloat(req.body.subtotal || total);
-      const pmeth  = req.body.payment_method || 'credit'; // cash | bank | card | credit
 
-      // Find accounts
-      const accts = await query(`SELECT id, code FROM accounts WHERE user_id=$1 AND code IN ('1.1.01','1.1.02','1.2.01','4.1.01','4.2.01','2.1.02')`, [req.userId]);
-      const acctMap = {}; accts.rows.forEach(a => { acctMap[a.code] = a.id; });
-      const salesAcct = acctMap['4.1.01'] || acctMap['4.2.01'];
+    // ══════════════════════════════════════════════════════════════════
+    // ── LÓGICA CONTABLE — Solo cuando se emite (status = 'issued') ──
+    // ══════════════════════════════════════════════════════════════════
+    if (invStatus === 'issued') {
+      const totalNum = parseFloat(total);
+      const taxNum   = parseFloat(tax || 0);
+      const subNum   = parseFloat(subtotal || totalNum);
+      const pmeth    = req.body.payment_method || 'credit';
+      const payDescs = { cash:'Efectivo', bank:'Transferencia/Banco', card:'Tarjeta', credit:'Crédito' };
+      const payDesc  = payDescs[pmeth] || 'Crédito';
+
+      // Buscar cuentas contables (busca códigos del plan de cuentas del usuario)
+      const acctR = await client.query(
+        `SELECT id, code FROM accounts WHERE user_id=$1
+         AND code IN ('1101','1.1.01','1102','1.1.02','1201','1.2.01',
+                      '4101','4.1.01','4102','4.1.02','2101','2.1.01',
+                      '2201','2.2.01','2102','2.1.02')`,
+        [req.userId]
+      );
+      const am = {}; acctR.rows.forEach(a => { am[a.code] = a.id; });
+
+      // Caja / Banco / CxC / Ventas / ITBIS Cobrado
+      const cajaAcct  = am['1101'] || am['1.1.01'];
+      const bancoAcct = am['1102'] || am['1.1.02'];
+      const cxcAcct   = am['1201'] || am['1.2.01'];
+      const salesAcct = am['4101'] || am['4.1.01'] || am['4102'] || am['4.1.02'];
+      const itbisAcct = am['2201'] || am['2.2.01'] || am['2102'] || am['2.1.02'];
+
       if (!salesAcct) {
-        return res.status(400).json({ error: 'Cuenta de ventas (4.1.01) no encontrada. Configura tu plan de cuentas.' });
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'Cuenta de Ventas (4101) no encontrada. Ve a Plan de Cuentas → Inicio Rápido para configurarla.'
+        });
       }
 
-      // Determine debit account based on payment method
+      // ── Cuenta débito según método de pago ──
       let debitAcct = null;
-      let payDesc   = '';
-      if (pmeth === 'cash') {
-        debitAcct = acctMap['1.1.01']; // Caja
-        payDesc = 'Efectivo';
-      } else if (pmeth === 'bank' || pmeth === 'card') {
-        debitAcct = acctMap['1.1.02']; // Banco
-        payDesc = pmeth === 'bank' ? 'Transferencia' : 'Tarjeta';
-      } else {
-        debitAcct = acctMap['1.2.01']; // CxC (crédito)
-        payDesc = 'Crédito';
-      }
+      if (pmeth === 'cash')              debitAcct = cajaAcct || bancoAcct;
+      else if (pmeth === 'bank' || pmeth === 'card') debitAcct = bancoAcct || cajaAcct;
+      else                               debitAcct = cxcAcct;  // crédito → CxC
 
-      // Create CxC only if payment is on credit
-      if (pmeth === 'credit' && (req.body.client_name || debitAcct)) {
-        const cxcId = `rec_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        let clientId = null;
-        if (req.body.client_name) {
-          const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, req.body.client_name]);
-          if (cl.rows[0]) clientId = cl.rows[0].id;
+      // ── Asiento #1: Ingreso por venta ──
+      if (debitAcct) {
+        const jLines = [
+          { acct: debitAcct, d: totalNum,  c: 0 },      // Débito: cobro (caja/banco/cxc)
+          { acct: salesAcct, d: 0, c: subNum },          // Crédito: ventas (neto sin ITBIS)
+        ];
+        if (taxNum > 0 && itbisAcct) {
+          jLines.push({ acct: itbisAcct, d: 0, c: taxNum }); // Crédito: ITBIS cobrado
+        } else if (taxNum > 0) {
+          // Si no hay cuenta ITBIS separada, suma a ventas
+          jLines[1].c = totalNum;
         }
-        await query(
-          `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
-          [cxcId, req.userId, clientId||null,
-           `Factura ${invoice_number}${req.body.client_name?' — '+req.body.client_name:''}`,
-           total, 0, 'pending', req.body.due_date||null]
+        await insertJournalEntry(client, req.userId, invDate,
+          `Factura ${resolvedNum} — ${client_name||'Cliente'} [${payDesc}]`,
+          'invoice', invId, jLines
         );
       }
 
-      // If paid immediately (cash/bank/card), mark invoice as paid
-      if (pmeth !== 'credit') {
-        await query(`UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2`, [total, id]);
-      }
+      // ── CMV automático: Débito CMV / Crédito Inventario ──
+      const cmvResult = await processCMVForInvoice(
+        client, req.userId, invId, resolvedNum, rawItems, invDate
+      );
 
-      // Auto-create income record — ONLY for cash (efectivo); transfer/tarjeta wait until marked paid
-      if (pmeth === 'cash') {
-        const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
-        const pmLabel = pmLabels[pmeth] || '💰 Venta';
-        const pmIcon = '💵';
-        let incTypeId = null;
-        const itR = await client.query(`SELECT id FROM income_types WHERE user_id=$1 AND (name=$2 OR icon=$3) LIMIT 1`, [req.userId, pmLabel, pmIcon]);
+      // ── CxC si es a crédito ──
+      if (pmeth === 'credit') {
+        let clientId = null;
+        if (client_name) {
+          const cl = await client.query(
+            `SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`,
+            [req.userId, client_name]
+          );
+          if (cl.rows[0]) clientId = cl.rows[0].id;
+        }
+        const cxcRecId = `rec_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        await client.query(
+          `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
+           VALUES($1,$2,$3,$4,$5,$6,'pending',$7) ON CONFLICT DO NOTHING`,
+          [cxcRecId, req.userId, clientId||null,
+           `Factura ${resolvedNum}${client_name?' — '+client_name:''}`,
+           totalNum, 0, due_date||null]
+        );
+      } else {
+        // Pago inmediato → marcar pagada
+        await client.query(
+          `UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2`,
+          [totalNum, invId]
+        );
+
+        // Registro de ingreso para pago inmediato
+        const pmLabels = { cash:'💵 Ventas Efectivo', bank:'🏦 Ventas Transferencia', card:'💳 Ventas Tarjeta' };
+        const pmLabel  = pmLabels[pmeth] || '💰 Ventas';
+        let incTypeId  = null;
+        const itR = await client.query(
+          `SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`, [req.userId, pmLabel]
+        );
         if (itR.rows[0]) {
           incTypeId = itR.rows[0].id;
         } else {
           incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-          await client.query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
-            [incTypeId, req.userId, pmLabel, 'Generado automáticamente desde facturas', '💵', '#00e5a0']);
+          const icons = { cash:'💵', bank:'🏦', card:'💳' };
+          await client.query(
+            `INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
+            [incTypeId, req.userId, pmLabel, 'Auto desde facturas', icons[pmeth]||'💰', '#00e5a0']
+          );
         }
-        // Create journal entry
-      if (debitAcct && salesAcct) {
         const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
         await client.query(
           `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
            VALUES($1,$2,$3,$4,$5,$6,$7)`,
-          [incId, req.userId, incTypeId, total,
-           `Factura ${invoice_number}${client_name?' — '+client_name:''}`,
-           date||new Date().toISOString().split('T')[0],
-           invoice_number]
+          [incId, req.userId, incTypeId, subNum,
+           `Factura ${resolvedNum}${client_name?' — '+client_name:''}`,
+           invDate, resolvedNum]
         );
-        const jeId = `je_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await client.query(`INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
-          [jeId, req.userId, date||new Date().toISOString().split('T')[0],
-           `Factura ${invoice_number} — ${client_name||'Cliente'} [${payDesc}]`, 'invoice', id]);
-        const jLines = [{acct:debitAcct,d:total,c:0},{acct:salesAcct,d:0,c:sub}];
-        if (tax>0 && acctMap['2102']) jLines.push({acct:acctMap['2102'],d:0,c:tax});
-        for (const ln of jLines) {
-          const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-          await client.query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,$5)`,
-            [lnId, jeId, ln.acct, ln.d, ln.c]);
-          await client.query(`INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`, [ln.acct, ln.d-ln.c]);
-        }
       }
-      }  // closes pmeth === 'cash'
+
+      // ── Guardar resumen de CMV en la factura (columna cmv_amount) ──
+      if (cmvResult.totalCMV > 0) {
+        await client.query(
+          `UPDATE invoices SET cmv_amount=$1 WHERE id=$2`,
+          [cmvResult.totalCMV, invId]
+        ).catch(() => {}); // columna opcional, ignorar si no existe aún
+      }
     }
 
-    // For credit: only CxC is created above; bank/card income waits until marked paid
     await client.query('COMMIT');
-    res.json({ ok: true, id, invoice_number: resolvedInvoiceNumber, total });
+    res.json({ ok: true, id: invId, invoice_number: resolvedNum, total });
   } catch(e) {
     await client.query('ROLLBACK');
+    console.error('Invoice POST error:', e.message);
     res.status(500).json({ error: e.message });
   } finally {
     client.release();
@@ -1944,170 +2103,112 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
 
     await query(`UPDATE invoices SET status=$1 WHERE id=$2 AND user_id=$3`, [status, req.params.id, req.userId]);
 
-    // When invoice is ISSUED: create CxC + journal entry
+    // When invoice is ISSUED: create CxC + journal entry + CMV
     if (status === 'issued' && prevStatus === 'draft') {
       const total = parseFloat(inv.total || 0);
       const tax   = parseFloat(inv.tax || 0);
       const sub   = parseFloat(inv.subtotal || total);
-      const pmeth = inv.payment_method || 'credit'; // cash | bank | card | credit
+      const pmeth = inv.payment_method || 'credit';
+      const payDescs = { cash:'Efectivo', bank:'Transferencia', card:'Tarjeta', credit:'Crédito' };
+      const payDesc  = payDescs[pmeth] || 'Crédito';
 
-      // Find accounts
-      const accts = await query(
-        `SELECT id, code FROM accounts WHERE user_id=$1 AND code IN ('1.1.01','1.1.02','1.2.01','4.1.01','4.1.02','4.2.01','2.1.02') ORDER BY code`,
+      // Buscar cuentas (soporta ambos formatos de código: 1101 y 1.1.01)
+      const acctR = await query(
+        `SELECT id, code FROM accounts WHERE user_id=$1
+         AND code IN ('1101','1.1.01','1102','1.1.02','1201','1.2.01',
+                      '4101','4.1.01','4102','4.1.02','2201','2.2.01','2102','2.1.02')`,
         [req.userId]
       );
-      const acctMap = {};
-      accts.rows.forEach(a => { acctMap[a.code] = a.id; });
+      const am = {}; acctR.rows.forEach(a => { am[a.code] = a.id; });
+      const cajaAcct  = am['1101'] || am['1.1.01'];
+      const bancoAcct = am['1102'] || am['1.1.02'];
+      const cxcAcct   = am['1201'] || am['1.2.01'];
+      const salesAcct = am['4101'] || am['4.1.01'] || am['4102'] || am['4.1.02'];
+      const itbisAcct = am['2201'] || am['2.2.01'] || am['2102'] || am['2.1.02'];
 
-      const cajaAcct   = acctMap['1.1.01'];
-      const bancoAcct  = acctMap['1.1.02'];
-      const clientAcct = acctMap['1.2.01'];
-      const salesAcct  = acctMap['4.1.01'] || acctMap['4.1.02'] || acctMap['4.2.01'];
-      const itbisAcct  = acctMap['2.1.02'];
-
-      // Determine which asset account to debit based on payment method
       let debitAcct = null;
-      let payLabel  = '';
-      if (pmeth === 'cash') {
-        debitAcct = cajaAcct; payLabel = 'Caja (Efectivo)';
-      } else if (pmeth === 'bank') {
-        debitAcct = bancoAcct; payLabel = 'Banco (Transferencia)';
-      } else if (pmeth === 'card') {
-        debitAcct = bancoAcct; payLabel = 'Tarjeta';
-      } else {
-        debitAcct = clientAcct; payLabel = 'CxC (Crédito)';
+      if (pmeth === 'cash')              debitAcct = cajaAcct || bancoAcct;
+      else if (pmeth === 'bank' || pmeth === 'card') debitAcct = bancoAcct || cajaAcct;
+      else                               debitAcct = cxcAcct;
+
+      // Asiento #1: Ingreso por venta
+      if (debitAcct && salesAcct) {
+        const jLines = [
+          { acct: debitAcct, d: total, c: 0 },
+          { acct: salesAcct, d: 0, c: sub },
+        ];
+        if (tax > 0 && itbisAcct) jLines.push({ acct: itbisAcct, d: 0, c: tax });
+        else if (tax > 0) jLines[1].c = total; // sin cuenta ITBIS: suma a ventas
+        await insertJournalEntry(null, req.userId, inv.date||new Date().toISOString().split('T')[0],
+          `Factura ${inv.invoice_number} — ${inv.client_name||'Cliente'} [${payDesc}]`,
+          'invoice', inv.id, jLines
+        );
       }
 
-      const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-      const jeDate = inv.date || new Date().toISOString().split('T')[0];
-      await query(
-        `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
-         VALUES($1,$2,$3,$4,$5,$6)`,
-        [jeId, req.userId, jeDate,
-         `Factura ${inv.invoice_number} — ${inv.client_name||'Cliente'} [${payLabel}]`,
-         'invoice', inv.id]
+      // Asiento #2: CMV automático
+      const invItems = await query(`SELECT * FROM invoice_items WHERE invoice_id=$1`, [inv.id]);
+      const cmvResult = await processCMVForInvoice(
+        null, req.userId, inv.id, inv.invoice_number,
+        invItems.rows.map(r => ({ product_id: r.product_id, quantity: r.qty, unit_price: r.price, discount_pct: r.discount_pct })),
+        inv.date || new Date().toISOString().split('T')[0]
       );
-
-      const lines = [];
-      // Debit: según método (Caja, Banco o Clientes)
-      lines.push({ acct: debitAcct, debit: total, credit: 0 });
-      // Credit: Ventas por subtotal
-      lines.push({ acct: salesAcct, debit: 0, credit: sub });
-      // Credit: ITBIS Cobrado si hay impuesto
-      if (tax > 0 && itbisAcct) {
-        lines.push({ acct: itbisAcct, debit: 0, credit: tax });
-      } else if (tax > 0) {
-        lines[1].credit += tax;
+      if (cmvResult.totalCMV > 0) {
+        await query(`UPDATE invoices SET cmv_amount=$1 WHERE id=$2`, [cmvResult.totalCMV, inv.id]).catch(()=>{});
       }
 
-      for (const ln of lines) {
-        if (!ln.acct) continue;
-        const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await query(
-          `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit)
-           VALUES($1,$2,$3,$4,$5)`,
-          [lnId, jeId, ln.acct, ln.debit, ln.credit]
-        );
-        await query(
-          `INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
-          [ln.acct, ln.debit - ln.credit]
-        );
-      }
-
-      // Only create CxC for credit payments
+      // CxC si es a crédito
       if (pmeth === 'credit') {
-        const cxcId = `rec_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
         let clientId = null;
         if (inv.client_name) {
           const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, inv.client_name]);
           if (cl.rows[0]) clientId = cl.rows[0].id;
         }
-        await query(
-          `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-           ON CONFLICT DO NOTHING`,
-          [cxcId, req.userId, clientId||null,
-           `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
-           total, 0, 'pending', inv.due_date||null]
-        );
-      }
-
-      // For cash/bank/card: mark as PAID immediately and create income record
-      if (pmeth !== 'credit') {
-        await query(`UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2 AND user_id=$3`,
-          [total, inv.id, req.userId]);
-        // Income record
-        const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia', card:'💳 Tarjeta' };
-        const pmIcon   = { cash:'💵', bank:'🏦', card:'💳' };
-        let incTypeId = null;
-        const itR = await query(`SELECT id FROM income_types WHERE user_id=$1 AND (name=$2 OR icon=$3) LIMIT 1`,
-          [req.userId, pmLabels[pmeth], pmIcon[pmeth]]);
-        if (itR.rows[0]) {
-          incTypeId = itR.rows[0].id;
-        } else {
-          incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-          await query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
-            [incTypeId, req.userId, pmLabels[pmeth], 'Generado automáticamente desde factura', pmIcon[pmeth], '#00e5a0']);
+        const cxcId = `rec_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        if (clientId || inv.client_name) {
+          await query(
+            `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
+             VALUES($1,$2,$3,$4,$5,$6,'pending',$7) ON CONFLICT DO NOTHING`,
+            [cxcId, req.userId, clientId||null,
+             `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
+             total, 0, inv.due_date||null]
+          );
         }
-        const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await query(
-          `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
-           VALUES($1,$2,$3,$4,$5,$6,$7)`,
-          [incId, req.userId, incTypeId, total,
-           `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
-           jeDate, inv.invoice_number]
-        );
+      } else {
+        // Pago inmediato → marcar pagada
+        await query(`UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2`, [total, inv.id]);
       }
     }
 
     // When invoice is PAID: update CxC to paid + create journal entry + income record
     if (status === 'paid') {
-      // The payment_method in the request tells us HOW the client paid (cash/bank/card)
-      // If not provided, fall back to invoice's original payment method
-      const pmeth = req.body.payment_method || inv.payment_method || 'cash';
-      const total = parseFloat(inv.total || 0);
-      const sub   = parseFloat(inv.subtotal || 0);
-      const jeDate = new Date().toISOString().split('T')[0];
-
-      // Mark CxC as paid
       await query(
         `UPDATE receivables SET status='paid', paid_amount=total_amount
          WHERE user_id=$1 AND description ILIKE $2`,
         [req.userId, `%Factura ${inv.invoice_number}%`]
       );
-      // Update invoice paid_amount
       await query(
-        `UPDATE invoices SET paid_amount=$1, payment_method=$2 WHERE id=$3 AND user_id=$4`,
-        [total, pmeth, req.params.id, req.userId]
+        `UPDATE invoices SET paid_amount=total WHERE id=$1 AND user_id=$2`,
+        [req.params.id, req.userId]
       );
 
-      // Get accounts: caja, banco, clientes
-      const cajaAcct   = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.1.01' LIMIT 1`, [req.userId]);
-      const bancoAcct  = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.1.02' LIMIT 1`, [req.userId]);
+      // Generate journal entry: Debit Caja/Banco, Credit Clientes (CxC)
+      const total = parseFloat(inv.total || 0);
+      const sub   = parseFloat(inv.subtotal || total);
+      const pmeth = inv.payment_method || 'credit';
+      const cajaAcct  = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.1.01' LIMIT 1`, [req.userId]);
+      const bancoAcct = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.1.02' LIMIT 1`, [req.userId]);
       const clientAcct = await query(`SELECT id FROM accounts WHERE user_id=$1 AND code='1.2.01' LIMIT 1`, [req.userId]);
-
-      // Pick debit account based on HOW the client paid
-      let debitAcct = null;
-      let payLabel  = '';
-      if (pmeth === 'cash') {
-        debitAcct = cajaAcct.rows[0]?.id; payLabel = 'Caja (Efectivo)';
-      } else if (pmeth === 'bank') {
-        debitAcct = bancoAcct.rows[0]?.id; payLabel = 'Banco (Transferencia)';
-      } else if (pmeth === 'card') {
-        debitAcct = bancoAcct.rows[0]?.id; payLabel = 'Tarjeta';
-      } else {
-        // Default to caja if unknown
-        debitAcct = cajaAcct.rows[0]?.id; payLabel = 'Caja';
-      }
-
-      // Create journal entry: Debit Cash/Bank, Credit Clients (CxC)
-      if (debitAcct && clientAcct.rows[0]) {
+      // Pick cash account based on payment method
+      const cashAcct = (pmeth === 'bank' || pmeth === 'card')
+        ? (bancoAcct.rows[0]?.id || cajaAcct.rows[0]?.id)
+        : (cajaAcct.rows[0]?.id || bancoAcct.rows[0]?.id);
+      if (cashAcct && clientAcct.rows[0]) {
         const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
         await query(
           `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
            VALUES($1,$2,$3,$4,'invoice',$5)`,
-          [jeId, req.userId, jeDate,
-           `Cobro Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''} [${payLabel}]`,
+          [jeId, req.userId, new Date().toISOString().split('T')[0],
+           `Cobro Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
            inv.id]
         );
         const debitLine  = `jl_${Date.now()}_d_${Math.random().toString(36).substr(2,4)}`;
@@ -2115,18 +2216,18 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
         await query(
           `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit)
            VALUES($1,$2,$3,$4,0)`,
-          [debitLine, jeId, debitAcct, total]
+          [debitLine, jeId, cashAcct, total]
         );
         await query(
           `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit)
            VALUES($1,$2,$3,0,$4)`,
           [creditLine, jeId, clientAcct.rows[0].id, total]
         );
-        // Update balances: debit increases asset, credit decreases receivable
+        // Update account balances
         await query(
           `INSERT INTO account_balances(account_id,balance) VALUES($1,$2)
            ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
-          [debitAcct, total]
+          [cashAcct, total]
         );
         await query(
           `INSERT INTO account_balances(account_id,balance) VALUES($1,$2)
@@ -2135,30 +2236,29 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
         );
       }
 
-      // Create income record (only for credit invoices — cash/bank/card already have income from emit)
-      if (inv.payment_method === 'credit' || inv.status === 'issued') {
-        const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia', card:'💳 Tarjeta' };
-        const pmIcon   = { cash:'💵', bank:'🏦', card:'💳' };
-        const pmLabel  = pmLabels[pmeth] || '💵 Efectivo';
-        const icon     = pmIcon[pmeth] || '💵';
-        let incTypeId = null;
-        const itR = await query(`SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`, [req.userId, pmLabel]);
-        if (itR.rows[0]) {
-          incTypeId = itR.rows[0].id;
-        } else {
-          incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-          await query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
-            [incTypeId, req.userId, pmLabel, 'Generado al cobrar factura', icon, '#00e5a0']);
-        }
-        const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await query(
-          `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
-           VALUES($1,$2,$3,$4,$5,$6,$7)`,
-          [incId, req.userId, incTypeId, total,
-           `Cobro Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
-           jeDate, inv.invoice_number]
-        );
+      // Auto-create income record on payment
+      const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
+      const pmLabel = pmLabels[pmeth] || '📋 Crédito/CxC';
+      const pmIcon = pmeth==='cash'?'💵':pmeth==='bank'?'🏦':pmeth==='card'?'💳':'📋';
+      let incTypeId = null;
+      const itR = await query(`SELECT id FROM income_types WHERE user_id=$1 AND (name=$2 OR icon=$3) LIMIT 1`, [req.userId, pmLabel, pmIcon]);
+      if (itR.rows[0]) {
+        incTypeId = itR.rows[0].id;
+      } else {
+        incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        const icon = pmeth==='cash'?'💵':pmeth==='bank'?'🏦':pmeth==='card'?'💳':'📋';
+        await query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
+          [incTypeId, req.userId, pmLabel, 'Generado automáticamente', icon, '#00e5a0']);
       }
+      const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await query(
+        `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
+         VALUES($1,$2,$3,$4,$5,$6,$7)`,
+        [incId, req.userId, incTypeId, sub,
+         `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
+         inv.date||new Date().toISOString().split('T')[0],
+         inv.invoice_number]
+      );
     }
 
     // When invoice is CANCELLED: reverse journal entry + cancel CxC (works from any status)
@@ -2273,326 +2373,48 @@ app.delete('/api/invoices/:id', authMiddleware, async (req, res) => {
 });
 
 // ─── FIXED ASSETS ─────────────────────────────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════════════════════
-// ─── ACTIVOS FIJOS — completo con depreciación y contabilidad ─────────────────
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// ── HELPER: enriquece un activo con campos calculados para el frontend ─────────
-function enrichAsset(a) {
-  const purchaseValue = parseFloat(a.purchase_value || 0);
-  const residualValue = parseFloat(a.residual_value || a.salvage_value || 0);
-  const lifeMonths    = parseInt(a.useful_life_months || (parseInt(a.useful_life_years || 5) * 12));
-  const accDep        = parseFloat(a.accumulated_depreciation || 0);
-  const bookValue     = Math.max(residualValue, purchaseValue - accDep);
-  const depreciable   = purchaseValue - residualValue;
-
-  // Cuota mensual según método
-  let monthlyQuota;
-  if (a.depreciation_method === 'declining_balance') {
-    // Saldo decreciente: tasa = 2 / vida_útil (doble tasa)
-    const rate   = 2 / lifeMonths;
-    monthlyQuota = bookValue * rate;
-  } else {
-    // Línea recta: cuota fija
-    monthlyQuota = lifeMonths > 0 ? depreciable / lifeMonths : 0;
-  }
-
-  // Meses depreciados y restantes
-  const monthsDepreciated = parseInt(a.months_depreciated || 0);
-  const monthsRemaining   = Math.max(0, lifeMonths - monthsDepreciated);
-
-  return {
-    ...a,
-    // Campos calculados que espera el frontend
-    useful_life_months:       lifeMonths,
-    residual_value:           residualValue,
-    depreciation_method:      a.depreciation_method || a.depreciacion_metodo || 'straight_line',
-    accumulated_depreciation: Math.round(accDep * 100) / 100,
-    book_value:               Math.round(bookValue * 100) / 100,
-    monthly_depreciation:     Math.round(monthlyQuota * 100) / 100,
-    months_depreciated:       monthsDepreciated,
-    months_remaining:         monthsRemaining,
-    last_depreciation:        a.last_depreciation || null,
-    depreciable_amount:       Math.round(depreciable * 100) / 100,
-  };
-}
-
-// GET /api/assets — lista con todos los campos calculados
 app.get('/api/assets', authMiddleware, async (req, res) => {
   try {
-    const r = await query(`
-      SELECT
-        fa.*,
-        -- acumula la depreciación real desde el historial
-        COALESCE((
-          SELECT SUM(amount)
-          FROM asset_depreciation ad
-          WHERE ad.asset_id = fa.id
-        ), 0) AS accumulated_depreciation,
-        -- cuenta cuántos períodos ya fueron depreciados
-        COALESCE((
-          SELECT COUNT(*)
-          FROM asset_depreciation ad
-          WHERE ad.asset_id = fa.id
-        ), 0) AS months_depreciated,
-        -- último período depreciado
-        (
-          SELECT MAX(ad.period_date)
-          FROM asset_depreciation ad
-          WHERE ad.asset_id = fa.id
-        ) AS last_depreciation
-      FROM fixed_assets fa
-      WHERE fa.user_id = $1
-      ORDER BY fa.name`, [req.userId]);
-
-    res.json(r.rows.map(enrichAsset));
+    const r = await query(`SELECT * FROM fixed_assets WHERE user_id=$1 ORDER BY name`, [req.userId]);
+    res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/assets — crear activo fijo con asiento contable inicial
 app.post('/api/assets', authMiddleware, async (req, res) => {
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const {
-      code, name, description, category,
-      purchase_date, purchase_value,
-      residual_value, useful_life_months,
-      depreciation_method, notes
-    } = req.body;
-
-    if (!name || !purchase_value) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'name y purchase_value son requeridos' });
-    }
-    const pv   = parseFloat(purchase_value);
-    const rv   = parseFloat(residual_value || 0);
-    const life = parseInt(useful_life_months || 60);
-    if (rv >= pv) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'El valor residual no puede ser mayor o igual al valor de compra' }); }
-    if (life < 1) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'La vida útil debe ser al menos 1 mes' }); }
-
+    const { name, description, category, purchase_date, purchase_value, useful_life_years, salvage_value } = req.body;
+    if (!name || purchase_value == null) return res.status(400).json({ error: 'name and purchase_value required' });
     const id = `asset_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    await client.query(
-      `INSERT INTO fixed_assets(id, user_id, code, name, description, category,
-         purchase_date, purchase_value, residual_value, useful_life_months,
-         depreciation_method, notes)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [id, req.userId, code||null, name, description||null, category||'equipment',
-       purchase_date||new Date().toISOString().split('T')[0],
-       pv, rv, life, depreciation_method||'straight_line', notes||null]
+    await query(
+      `INSERT INTO fixed_assets(id,user_id,name,description,category,purchase_date,purchase_value,useful_life_years,salvage_value)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, req.userId, name, description||null, category||'General', purchase_date||null, purchase_value, useful_life_years||5, salvage_value||0]
     );
-
-    // ── Asiento de compra: Débito Activo Fijo | Crédito Banco ─────────────────
-    const assetAcct = await findAccount(client, req.userId, '1501','1502','1503','1.5.01','1.5.02');
-    const bankAcct  = await findAccount(client, req.userId, '1.1.02','1102','1101','1.1.01');
-
-    if (assetAcct && bankAcct) {
-      const jeId = `je_ast_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-      await client.query(
-        `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
-         VALUES($1,$2,$3,$4,'asset',$5)`,
-        [jeId, req.userId, purchase_date||new Date().toISOString().split('T')[0],
-         `Compra activo fijo: ${name}`, id]
-      );
-      const jlD = `jl_${Date.now()}d_${Math.random().toString(36).substr(2,4)}`;
-      const jlC = `jl_${Date.now()}c_${Math.random().toString(36).substr(2,4)}`;
-      await client.query(
-        `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,0)`,
-        [jlD, jeId, assetAcct.id, pv]
-      );
-      await client.query(
-        `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,0,$4)`,
-        [jlC, jeId, bankAcct.id, pv]
-      );
-      await updateBalance(client, assetAcct.id, pv, 0);  // Activo fijo sube
-      await updateBalance(client, bankAcct.id, 0, pv);   // Banco baja
-    }
-
-    await client.query('COMMIT');
     res.json({ ok: true, id });
-  } catch(e) {
-    await client.query('ROLLBACK');
-    res.status(500).json({ error: e.message });
-  } finally { client.release(); }
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// PUT /api/assets/:id — editar activo (no cambia historial de depreciaciones)
 app.put('/api/assets/:id', authMiddleware, async (req, res) => {
   try {
-    const { code, name, description, category, residual_value, useful_life_months, notes } = req.body;
+    const { name, description, category, purchase_date, purchase_value, useful_life_years, salvage_value } = req.body;
     await query(
-      `UPDATE fixed_assets
-       SET code=$1, name=$2, description=$3, category=$4,
-           residual_value=$5, useful_life_months=$6, notes=$7
-       WHERE id=$8 AND user_id=$9`,
-      [code||null, name, description||null, category||'equipment',
-       parseFloat(residual_value||0), parseInt(useful_life_months||60),
-       notes||null, req.params.id, req.userId]
+      `UPDATE fixed_assets SET name=$1,description=$2,category=$3,purchase_date=$4,purchase_value=$5,useful_life_years=$6,salvage_value=$7 WHERE id=$8 AND user_id=$9`,
+      [name, description||null, category||'General', purchase_date||null, purchase_value, useful_life_years||5, salvage_value||0, req.params.id, req.userId]
     );
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// DELETE /api/assets/:id — elimina activo y su historial
 app.delete('/api/assets/:id', authMiddleware, async (req, res) => {
   try {
-    await query(`DELETE FROM asset_depreciation WHERE asset_id=$1`, [req.params.id]);
     await query(`DELETE FROM fixed_assets WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/assets/:id/depreciate — registrar depreciación mensual
-// Asiento: Débito Gastos Depreciación | Crédito Depreciación Acumulada
-app.post('/api/assets/:id/depreciate', authMiddleware, async (req, res) => {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { month, year } = req.body;
-    if (!month || !year) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'month y year son requeridos' }); }
-    const m = parseInt(month);
-    const y = parseInt(year);
-
-    // Cargar activo con acumulado actual
-    const assetR = await client.query(`
-      SELECT fa.*,
-        COALESCE((SELECT SUM(amount) FROM asset_depreciation WHERE asset_id=fa.id),0) AS accumulated_depreciation,
-        COALESCE((SELECT COUNT(*)    FROM asset_depreciation WHERE asset_id=fa.id),0) AS months_depreciated
-      FROM fixed_assets fa
-      WHERE fa.id=$1 AND fa.user_id=$2`, [req.params.id, req.userId]
-    );
-    if (!assetR.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Activo no encontrado' }); }
-    const a = assetR.rows[0];
-
-    const pv       = parseFloat(a.purchase_value);
-    const rv       = parseFloat(a.residual_value || a.salvage_value || 0);
-    const life     = parseInt(a.useful_life_months || (parseInt(a.useful_life_years || 5) * 12));
-    const accDep   = parseFloat(a.accumulated_depreciation);
-    const depCount = parseInt(a.months_depreciated);
-    const method   = a.depreciation_method || a.depreciacion_metodo || 'straight_line';
-    const bookValue = Math.max(rv, pv - accDep);
-    const depreciable = pv - rv;
-
-    // ── Validaciones ──────────────────────────────────────────────────────────
-    // Ya completó su vida útil
-    if (depCount >= life || bookValue <= rv + 0.01) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: `El activo "${a.name}" ya está completamente depreciado` });
-    }
-
-    // Período ya depreciado (evita duplicados)
-    const dupCheck = await client.query(
-      `SELECT id FROM asset_depreciation WHERE asset_id=$1 AND period_month=$2 AND period_year=$3`,
-      [req.params.id, m, y]
-    );
-    if (dupCheck.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: `Ya se registró la depreciación de ${a.name} para ${m}/${y}` });
-    }
-
-    // ── Calcular cuota del período ────────────────────────────────────────────
-    let depAmount;
-    if (method === 'declining_balance') {
-      const rate = 2 / life;
-      depAmount  = bookValue * rate;
-    } else {
-      // Línea recta — cuota fija
-      depAmount = depreciable / life;
-    }
-
-    // El último período ajusta para no pasar del valor residual
-    const bookAfter = bookValue - depAmount;
-    if (bookAfter < rv) {
-      depAmount = bookValue - rv;  // ajuste final exacto
-    }
-    depAmount = Math.round(depAmount * 100) / 100;
-
-    if (depAmount <= 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: `Sin monto a depreciar para "${a.name}" (ya en valor residual)` });
-    }
-
-    const bookValueAfter = Math.round((bookValue - depAmount) * 100) / 100;
-    const periodDate     = `${y}-${String(m).padStart(2,'0')}-01`;
-
-    // ── Insertar registro de depreciación ─────────────────────────────────────
-    const depId = `dep_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    await client.query(
-      `INSERT INTO asset_depreciation(id, asset_id, period_month, period_year, period_date, amount, book_value_after, method, notes)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [depId, req.params.id, m, y, periodDate, depAmount, bookValueAfter,
-       method, `Depreciación ${method === 'declining_balance' ? 'saldo decreciente' : 'línea recta'} — ${m}/${y}`]
-    );
-
-    // ── Asiento contable ──────────────────────────────────────────────────────
-    // Débito:  Gastos de Depreciación  (gasto ↑)
-    // Crédito: Depreciación Acumulada  (contra-activo ↑, reduce valor neto del activo)
-    const depExpAcct = await findAccount(client, req.userId, '6108','6.1.08','6105','6.1.05','6101');
-    const depAccumAcct = await findAccount(client, req.userId, '1504','1503','1.5.04','1.5.03','1502');
-
-    if (depExpAcct && depAccumAcct) {
-      const jeId = `je_dep_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-      await client.query(
-        `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
-         VALUES($1,$2,$3,$4,'depreciation',$5)`,
-        [jeId, req.userId, periodDate,
-         `Depreciación ${m}/${y}: ${a.name} — RD$ ${depAmount.toFixed(2)}`, depId]
-      );
-      const jlD = `jl_${Date.now()}d_${Math.random().toString(36).substr(2,4)}`;
-      const jlC = `jl_${Date.now()}c_${Math.random().toString(36).substr(2,4)}`;
-      await client.query(
-        `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,0)`,
-        [jlD, jeId, depExpAcct.id, depAmount]
-      );
-      await client.query(
-        `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,0,$4)`,
-        [jlC, jeId, depAccumAcct.id, depAmount]
-      );
-      // Gastos dep.: naturaleza deudora → débito sube
-      await updateBalance(client, depExpAcct.id, depAmount, 0);
-      // Dep. acumulada: contra-activo (naturaleza acreedora) → crédito sube = reduce activo neto
-      await updateBalance(client, depAccumAcct.id, 0, depAmount);
-    }
-
-    await client.query('COMMIT');
-    res.json({
-      ok: true,
-      amount:           depAmount,
-      book_value_after: bookValueAfter,
-      period:           `${m}/${y}`,
-      months_remaining: Math.max(0, life - depCount - 1)
-    });
-  } catch(e) {
-    await client.query('ROLLBACK');
-    res.status(500).json({ error: e.message });
-  } finally { client.release(); }
-});
-
-// GET /api/assets/:id/depreciations — historial completo de depreciaciones
-app.get('/api/assets/:id/depreciations', authMiddleware, async (req, res) => {
-  try {
-    // Verifica que el activo pertenece al usuario
-    const own = await query(`SELECT id, name FROM fixed_assets WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
-    if (!own.rows[0]) return res.status(404).json({ error: 'Activo no encontrado' });
-
-    const r = await query(`
-      SELECT id, period_month, period_year, period_date, amount, book_value_after, method, notes, created_at
-      FROM asset_depreciation
-      WHERE asset_id=$1
-      ORDER BY period_year ASC, period_month ASC`,
-      [req.params.id]
-    );
-    res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// GET /api/assets/:id/depreciation — alias para compatibilidad
 app.get('/api/assets/:id/depreciation', authMiddleware, async (req, res) => {
   try {
-    const r = await query(
-      `SELECT * FROM asset_depreciation WHERE asset_id=$1 ORDER BY period_year, period_month`,
-      [req.params.id]
-    );
+    const r = await query(`SELECT * FROM asset_depreciation WHERE asset_id=$1 ORDER BY period`, [req.params.id]);
     res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -2684,414 +2506,125 @@ app.delete('/api/income-records/:id', authMiddleware, async (req, res) => {
 });
 
 // ─── INVENTORY ───────────────────────────────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════════════════════
-// ─── INVENTARIO — unified with products table + contabilidad automática ────────
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// ── HELPER: calcula saldo de stock actual desde movimientos ───────────────────
-async function calcStock(productId, userId) {
-  const r = await query(
-    `SELECT
-       COALESCE(SUM(CASE
-         WHEN type = 'entry'      THEN quantity
-         WHEN type = 'exit'       THEN -quantity
-         WHEN type = 'adjustment' THEN quantity  -- se guarda la diferencia
-         ELSE 0
-       END), 0) AS stock
-     FROM inventory_movements
-     WHERE product_id=$1 AND user_id=$2`,
-    [productId, userId]
-  );
-  return parseFloat(r.rows[0]?.stock || 0);
-}
-
-// GET /api/inventory/stock — resumen para página Stock Actual
+// GET /api/inventory/stock
 app.get('/api/inventory/stock', authMiddleware, async (req, res) => {
   try {
-    // Usa tabla `products` (la misma que usa el frontend en todo el app)
     const r = await query(`
-      SELECT
-        p.id, p.code, p.name, p.category, p.unit,
-        COALESCE(p.cost_price, 0)    AS cost_price,
-        COALESCE(p.sale_price, 0)    AS sale_price,
-        COALESCE(p.stock_minimum, 0) AS stock_minimum,
-        COALESCE(p.stock_current, 0) AS stock_current,
-        COALESCE(p.stock_current, 0) * COALESCE(p.cost_price, 0) AS inventory_value,
-        CASE
-          WHEN COALESCE(p.stock_current, 0) <= 0                     THEN 'out'
-          WHEN COALESCE(p.stock_current, 0) <= COALESCE(p.stock_minimum, 0) THEN 'low'
-          ELSE 'ok'
-        END AS stock_status
-      FROM products p
+      SELECT p.id, p.code, p.name, p.category, p.unit,
+             COALESCE(p.cost_price,0) as cost_price, COALESCE(p.sell_price,0) as sell_price,
+             COALESCE(p.min_stock,0) as min_stock,
+             COALESCE(SUM(CASE WHEN m.type='entry' THEN m.quantity WHEN m.type IN ('exit','adjustment') THEN -m.quantity ELSE 0 END),0) as stock
+      FROM inventory_products p
+      LEFT JOIN inventory_movements m ON m.product_id = p.id AND m.user_id = p.user_id
       WHERE p.user_id=$1
+      GROUP BY p.id
       ORDER BY p.name`, [req.userId]);
-
-    const products  = r.rows;
-    const totalValue   = products.reduce((s, p) => s + parseFloat(p.inventory_value || 0), 0);
-    const lowStock     = products.filter(p => p.stock_status === 'low').length;
-    const outOfStock   = products.filter(p => p.stock_status === 'out').length;
-
-    res.json({
-      products,
-      total_products: products.length,
-      total_value:    Math.round(totalValue * 100) / 100,
-      low_stock:      lowStock,
-      out_of_stock:   outOfStock,
-    });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// GET /api/inventory/products — alias para compatibilidad
-app.get('/api/inventory/products', authMiddleware, async (req, res) => {
-  try {
-    const r = await query(`SELECT * FROM products WHERE user_id=$1 ORDER BY name`, [req.userId]);
     res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/inventory/products — alias para compatibilidad
+// GET /api/inventory/products
+app.get('/api/inventory/products', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT * FROM inventory_products WHERE user_id=$1 ORDER BY name`, [req.userId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/inventory/products
 app.post('/api/inventory/products', authMiddleware, async (req, res) => {
   try {
     const { code, name, category, unit, cost_price, sell_price, min_stock } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
     const id = `prod_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await query(
-      `INSERT INTO products(id,user_id,code,name,category,unit,cost_price,sale_price,stock_minimum,stock_current)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,0)`,
+      `INSERT INTO inventory_products(id,user_id,code,name,category,unit,cost_price,sell_price,min_stock)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [id, req.userId, code||null, name, category||'General', unit||'unidad', cost_price||0, sell_price||0, min_stock||0]
     );
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// DELETE /api/inventory/products/:id — alias
+// DELETE /api/inventory/products/:id
 app.delete('/api/inventory/products/:id', authMiddleware, async (req, res) => {
   try {
-    await query(`DELETE FROM products WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    await query(`DELETE FROM inventory_products WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/inventory/movements — historial con datos enriquecidos
+// GET /api/inventory/movements
 app.get('/api/inventory/movements', authMiddleware, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 80;
     const r = await query(`
-      SELECT
-        m.*,
-        p.name    AS product_name,
-        p.code    AS product_code,
-        p.unit    AS unit,
-        v.name    AS vendor_name,
-        c.name    AS client_name
+      SELECT m.*, p.name as product_name
       FROM inventory_movements m
-      JOIN products p ON p.id = m.product_id
-      LEFT JOIN vendors v ON v.id = m.vendor_id
-      LEFT JOIN clients c ON c.id = m.client_id
+      JOIN inventory_products p ON p.id = m.product_id
       WHERE m.user_id=$1
-      ORDER BY m.mov_date DESC, m.created_at DESC
+      ORDER BY m.created_at DESC
       LIMIT $2`, [req.userId, limit]);
     res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/inventory/entry — Entrada de mercancía
-// Asiento: Débito Inventario (activo ↑) | Crédito CxP o Banco (pago al proveedor)
+// POST /api/inventory/entry
 app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const { product_id, quantity, unit_cost, reference, vendor_id, notes, mov_date } = req.body;
-    if (!product_id || !quantity || quantity <= 0) {
-      return res.status(400).json({ error: 'product_id y quantity > 0 son requeridos' });
-    }
-    const qty  = parseFloat(quantity);
-    const cost = parseFloat(unit_cost) || 0;
-    const totalCost = Math.round(qty * cost * 100) / 100;
-    const movDate = mov_date || new Date().toISOString().split('T')[0];
-
-    // 1) Obtener producto actual
-    const prodR = await client.query(
-      `SELECT * FROM products WHERE id=$1 AND user_id=$2`, [product_id, req.userId]
+    const { product_id, quantity, unit_cost, reference, notes, mov_date } = req.body;
+    if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
+    const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
+       VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8)`,
+      [id, req.userId, product_id, quantity, unit_cost||null, reference||null, notes||null, mov_date||null]
     );
-    if (!prodR.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Producto no encontrado' }); }
-    const prod = prodR.rows[0];
-
-    // 2) Actualizar costo promedio ponderado (método PEPS simplificado a promedio)
-    const oldStock = parseFloat(prod.stock_current || 0);
-    const oldCost  = parseFloat(prod.cost_price || 0);
-    const newStock = oldStock + qty;
-    // Costo promedio ponderado: ((stockAnterior * costoAnterior) + (nuevaQty * nuevoCosto)) / stockTotal
-    const newAvgCost = newStock > 0
-      ? ((oldStock * oldCost) + (qty * cost)) / newStock
-      : cost;
-
-    await client.query(
-      `UPDATE products SET
-         stock_current = stock_current + $1,
-         cost_price    = $2
-       WHERE id=$3 AND user_id=$4`,
-      [qty, Math.round(newAvgCost * 10000) / 10000, product_id, req.userId]
-    );
-
-    // 3) Registrar movimiento
-    const movId = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    await client.query(
-      `INSERT INTO inventory_movements
-         (id, user_id, product_id, type, quantity, unit_cost, unit_price, reason, reference, vendor_id, notes, mov_date)
-       VALUES($1,$2,$3,'entry',$4,$5,$5,'purchase',$6,$7,$8,$9)`,
-      [movId, req.userId, product_id, qty, cost, reference||null, vendor_id||null, notes||null, movDate]
-    );
-
-    // 4) ── Asiento contable ──────────────────────────────────────────────────
-    // Débito: Inventario / Mercancías (activo ↑)
-    // Crédito: CxP al proveedor si hay vendor_id, sino Banco (salida de caja)
-    if (totalCost > 0) {
-      const invAcct  = await findAccount(client, req.userId, '1.1.03','1103','1201','1.3.01','1301');
-      const bankAcct = vendor_id
-        ? await findAccount(client, req.userId, '2.1.01','2101','2100','2301') // CxP
-        : await findAccount(client, req.userId, '1.1.02','1102','1101','1.1.01'); // Banco
-
-      if (invAcct && bankAcct) {
-        const jeDesc = vendor_id
-          ? `Compra inventario: ${prod.name} (${qty} ${prod.unit}) — ${reference||'sin ref'}`
-          : `Entrada inventario: ${prod.name} (${qty} ${prod.unit})`;
-        const jeId = `je_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await client.query(
-          `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
-           VALUES($1,$2,$3,$4,'inventory_entry',$5)`,
-          [jeId, req.userId, movDate, jeDesc, movId]
-        );
-        const jlD = `jl_${Date.now()}d_${Math.random().toString(36).substr(2,4)}`;
-        const jlC = `jl_${Date.now()}c_${Math.random().toString(36).substr(2,4)}`;
-        await client.query(
-          `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,0)`,
-          [jlD, jeId, invAcct.id, totalCost]
-        );
-        await client.query(
-          `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,0,$4)`,
-          [jlC, jeId, bankAcct.id, totalCost]
-        );
-        await updateBalance(client, invAcct.id, totalCost, 0);
-        await updateBalance(client, bankAcct.id, 0, totalCost);
-      }
-    }
-
-    await client.query('COMMIT');
-    res.json({ ok: true, id: movId, new_stock: newStock, new_avg_cost: Math.round(newAvgCost * 100) / 100 });
-  } catch(e) {
-    await client.query('ROLLBACK');
-    res.status(500).json({ error: e.message });
-  } finally { client.release(); }
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/inventory/exit — Salida de mercancía (venta, merma, devolución)
-// Asiento: Débito CMV/Costo de Ventas (costo ↑) | Crédito Inventario (activo ↓)
+// POST /api/inventory/exit
 app.post('/api/inventory/exit', authMiddleware, async (req, res) => {
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const { product_id, quantity, unit_price, reason, reference, client_id, notes, mov_date } = req.body;
-    if (!product_id || !quantity || quantity <= 0) {
-      return res.status(400).json({ error: 'product_id y quantity > 0 son requeridos' });
-    }
-    const qty     = parseFloat(quantity);
-    const price   = parseFloat(unit_price) || 0;
-    const movDate = mov_date || new Date().toISOString().split('T')[0];
-
-    // 1) Verificar stock suficiente
-    const prodR = await client.query(
-      `SELECT * FROM products WHERE id=$1 AND user_id=$2`, [product_id, req.userId]
+    const { product_id, quantity, unit_price, reference, notes, mov_date } = req.body;
+    if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
+    const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
+       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8)`,
+      [id, req.userId, product_id, quantity, unit_price||null, reference||null, notes||null, mov_date||null]
     );
-    if (!prodR.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Producto no encontrado' }); }
-    const prod      = prodR.rows[0];
-    const stockActual = parseFloat(prod.stock_current || 0);
-    const costUnit    = parseFloat(prod.cost_price || 0);
-
-    if (stockActual < qty) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: `Stock insuficiente. Disponible: ${stockActual} ${prod.unit}, solicitado: ${qty}`
-      });
-    }
-
-    const totalCosto  = Math.round(qty * costUnit * 100) / 100;  // CMV real al costo promedio
-    const totalVenta  = Math.round(qty * price * 100) / 100;
-
-    // 2) Reducir stock
-    await client.query(
-      `UPDATE products SET stock_current = stock_current - $1 WHERE id=$2 AND user_id=$3`,
-      [qty, product_id, req.userId]
-    );
-
-    // 3) Registrar movimiento
-    const movId = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    await client.query(
-      `INSERT INTO inventory_movements
-         (id, user_id, product_id, type, quantity, unit_cost, unit_price, reason, reference, client_id, notes, mov_date)
-       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [movId, req.userId, product_id, qty, costUnit, price, reason||'sale', reference||null, client_id||null, notes||null, movDate]
-    );
-
-    // 4) ── Asiento contable ──────────────────────────────────────────────────
-    // Solo registra costo (CMV). El ingreso por venta se registra en factura.
-    // Débito: CMV / Costo de Ventas (costo ↑)
-    // Crédito: Inventario (activo ↓)
-    if (totalCosto > 0) {
-      const cmvAcct = await findAccount(client, req.userId, '5.1.01','5101','5100','5102','5001');
-      const invAcct = await findAccount(client, req.userId, '1.1.03','1103','1201','1.3.01','1301');
-
-      if (cmvAcct && invAcct) {
-        const reasonLabels = { sale:'Venta', waste:'Merma', return:'Devolución a proveedor', adjustment:'Ajuste' };
-        const jeDesc = `${reasonLabels[reason]||'Salida'} inventario: ${prod.name} (${qty} ${prod.unit}) — Costo: RD$ ${totalCosto.toFixed(2)}`;
-        const jeId = `je_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await client.query(
-          `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
-           VALUES($1,$2,$3,$4,'inventory_exit',$5)`,
-          [jeId, req.userId, movDate, jeDesc, movId]
-        );
-        const jlD = `jl_${Date.now()}d_${Math.random().toString(36).substr(2,4)}`;
-        const jlC = `jl_${Date.now()}c_${Math.random().toString(36).substr(2,4)}`;
-        await client.query(
-          `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,0)`,
-          [jlD, jeId, cmvAcct.id, totalCosto]
-        );
-        await client.query(
-          `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,0,$4)`,
-          [jlC, jeId, invAcct.id, totalCosto]
-        );
-        await updateBalance(client, cmvAcct.id, totalCosto, 0);  // CMV sube (naturaleza deudora)
-        await updateBalance(client, invAcct.id, 0, totalCosto);  // Inventario baja
-      }
-    }
-
-    await client.query('COMMIT');
-    res.json({
-      ok: true, id: movId,
-      new_stock: stockActual - qty,
-      costo_total: totalCosto,
-      venta_total: totalVenta,
-      ganancia: Math.round((totalVenta - totalCosto) * 100) / 100
-    });
-  } catch(e) {
-    await client.query('ROLLBACK');
-    res.status(500).json({ error: e.message });
-  } finally { client.release(); }
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/inventory/adjustment — Ajuste de inventario (conteo físico)
-// Asiento: diferencia positiva → igual a entrada; negativa → igual a salida por ajuste
+// POST /api/inventory/adjustment
 app.post('/api/inventory/adjustment', authMiddleware, async (req, res) => {
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
     const { product_id, new_quantity, notes, mov_date } = req.body;
-    if (!product_id || new_quantity == null || new_quantity < 0) {
-      return res.status(400).json({ error: 'product_id y new_quantity >= 0 son requeridos' });
-    }
-    const newQty  = parseFloat(new_quantity);
-    const movDate = mov_date || new Date().toISOString().split('T')[0];
-
-    const prodR = await client.query(
-      `SELECT * FROM products WHERE id=$1 AND user_id=$2`, [product_id, req.userId]
+    if (!product_id || new_quantity == null) return res.status(400).json({ error: 'product_id and new_quantity required' });
+    const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,notes,mov_date)
+       VALUES($1,$2,$3,'adjustment',$4,$5,$6)`,
+      [id, req.userId, product_id, new_quantity, notes||'Ajuste de inventario', mov_date||null]
     );
-    if (!prodR.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Producto no encontrado' }); }
-    const prod      = prodR.rows[0];
-    const oldStock  = parseFloat(prod.stock_current || 0);
-    const diff      = Math.round((newQty - oldStock) * 1000) / 1000;
-    const costUnit  = parseFloat(prod.cost_price || 0);
-    const totalDiff = Math.round(Math.abs(diff) * costUnit * 100) / 100;
-
-    if (Math.abs(diff) < 0.001) {
-      await client.query('ROLLBACK');
-      return res.json({ ok: true, message: 'Sin cambio — el stock ya era el indicado', diff: 0 });
-    }
-
-    // Actualizar stock al valor exacto del conteo físico
-    await client.query(
-      `UPDATE products SET stock_current = $1 WHERE id=$2 AND user_id=$3`,
-      [newQty, product_id, req.userId]
-    );
-
-    // Registrar movimiento — guardamos la diferencia (puede ser negativa internamente)
-    const movId = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    await client.query(
-      `INSERT INTO inventory_movements
-         (id, user_id, product_id, type, quantity, unit_cost, reason, notes, mov_date)
-       VALUES($1,$2,$3,'adjustment',$4,$5,'adjustment',$6,$7)`,
-      [movId, req.userId, product_id, diff, costUnit,
-       notes || `Ajuste por conteo físico: ${oldStock} → ${newQty}`, movDate]
-    );
-
-    // ── Asiento contable ──────────────────────────────────────────────────────
-    // Diferencia positiva (sobrante): Débito Inventario | Crédito Ajuste de Inventario
-    // Diferencia negativa (faltante): Débito Pérdida por Ajuste | Crédito Inventario
-    if (totalDiff > 0) {
-      const invAcct = await findAccount(client, req.userId, '1.1.03','1103','1201','1.3.01','1301');
-      const adjAcct = await findAccount(client, req.userId, '6109','6110','6.1.09','6.1.10','6101'); // Gastos varios/ajuste
-
-      if (invAcct && adjAcct) {
-        const jeId = `je_adj_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        const jeDesc = diff > 0
-          ? `Ajuste inventario (+sobrante): ${prod.name} +${Math.abs(diff)} ${prod.unit} — RD$ ${totalDiff.toFixed(2)}`
-          : `Ajuste inventario (-faltante): ${prod.name} -${Math.abs(diff)} ${prod.unit} — RD$ ${totalDiff.toFixed(2)}`;
-        await client.query(
-          `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
-           VALUES($1,$2,$3,$4,'inventory_adjustment',$5)`,
-          [jeId, req.userId, movDate, jeDesc, movId]
-        );
-        const jlD = `jl_${Date.now()}d_${Math.random().toString(36).substr(2,4)}`;
-        const jlC = `jl_${Date.now()}c_${Math.random().toString(36).substr(2,4)}`;
-        if (diff > 0) {
-          // Sobrante: Inventario ↑, Ganancia por ajuste ↑ (crédito en gasto = reduce gasto)
-          await client.query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,0)`, [jlD, jeId, invAcct.id, totalDiff]);
-          await client.query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,0,$4)`, [jlC, jeId, adjAcct.id, totalDiff]);
-          await updateBalance(client, invAcct.id, totalDiff, 0);
-          await updateBalance(client, adjAcct.id, 0, totalDiff);
-        } else {
-          // Faltante: Gasto por ajuste ↑, Inventario ↓
-          await client.query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,0)`, [jlD, jeId, adjAcct.id, totalDiff]);
-          await client.query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,0,$4)`, [jlC, jeId, invAcct.id, totalDiff]);
-          await updateBalance(client, adjAcct.id, totalDiff, 0);
-          await updateBalance(client, invAcct.id, 0, totalDiff);
-        }
-      }
-    }
-
-    await client.query('COMMIT');
-    res.json({ ok: true, id: movId, old_stock: oldStock, new_stock: newQty, diff });
-  } catch(e) {
-    await client.query('ROLLBACK');
-    res.status(500).json({ error: e.message });
-  } finally { client.release(); }
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/inventory/kardex/:productId — historial con saldo acumulado
+// GET /api/inventory/kardex/:productId
 app.get('/api/inventory/kardex/:productId', authMiddleware, async (req, res) => {
   try {
     const r = await query(`
-      SELECT
-        m.id, m.type, m.quantity, m.unit_cost, m.unit_price, m.reason,
-        m.reference, m.notes, m.mov_date,
-        p.name AS product_name, p.code AS product_code, p.unit
+      SELECT m.*, p.name as product_name
       FROM inventory_movements m
-      JOIN products p ON p.id = m.product_id
+      JOIN inventory_products p ON p.id = m.product_id
       WHERE m.product_id=$1 AND m.user_id=$2
       ORDER BY m.mov_date ASC, m.created_at ASC`,
-      [req.params.productId, req.userId]
-    );
-
-    // Calcular saldo acumulado (kardex running balance)
-    let balance = 0;
-    const rows = r.rows.map(row => {
-      const qty = parseFloat(row.quantity || 0);
-      if (row.type === 'entry')      balance += qty;
-      else if (row.type === 'exit')  balance -= qty;
-      else if (row.type === 'adjustment') balance = qty > 0 ? balance + qty : balance + qty; // diff guardada
-      return { ...row, balance: Math.round(balance * 1000) / 1000 };
-    });
-
-    res.json(rows);
+      [req.params.productId, req.userId]);
+    res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3416,21 +2949,20 @@ app.delete('/api/accounts/:id', authMiddleware, async (req, res) => {
 app.get('/api/journal', authMiddleware, async (req, res) => {
   try {
     const { from, to, account_id } = req.query;
-    const uid = req.userId;
-    let dateFilter = '';
-    let params = [];
-    if (from) { dateFilter += ` AND je.date >= $${params.length + 1}::date`; params.push(from); }
-    if (to)   { dateFilter += ` AND je.date <= $${params.length + 1}::date`; params.push(to); }
-    if (account_id) { dateFilter += ` AND jl.account_id = $${params.length + 1}`; params.push(account_id); }
-    const sql = `SELECT je.id, je.date, je.description, je.ref_type, je.ref_id, je.created_at,
+    let sql = `SELECT je.id, je.date, je.description, je.ref_type, je.ref_id, je.created_at,
                       jl.id as line_id, jl.account_id, a.name as account_name, a.code as account_code,
                       jl.debit, jl.credit,
                       jl.auxiliary_type, jl.auxiliary_id, jl.auxiliary_name
                FROM journal_entries je
                JOIN journal_lines jl ON jl.journal_entry_id = je.id
                JOIN accounts a ON a.id = jl.account_id
-               WHERE je.user_id='${uid}'${dateFilter}
-               ORDER BY je.date DESC, je.created_at DESC`;
+               WHERE je.user_id=$1`;
+    const params = [req.userId];
+    let p = 2;
+    if (from) { sql += ` AND je.date >= $${p++}`; params.push(from); }
+    if (to)   { sql += ` AND je.date <= $${p++}`; params.push(to); }
+    if (account_id) { sql += ` AND jl.account_id = $${p++}`; params.push(account_id); }
+    sql += ` ORDER BY je.date DESC, je.created_at DESC`;
     const r = await query(sql, params);
 
     // Group by entry
@@ -3480,8 +3012,13 @@ app.post('/api/journal', authMiddleware, async (req, res) => {
          VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
         [jlId, jeId, line.account_id, line.debit || 0, line.credit || 0, line.auxiliary_type || null, line.auxiliary_id || null, line.auxiliary_name || null]
       );
-      // Actualizar saldo con la convención contable correcta según tipo de cuenta
-      await updateBalance(client, line.account_id, line.debit || 0, line.credit || 0);
+      // Update account balance
+      await client.query(
+        `INSERT INTO account_balances(account_id, balance)
+         VALUES($1, $2::numeric - $3::numeric)
+         ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2::numeric - $3::numeric`,
+        [line.account_id, line.debit || 0, line.credit || 0]
+      );
 
       // Auto-create receivable: debit on any Clientes/CxC account with client auxiliary
       if (line.auxiliary_type === 'client' && Number(line.debit) > 0) {
@@ -3539,9 +3076,11 @@ app.delete('/api/journal/:id', authMiddleware, async (req, res) => {
     if (!lines.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Entry not found' }); }
 
     for (const line of lines.rows) {
-      // Revertir el asiento: aplicar el mismo movimiento pero con débito y crédito invertidos
-      // updateBalance con crédito original como débito y débito original como crédito = reversión exacta
-      await updateBalance(client, line.account_id, parseFloat(line.credit || 0), parseFloat(line.debit || 0));
+      // Reverse: subtract debit, add credit
+      await client.query(
+        `UPDATE account_balances SET balance = balance - $1 + $2 WHERE account_id = $3`,
+        [line.debit, line.credit, line.account_id]
+      );
     }
     await client.query(`DELETE FROM journal_entries WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
     await client.query('COMMIT');
@@ -3615,51 +3154,6 @@ app.get('/api/receivables', authMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// ─── HELPER: busca una cuenta por múltiples códigos posibles (wizard y sistema) ──
-async function findAccount(dbClient, userId, ...codes) {
-  // Normaliza: busca con punto y sin punto (ej: '1.2.01' y '1201')
-  const allCodes = [];
-  for (const c of codes) {
-    allCodes.push(c);
-    allCodes.push(c.replace(/\./g, ''));  // '1.2.01' → '1201'
-  }
-  const placeholders = allCodes.map((_, i) => `$${i + 2}`).join(',');
-  const r = await dbClient.query(
-    `SELECT id, code, name, type FROM accounts
-     WHERE user_id=$1 AND code IN (${placeholders}) AND is_active=TRUE
-     ORDER BY is_system ASC
-     LIMIT 1`,
-    [userId, ...allCodes]
-  );
-  return r.rows[0] || null;
-}
-
-// ─── HELPER: actualiza saldo según la naturaleza contable de la cuenta ──────
-// Activos (class 1) y Gastos/Costos (class 5,6): aumentan con débito → +debit -credit
-// Pasivos (class 2) y Patrimonio (class 3) e Ingresos (class 4): aumentan con crédito → -debit +credit
-async function updateBalance(dbClient, accountId, debit, credit) {
-  // Obtener tipo de cuenta para aplicar convención correcta
-  const r = await dbClient.query(
-    `SELECT type, class FROM accounts WHERE id=$1`, [accountId]
-  );
-  const acc = r.rows[0];
-  if (!acc) return;
-  let delta;
-  if (['asset','cost','expense'].includes(acc.type)) {
-    // Naturaleza deudora: débito suma, crédito resta
-    delta = Number(debit) - Number(credit);
-  } else {
-    // Naturaleza acreedora (liability, equity, income): crédito suma, débito resta
-    delta = Number(credit) - Number(debit);
-  }
-  await dbClient.query(
-    `INSERT INTO account_balances(account_id, balance)
-     VALUES($1, $2)
-     ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2`,
-    [accountId, delta]
-  );
-}
-
 // POST /api/receivables
 app.post('/api/receivables', authMiddleware, async (req, res) => {
   const client = await pool.connect();
@@ -3667,51 +3161,50 @@ app.post('/api/receivables', authMiddleware, async (req, res) => {
     await client.query('BEGIN');
     const { client_id, description, total_amount, due_date } = req.body;
     if (!client_id || !description || !total_amount) return res.status(400).json({ error: 'Missing fields' });
-    const amt = parseFloat(total_amount);
-    if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Monto inválido' });
-
     const id = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     await client.query(
       `INSERT INTO receivables(id, user_id, client_id, description, total_amount, due_date)
        VALUES($1,$2,$3,$4,$5,$6)`,
-      [id, req.userId, client_id, description, amt, due_date || null]
+      [id, req.userId, client_id, description, total_amount, due_date]
     );
-
-    // ── Asiento contable: Débito CxC (activo ↑) | Crédito Ingresos (ingreso ↑) ──
-    // Lógica: cuando se vende a crédito, el cliente nos debe (CxC sube) y se reconoce ingreso
-    const cxcAcct = await findAccount(client, req.userId, '1.2.01', '1201', '1202', '1200');
-    const ingAcct = await findAccount(client, req.userId, '4.1.01', '4101', '4102', '4.1.02');
+    // Auto-create journal entry: Debit "Cuentas por Cobrar" (asset), Credit "Ingresos" (income)
+    const cxc = await client.query(
+      `SELECT id FROM accounts WHERE code='1.2.01' AND user_id=$1`, [req.userId]
+    );
+    const ing = await client.query(
+      `SELECT id FROM accounts WHERE code='4.1.01' AND user_id=$1`, [req.userId]
+    );
     const clientInfo = await client.query(`SELECT name FROM clients WHERE id=$1`, [client_id]);
     const clientName = clientInfo.rows[0]?.name || 'Cliente';
-
-    if (cxcAcct && ingAcct) {
+    if (cxc.rows[0] && ing.rows[0]) {
       const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       await client.query(
         `INSERT INTO journal_entries(id, user_id, date, description, ref_type, ref_id)
          VALUES($1,$2,CURRENT_DATE,$3,'receivable',$4)`,
-        [jeId, req.userId, `CxC: ${description} — ${clientName}`, id]
+        [jeId, req.userId, description, id]
       );
-      // Línea 1: Débito Cuentas por Cobrar (activo sube cuando se debita)
-      const jlDebit = `jl_${Date.now()}d_${Math.random().toString(36).substr(2, 4)}`;
+      const debitLine  = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+      const creditLine = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
          VALUES($1,$2,$3,$4,0,'client',$5,$6)`,
-        [jlDebit, jeId, cxcAcct.id, amt, client_id, clientName]
+        [debitLine, jeId, cxc.rows[0].id, total_amount, client_id, clientName]
       );
-      // Línea 2: Crédito Ingresos (ingresos suben cuando se acreditan)
-      const jlCredit = `jl_${Date.now()}c_${Math.random().toString(36).substr(2, 4)}`;
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
-         VALUES($1,$2,$3,0,$4,'client',$5,$6)`,
-        [jlCredit, jeId, ingAcct.id, amt, client_id, clientName]
+         VALUES($1,$2,$3,0,$4,'client',$5,$6)`, [creditLine, jeId, ing.rows[0].id, total_amount, client_id, clientName]
       );
-      // Actualizar saldos con lógica contable correcta
-      await updateBalance(client, cxcAcct.id, amt, 0);   // CxC: activo, débito → sube
-      await updateBalance(client, ingAcct.id, 0, amt);   // Ingresos: crédito → sube
-    } else {
-      console.warn(`CxC journal skipped for user ${req.userId}: cxc=${cxcAcct?.code} ing=${ingAcct?.code}`);
+      await client.query(
+        `INSERT INTO account_balances(account_id, balance)
+         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2`,
+        [cxc.rows[0].id, total_amount]
+      );
+      await client.query(
+        `INSERT INTO account_balances(account_id, balance)
+         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2`,
+        [ing.rows[0].id, total_amount]
+      );
     }
-
     await client.query('COMMIT');
     res.json({ ok: true, id });
   } catch(e) {
@@ -3728,70 +3221,59 @@ app.post('/api/receivables/:id/payments', authMiddleware, async (req, res) => {
   try {
     await client.query('BEGIN');
     const { amount, payment_date, notes } = req.body;
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) return res.status(400).json({ error: 'Monto inválido' });
-
+    if (!amount) return res.status(400).json({ error: 'Amount required' });
     const rec = await client.query(
-      `SELECT r.*, c.name as client_name FROM receivables r
-       JOIN clients c ON c.id = r.client_id
-       WHERE r.id=$1 AND r.user_id=$2`, [req.params.id, req.userId]
+      `SELECT * FROM receivables WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]
     );
     if (!rec.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Not found' }); }
-
-    const outstanding = parseFloat(rec.rows[0].total_amount) - parseFloat(rec.rows[0].paid_amount);
-    if (amt > outstanding + 0.01) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: `El monto RD$ ${amt} supera lo pendiente RD$ ${outstanding.toFixed(2)}` });
-    }
 
     const payId = `rpay_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     await client.query(
       `INSERT INTO receivable_payments(id, receivable_id, amount, payment_date, notes)
        VALUES($1,$2,$3,$4,$5)`,
-      [payId, req.params.id, amt, payment_date || new Date().toISOString().split('T')[0], notes || null]
+      [payId, req.params.id, amount, payment_date || new Date().toISOString().split('T')[0], notes]
     );
     await client.query(
       `UPDATE receivables SET paid_amount = paid_amount + $1,
-       status = CASE
-         WHEN paid_amount + $1 >= total_amount THEN 'paid'
-         WHEN paid_amount + $1 > 0             THEN 'partial'
-         ELSE status END
+       status = CASE WHEN paid_amount + $1 >= total_amount THEN 'paid'
+                     WHEN paid_amount + $1 > 0 THEN 'partial' ELSE status END
        WHERE id=$2`,
-      [amt, req.params.id]
+      [amount, req.params.id]
     );
-
-    // ── Asiento de cobro: Débito Banco/Caja (activo ↑) | Crédito CxC (activo ↓) ──
-    // Lógica: recibimos dinero en caja/banco, y la deuda del cliente se cancela
-    const bancoAcct = await findAccount(client, req.userId, '1.1.02', '1102', '1101', '1.1.01');
-    const cxcAcct   = await findAccount(client, req.userId, '1.2.01', '1201', '1202', '1200');
-
-    if (bancoAcct && cxcAcct) {
+    // Reverse the receivable journal: Debit "Caja/Banco", Credit "Cuentas por Cobrar"
+    const caja = await client.query(`SELECT id FROM accounts WHERE code='1.1.01' AND user_id=$1`, [req.userId]);
+    const banco = await client.query(`SELECT id FROM accounts WHERE code='1.1.02' AND user_id=$1`, [req.userId]);
+    const cxc = await client.query(`SELECT id FROM accounts WHERE code='1.2.01' AND user_id=$1`, [req.userId]);
+    const cashAcc = banco.rows[0]?.id || caja.rows[0]?.id;
+    if (cashAcc && cxc.rows[0]) {
       const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       await client.query(
         `INSERT INTO journal_entries(id, user_id, date, description, ref_type, ref_id)
-         VALUES($1,$2,$3,$4,'receivable_payment',$5)`,
-        [jeId, req.userId, payment_date || new Date().toISOString().split('T')[0],
-         `Cobro: ${rec.rows[0].description} — ${rec.rows[0].client_name}`, req.params.id]
+         VALUES($1,$2,CURRENT_DATE,$3,'receivable',$4)`,
+        [jeId, req.userId, `Pago de cliente: ${rec.rows[0].description}`, req.params.id]
       );
-      const jlDebit  = `jl_${Date.now()}d_${Math.random().toString(36).substr(2, 4)}`;
-      const jlCredit = `jl_${Date.now()}c_${Math.random().toString(36).substr(2, 4)}`;
-      // Débito Banco: recibimos efectivo/transferencia
+      const debitLine  = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+      const creditLine = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+      const clientId = rec.rows[0].client_id;
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,$4,0)`,
-        [jlDebit, jeId, bancoAcct.id, amt]
+         VALUES($1,$2,$3,$4,0)`, [debitLine, jeId, cashAcc, amount]
       );
-      // Crédito CxC: el cliente ya no nos debe
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
-         VALUES($1,$2,$3,0,$4,'client',$5,$6)`,
-        [jlCredit, jeId, cxcAcct.id, amt, rec.rows[0].client_id, rec.rows[0].client_name]
+         VALUES($1,$2,$3,0,$4,'client',$5,$6)`, [creditLine, jeId, cxc.rows[0].id, amount, clientId||null, rec.rows[0].client_name||null]
       );
-      // Actualizar saldos
-      await updateBalance(client, bancoAcct.id, amt, 0);  // Banco: activo, débito → sube
-      await updateBalance(client, cxcAcct.id, 0, amt);    // CxC: activo, crédito → baja
+      await client.query(
+        `INSERT INTO account_balances(account_id, balance)
+         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2`,
+        [cashAcc, amount]
+      );
+      await client.query(
+        `INSERT INTO account_balances(account_id, balance)
+         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance - $2`,
+        [cxc.rows[0].id, amount]
+      );
     }
-
     await client.query('COMMIT');
     res.json({ ok: true });
   } catch(e) {
@@ -3892,56 +3374,48 @@ app.post('/api/payables', authMiddleware, async (req, res) => {
   try {
     await client.query('BEGIN');
     const { vendor_id, description, total_amount, due_date, expense_account_code } = req.body;
-    if (!vendor_id || !description || !total_amount) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Missing fields' });
-    }
-    const amt = parseFloat(total_amount);
-    if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Monto inválido' });
-
+    if (!vendor_id || !description || !total_amount) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Missing fields' }); }
     const id = `pay_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     await client.query(
       `INSERT INTO payables(id, user_id, vendor_id, description, total_amount, due_date)
        VALUES($1,$2,$3,$4,$5,$6)`,
-      [id, req.userId, vendor_id, description, amt, due_date || null]
+      [id, req.userId, vendor_id, description, total_amount, due_date]
     );
-
-    // ── Asiento: Débito Gastos (gasto ↑) | Crédito CxP (pasivo ↑) ──
-    // Lógica: reconocemos el gasto incurrido y la deuda con el proveedor sube
-    const expCode    = expense_account_code || '6.1.01';
-    const expAcct    = await findAccount(client, req.userId, expCode, '6101', '6.1.01', '6102');
-    const cxpAcct    = await findAccount(client, req.userId, '2.1.01', '2101', '2100', '2301');
+    // Auto-journal: Debit configurable expense account, Credit "Cuentas por Pagar" (liability)
+    const expAcctCode = expense_account_code || '6.1.01';
+    const exp = await client.query(`SELECT id FROM accounts WHERE code=$1 AND user_id=$2`, [expAcctCode, req.userId]);
+    const cxp = await client.query(`SELECT id FROM accounts WHERE code='2.1.01' AND user_id=$1`, [req.userId]);
     const vendorInfo = await client.query(`SELECT name FROM vendors WHERE id=$1`, [vendor_id]);
     const vendorName = vendorInfo.rows[0]?.name || 'Proveedor';
-
-    if (expAcct && cxpAcct) {
+    if (exp.rows[0] && cxp.rows[0]) {
       const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       await client.query(
         `INSERT INTO journal_entries(id, user_id, date, description, ref_type, ref_id)
          VALUES($1,$2,CURRENT_DATE,$3,'payable',$4)`,
-        [jeId, req.userId, `CxP: ${description} — ${vendorName}`, id]
+        [jeId, req.userId, description, id]
       );
-      const jlDebit  = `jl_${Date.now()}d_${Math.random().toString(36).substr(2, 4)}`;
-      const jlCredit = `jl_${Date.now()}c_${Math.random().toString(36).substr(2, 4)}`;
-      // Débito Gastos: el gasto sube (naturaleza deudora)
+      const debitLine  = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+      const creditLine = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,$4,0)`,
-        [jlDebit, jeId, expAcct.id, amt]
+         VALUES($1,$2,$3,$4,0)`, [debitLine, jeId, exp.rows[0].id, total_amount]
       );
-      // Crédito CxP: la deuda con el proveedor sube (naturaleza acreedora)
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
          VALUES($1,$2,$3,0,$4,'vendor',$5,$6)`,
-        [jlCredit, jeId, cxpAcct.id, amt, vendor_id, vendorName]
+        [creditLine, jeId, cxp.rows[0].id, total_amount, vendor_id, vendorName]
       );
-      // Actualizar saldos con lógica contable correcta
-      await updateBalance(client, expAcct.id, amt, 0);   // Gastos: naturaleza deudora → sube con débito
-      await updateBalance(client, cxpAcct.id, 0, amt);   // CxP: naturaleza acreedora → sube con crédito
-    } else {
-      console.warn(`CxP journal skipped for user ${req.userId}: exp=${expAcct?.code} cxp=${cxpAcct?.code}`);
+      await client.query(
+        `INSERT INTO account_balances(account_id, balance)
+         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2`,
+        [exp.rows[0].id, total_amount]
+      );
+      await client.query(
+        `INSERT INTO account_balances(account_id, balance)
+         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance - $2`,
+        [cxp.rows[0].id, total_amount]
+      );
     }
-
     await client.query('COMMIT');
     res.json({ ok: true, id });
   } catch(e) {
@@ -3958,70 +3432,60 @@ app.post('/api/payables/:id/payments', authMiddleware, async (req, res) => {
   try {
     await client.query('BEGIN');
     const { amount, payment_date, notes } = req.body;
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) return res.status(400).json({ error: 'Monto inválido' });
-
+    if (!amount) return res.status(400).json({ error: 'Amount required' });
     const pay = await client.query(
-      `SELECT p.*, v.name as vendor_name FROM payables p
-       JOIN vendors v ON v.id = p.vendor_id
-       WHERE p.id=$1 AND p.user_id=$2`, [req.params.id, req.userId]
+      `SELECT * FROM payables WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]
     );
     if (!pay.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Not found' }); }
-
-    const outstanding = parseFloat(pay.rows[0].total_amount) - parseFloat(pay.rows[0].paid_amount);
-    if (amt > outstanding + 0.01) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: `El monto RD$ ${amt} supera lo pendiente RD$ ${outstanding.toFixed(2)}` });
-    }
 
     const payId = `ppay_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     await client.query(
       `INSERT INTO payable_payments(id, payable_id, amount, payment_date, notes)
        VALUES($1,$2,$3,$4,$5)`,
-      [payId, req.params.id, amt, payment_date || new Date().toISOString().split('T')[0], notes || null]
+      [payId, req.params.id, amount, payment_date || new Date().toISOString().split('T')[0], notes]
     );
     await client.query(
       `UPDATE payables SET paid_amount = paid_amount + $1,
-       status = CASE
-         WHEN paid_amount + $1 >= total_amount THEN 'paid'
-         WHEN paid_amount + $1 > 0             THEN 'partial'
-         ELSE status END
+       status = CASE WHEN paid_amount + $1 >= total_amount THEN 'paid'
+                     WHEN paid_amount + $1 > 0 THEN 'partial' ELSE status END
        WHERE id=$2`,
-      [amt, req.params.id]
+      [amount, req.params.id]
     );
-
-    // ── Asiento de pago: Débito CxP (pasivo ↓) | Crédito Banco (activo ↓) ──
-    // Lógica: pagamos al proveedor → nuestra deuda baja y el banco también baja
-    const cxpAcct   = await findAccount(client, req.userId, '2.1.01', '2101', '2100', '2301');
-    const bancoAcct = await findAccount(client, req.userId, '1.1.02', '1102', '1101', '1.1.01');
-
-    if (cxpAcct && bancoAcct) {
+    // Journal: Debit "Cuentas por Pagar", Credit "Caja/Banco"
+    const cxp = await client.query(`SELECT id FROM accounts WHERE code='2.1.01' AND user_id=$1`, [req.userId]);
+    const caja = await client.query(`SELECT id FROM accounts WHERE code='1.1.01' AND user_id=$1`, [req.userId]);
+    const banco = await client.query(`SELECT id FROM accounts WHERE code='1.1.02' AND user_id=$1`, [req.userId]);
+    const cashAcc = banco.rows[0]?.id || caja.rows[0]?.id;
+    const vendorInfo = await client.query(`SELECT v.name FROM vendors v JOIN payables p ON p.vendor_id=v.id WHERE p.id=$1`, [req.params.id]);
+    const vendorName = vendorInfo.rows[0]?.name || 'Proveedor';
+    if (cxp.rows[0] && cashAcc) {
       const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       await client.query(
         `INSERT INTO journal_entries(id, user_id, date, description, ref_type, ref_id)
-         VALUES($1,$2,$3,$4,'payable_payment',$5)`,
-        [jeId, req.userId, payment_date || new Date().toISOString().split('T')[0],
-         `Pago a ${pay.rows[0].vendor_name}: ${pay.rows[0].description}`, req.params.id]
+         VALUES($1,$2,CURRENT_DATE,$3,'payable',$4)`,
+        [jeId, req.userId, `Pago a proveedor: ${pay.rows[0].description}`, req.params.id]
       );
-      const jlDebit  = `jl_${Date.now()}d_${Math.random().toString(36).substr(2, 4)}`;
-      const jlCredit = `jl_${Date.now()}c_${Math.random().toString(36).substr(2, 4)}`;
-      // Débito CxP: reducimos la deuda con el proveedor (pasivo baja con débito)
+      const debitLine  = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+      const creditLine = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
-         VALUES($1,$2,$3,$4,0,'vendor',$5,$6)`,
-        [jlDebit, jeId, cxpAcct.id, amt, pay.rows[0].vendor_id, pay.rows[0].vendor_name]
+         VALUES($1,$2,$3,$4,0,'vendor',$5,$6)`, [debitLine, jeId, cxp.rows[0].id, amount, pay.rows[0].vendor_id, vendorName]
       );
-      // Crédito Banco: sale dinero del banco (activo baja con crédito)
       await client.query(
         `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,0,$4)`,
-        [jlCredit, jeId, bancoAcct.id, amt]
+         VALUES($1,$2,$3,0,$4)`, [creditLine, jeId, cashAcc, amount]
       );
-      // Actualizar saldos
-      await updateBalance(client, cxpAcct.id, amt, 0);    // CxP: pasivo, débito → baja
-      await updateBalance(client, bancoAcct.id, 0, amt);  // Banco: activo, crédito → baja
+      await client.query(
+        `INSERT INTO account_balances(account_id, balance)
+         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2`,
+        [cxp.rows[0].id, amount]
+      );
+      await client.query(
+        `INSERT INTO account_balances(account_id, balance)
+         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance - $2`,
+        [cashAcc, amount]
+      );
     }
-
     await client.query('COMMIT');
     res.json({ ok: true });
   } catch(e) {
@@ -4032,292 +3496,161 @@ app.post('/api/payables/:id/payments', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/cashflow — flujo de caja del período
-// cash_in  = débitos en cuentas de caja/banco (entra dinero)
-// cash_out = créditos en cuentas de caja/banco (sale dinero)
+// GET /api/cashflow — cash in/out by period
 app.get('/api/cashflow', authMiddleware, async (req, res) => {
   try {
     let { from, to, month, year } = req.query;
-
-    // El frontend envía month 1-based (enero=1, diciembre=12) — NO sumar +1
+    // Support ?month=0-based&year=YYYY  (sent by frontend)
     if (!from && month !== undefined && year !== undefined) {
-      const m = parseInt(month);   // ya es 1-based
+      const m = parseInt(month) + 1;  // frontend sends 0-based
       const y = parseInt(year);
-      const lastDay = new Date(y, m, 0).getDate();  // día 0 del mes siguiente = último día del mes
       from = `${y}-${String(m).padStart(2,'0')}-01`;
+      const lastDay = new Date(y, m, 0).getDate();
       to   = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
     }
-
-    const uid = req.userId;
-
-    // Buscar cuentas de caja y banco con múltiples formatos de código (wizard y sistema)
+    // Cash accounts: 1.1.01 (Caja), 1.1.02 (Banco)
     const cashAccounts = await query(
-      `SELECT id, code FROM accounts
-       WHERE user_id=$1
-         AND is_active=TRUE
-         AND (code IN ('1.1.01','1.1.02','1101','1102','1103') OR class=1 AND type='asset' AND (name ILIKE '%caja%' OR name ILIKE '%banco%' OR name ILIKE '%efectivo%'))
-       LIMIT 10`,
-      [req.userId]
+      `SELECT id FROM accounts WHERE user_id=$1 AND code IN ('1.1.01','1.1.02')`, [req.userId]
     );
-
-    // Sin cuentas contables → fallback a tabla transactions
+    // If no accounts yet, fall back to transaction totals for that month
     if (!cashAccounts.rows.length) {
-      let txDateFilter = '';
-      let txParams = [];
-      if (from) { txDateFilter += ` AND tx_date >= $${txParams.length + 1}::date`; txParams.push(from); }
-      if (to)   { txDateFilter += ` AND tx_date <= $${txParams.length + 1}::date`; txParams.push(to); }
+      let txWhere = `WHERE user_id=$1`;
+      const txParams = [req.userId];
+      let p = 2;
+      if (from) { txWhere += ` AND tx_date >= $${p++}`; txParams.push(from); }
+      if (to)   { txWhere += ` AND tx_date <= $${p++}`; txParams.push(to); }
       const txr = await query(
-        `SELECT type, SUM(amount) as total FROM transactions WHERE user_id='${uid}'${txDateFilter} GROUP BY type`, txParams
+        `SELECT type, SUM(amount) as total FROM transactions ${txWhere} GROUP BY type`, txParams
       );
       const cashIn  = parseFloat(txr.rows.find(r => r.type === 'ingreso')?.total || 0);
       const cashOut = parseFloat(txr.rows.find(r => r.type === 'egreso')?.total  || 0);
       return res.json({ cashIn, cashOut, cash_in: cashIn, cash_out: cashOut, net: cashIn - cashOut, periods: [] });
     }
-
-    const ids          = cashAccounts.rows.map(r => r.id);
+    const ids = cashAccounts.rows.map(r => r.id);
     const placeholders = ids.map((_, i) => `$${i + 2}`).join(',');
 
-    // Para cuentas de activo (banco/caja):
-    //   débito = entra dinero (cash_in)
-    //   crédito = sale dinero (cash_out)
-    let sql = `
-      SELECT
-        je.date,
-        SUM(jl.debit)  AS cash_in,
-        SUM(jl.credit) AS cash_out
-      FROM journal_lines jl
-      JOIN journal_entries je ON je.id = jl.journal_entry_id
-      WHERE jl.account_id IN (${placeholders})`;
-    const params = [...ids];
-    let p = ids.length + 1;
-    if (from) { sql += ` AND je.date >= $${p++}::date`; params.push(from); }
-    if (to)   { sql += ` AND je.date <= $${p++}::date`; params.push(to); }
+    let sql = `SELECT je.date, SUM(jl.debit) as cash_in, SUM(jl.credit) as cash_out
+               FROM journal_lines jl
+               JOIN journal_entries je ON je.id = jl.journal_entry_id
+               JOIN accounts a ON a.id = jl.account_id
+               WHERE a.user_id = $1::text AND jl.account_id IN (${placeholders})`;
+    const params = [req.userId, ...ids];
+    let p = params.length + 1;
+    if (from) { sql += ` AND je.date >= $${p++}`; params.push(from); }
+    if (to)   { sql += ` AND je.date <= $${p++}`; params.push(to); }
     sql += ` GROUP BY je.date ORDER BY je.date`;
-
     const r = await query(sql, params);
     const periods = r.rows.map(row => ({
-      date:     row.date,
-      cash_in:  parseFloat(row.cash_in  || 0),
-      cash_out: parseFloat(row.cash_out || 0),
+      date: row.date, cash_in: parseFloat(row.cash_in || 0), cash_out: parseFloat(row.cash_out || 0)
     }));
-
-    const cashIn  = Math.round(periods.reduce((s, p) => s + p.cash_in,  0) * 100) / 100;
-    const cashOut = Math.round(periods.reduce((s, p) => s + p.cash_out, 0) * 100) / 100;
-
-    res.json({
-      cashIn,  cashOut,
-      cash_in: cashIn, cash_out: cashOut,
-      net:     Math.round((cashIn - cashOut) * 100) / 100,
-      periods
-    });
+    const cashIn  = periods.reduce((s, p) => s + p.cash_in, 0);
+    const cashOut = periods.reduce((s, p) => s + p.cash_out, 0);
+    res.json({ cashIn, cashOut, cash_in: cashIn, cash_out: cashOut, net: cashIn - cashOut, periods });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/income-statement — Estado de Resultados del período
-// Ingresos (clase 4): naturaleza acreedora → saldo = credit - debit
-// Costos   (clase 5): naturaleza deudora   → saldo = debit - credit
-// Gastos   (clase 6): naturaleza deudora   → saldo = debit - credit
-// Utilidad neta = Ingresos - Costos - Gastos
+// GET /api/income-statement — revenues - costs - expenses by period
 app.get('/api/income-statement', authMiddleware, async (req, res) => {
   try {
     let { from, to, month, year } = req.query;
-
-    // El frontend envía month 1-based — NO sumar +1
+    // Support ?month=0-based&year=YYYY
     if (!from && month !== undefined && year !== undefined) {
-      const m = parseInt(month);   // ya es 1-based
+      const m = parseInt(month) + 1;
       const y = parseInt(year);
-      const lastDay = new Date(y, m, 0).getDate();
       from = `${y}-${String(m).padStart(2,'0')}-01`;
+      const lastDay = new Date(y, m, 0).getDate();
       to   = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
     }
-
-    const uid = req.userId;
-    let dateFilter = '';
-    let params = [];
-    if (from) { dateFilter += ` AND je.date >= $${params.length + 1}::date`; params.push(from); }
-    if (to)   { dateFilter += ` AND je.date <= $${params.length + 1}::date`; params.push(to); }
+    let params = [req.userId];
+    let p = 2;
+    let where = `WHERE a.user_id=$1`;
+    if (from) { where += ` AND je.date >= $${p++}`; params.push(from); }
+    if (to)   { where += ` AND je.date <= $${p++}`; params.push(to); }
 
     const r = await query(
-      `SELECT
-         a.type, a.class, a.name, a.code,
-         SUM(jl.debit)  AS debit,
-         SUM(jl.credit) AS credit
+      `SELECT a.type, a.class, a.name, a.code,
+              SUM(jl.debit) as debit, SUM(jl.credit) as credit
        FROM journal_lines jl
        JOIN journal_entries je ON je.id = jl.journal_entry_id
        JOIN accounts a ON a.id = jl.account_id
-       WHERE a.user_id = '${uid}'${dateFilter}
+       ${where}
        GROUP BY a.type, a.class, a.name, a.code
        ORDER BY a.class, a.code`,
       params
     );
 
     let income = 0, costs = 0, expenses = 0;
-    const incomeDetail = [], costDetail = [], expenseDetail = [];
 
     if (r.rows.length > 0) {
+      const byClass = {};
       for (const row of r.rows) {
-        const debit  = parseFloat(row.debit  || 0);
-        const credit = parseFloat(row.credit || 0);
-        const cls    = parseInt(row.class);
-
-        // Ingresos (clase 4): saldo normal es crédito
-        if (cls === 4) {
-          const saldo = credit - debit;   // positivo = ingreso real
-          income += saldo;
-          incomeDetail.push({ code: row.code, name: row.name, amount: Math.round(saldo * 100) / 100 });
-        }
-        // Costos (clase 5): saldo normal es débito
-        if (cls === 5) {
-          const saldo = debit - credit;   // positivo = costo real
-          costs += saldo;
-          costDetail.push({ code: row.code, name: row.name, amount: Math.round(saldo * 100) / 100 });
-        }
-        // Gastos (clase 6): saldo normal es débito
-        if (cls === 6) {
-          const saldo = debit - credit;   // positivo = gasto real
-          expenses += saldo;
-          expenseDetail.push({ code: row.code, name: row.name, amount: Math.round(saldo * 100) / 100 });
-        }
+        if (!byClass[row.class]) byClass[row.class] = { debit: 0, credit: 0 };
+        byClass[row.class].debit  += parseFloat(row.debit || 0);
+        byClass[row.class].credit += parseFloat(row.credit || 0);
       }
+      income   = (byClass[4]?.credit || 0) - (byClass[4]?.debit || 0);
+      costs    = (byClass[5]?.debit || 0) - (byClass[5]?.credit || 0);
+      expenses = (byClass[6]?.debit || 0) - (byClass[6]?.credit || 0);
     } else {
-      // Fallback: tabla transactions cuando no hay asientos
-      let txDateFilter = '';
-      let txParams = [];
-      if (from) { txDateFilter += ` AND tx_date >= $${txParams.length + 1}::date`; txParams.push(from); }
-      if (to)   { txDateFilter += ` AND tx_date <= $${txParams.length + 1}::date`; txParams.push(to); }
+      // Fallback: use transactions table when no journal entries exist
+      let txWhere = `WHERE user_id=$1`;
+      const txParams = [req.userId];
+      let tp = 2;
+      if (from) { txWhere += ` AND tx_date >= $${tp++}`; txParams.push(from); }
+      if (to)   { txWhere += ` AND tx_date <= $${tp++}`; txParams.push(to); }
       const txr = await query(
-        `SELECT type, SUM(amount) AS total FROM transactions WHERE user_id='${uid}'${txDateFilter} GROUP BY type`, txParams
+        `SELECT type, SUM(amount) as total FROM transactions ${txWhere} GROUP BY type`, txParams
       );
       income   = parseFloat(txr.rows.find(rr => rr.type === 'ingreso')?.total || 0);
       expenses = parseFloat(txr.rows.find(rr => rr.type === 'egreso')?.total  || 0);
     }
 
-    income   = Math.round(income   * 100) / 100;
-    costs    = Math.round(costs    * 100) / 100;
-    expenses = Math.round(expenses * 100) / 100;
-    const netIncome = Math.round((income - costs - expenses) * 100) / 100;
-
     res.json({
-      // Aliases para compatibilidad con frontend y PDF export
-      revenues:   income,
-      income,
-      ingresos:   income,
+      revenues: income,   // alias used by some frontend versions
+      income,             // primary key
       costs,
-      costos:     costs,
       expenses,
-      gastos:     expenses,
-      net_income: netIncome,
-      // Detalle por cuenta para desglose
-      income_detail:   incomeDetail,
-      cost_detail:     costDetail,
-      expense_detail:  expenseDetail,
+      gastos: expenses,   // Spanish alias
+      costos: costs,
+      ingresos: income,
+      net_income: income - costs - expenses,
       detail: r.rows.map(row => ({
-        code:   row.code,
-        name:   row.name,
-        type:   row.type,
-        class:  row.class,
-        debit:  parseFloat(row.debit  || 0),
-        credit: parseFloat(row.credit || 0),
+        code: row.code, name: row.name, type: row.type, class: row.class,
+        debit: parseFloat(row.debit), credit: parseFloat(row.credit)
       }))
     });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/balance — Balance General (ecuación contable: Activos = Pasivos + Patrimonio)
-//
-// Convención de signos en account_balances (establecida por updateBalance()):
-//   Activos, Costos, Gastos  → balance = debit - credit  (positivo = saldo deudor normal)
-//   Pasivos, Patrimonio, Ing → balance = credit - debit  (positivo = saldo acreedor normal)
-//
-// Por tanto, para mostrar el balance:
-//   Activos      → usar balance tal cual   (positivo = bien)
-//   Pasivos      → usar balance tal cual   (positivo = deuda real)
-//   Patrimonio   → usar balance tal cual
-//   Ingresos/Costos/Gastos → se incorporan al patrimonio (Utilidad del período)
+// GET /api/balance — balance sheet (assets = liabilities + equity)
 app.get('/api/balance', authMiddleware, async (req, res) => {
   try {
     const r = await query(
-      `SELECT
-         a.type, a.class, a.code, a.name,
-         COALESCE(ab.balance, 0) AS stored_balance
+      `SELECT a.type, a.class, a.code, a.name, COALESCE(ab.balance, 0) as balance
        FROM accounts a
        LEFT JOIN account_balances ab ON ab.account_id = a.id
        WHERE a.user_id=$1 AND a.is_active=TRUE
        ORDER BY a.class, a.code`,
       [req.userId]
     );
-
-    let assets = 0, liabilities = 0, equity = 0;
-    let income = 0, costs = 0, expenses = 0;
-    const detail      = [];
-    const assetList   = [];
-    const liabilityList = [];
-    const equityList  = [];
-
+    let assets = 0, liabilities = 0, equity = 0, income = 0, costs = 0, expenses = 0;
+    const detail = [], assetList = [], liabilityList = [];
     for (const row of r.rows) {
-      // stored_balance ya tiene el signo correcto según updateBalance()
-      const bal = parseFloat(row.stored_balance || 0);
-
-      const item = {
-        code:    row.code,
-        name:    row.name,
-        type:    row.type,
-        class:   parseInt(row.class),
-        balance: Math.round(bal * 100) / 100
-      };
+      const bal = parseFloat(row.balance);
+      const item = { code: row.code, name: row.name, type: row.type, balance: bal };
       detail.push(item);
-
-      switch (row.type) {
-        case 'asset':
-          assets += bal;
-          assetList.push(item);
-          break;
-        case 'liability':
-          liabilities += bal;
-          liabilityList.push(item);
-          break;
-        case 'equity':
-          equity += bal;
-          equityList.push(item);
-          break;
-        case 'income':
-          income += bal;   // stored as credit-debit → positivo = ingreso real
-          break;
-        case 'cost':
-          costs += bal;    // stored as debit-credit → positivo = costo real
-          break;
-        case 'expense':
-          expenses += bal; // stored as debit-credit → positivo = gasto real
-          break;
-      }
+      if (row.type === 'asset')     { assets      += bal; assetList.push(item); }
+      if (row.type === 'liability') { liabilities += bal; liabilityList.push(item); }
+      if (row.type === 'equity')    equity      += bal;
+      if (row.type === 'income')    income      += bal;
+      if (row.type === 'cost')      costs       += bal;
+      if (row.type === 'expense')   expenses    += bal;
     }
-
-    // Utilidad del período = Ingresos - Costos - Gastos
-    // Se suma al patrimonio (Retained Earnings temporales)
-    const netIncome  = Math.round((income - costs - expenses) * 100) / 100;
-    const totalEquity = Math.round((equity + netIncome) * 100) / 100;
-
-    assets      = Math.round(assets      * 100) / 100;
-    liabilities = Math.round(liabilities * 100) / 100;
-
-    // La ecuación contable: Activos = Pasivos + Patrimonio
-    const diff = Math.abs(assets - (liabilities + totalEquity));
-    const balanced = diff < 0.02;  // tolerancia de 2 centavos por redondeos
-
+    equity += income - costs - expenses;
     res.json({
-      assets,
-      liabilities,
-      equity:         totalEquity,
-      equity_base:    Math.round(equity  * 100) / 100,
-      net_income:     netIncome,
-      income,
-      costs,
-      expenses,
-      balanced,
-      diff:           Math.round(diff * 100) / 100,
-      assetList,
-      liabilityList,
-      equityList,
+      assets, liabilities, equity,
+      assetList, liabilityList,
+      balanced: Math.abs(assets - (liabilities + equity)) < 0.01,
       detail
     });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -4810,34 +4143,8 @@ async function initDB() {
   try { await query(`ALTER TABLE invoice_counter DROP CONSTRAINT IF EXISTS invoice_counter_user_id_fkey`); } catch(e) {}
   // Migrations for products
   try { await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_current NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
-  try { await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
-  // Migrations for inventory_movements — columnas nuevas para contabilidad
-  try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
-  try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT DEFAULT 'other'`); } catch(e) {}
-  try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS vendor_id TEXT`); } catch(e) {}
-  try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS client_id TEXT`); } catch(e) {}
-  // Redirige FK de inventory_movements → products (tabla unificada)
-  try { await query(`ALTER TABLE inventory_movements DROP CONSTRAINT IF EXISTS inventory_movements_product_id_fkey`); } catch(e) {}
-  try { await query(`ALTER TABLE inventory_movements ADD CONSTRAINT inventory_movements_product_fk FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE`); } catch(e) {}
-  // Migrations for fixed_assets — columnas nuevas
-  try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS code TEXT`); } catch(e) {}
-  try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS residual_value NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
-  try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS useful_life_months INTEGER DEFAULT 60`); } catch(e) {}
-  try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS depreciation_method TEXT DEFAULT 'straight_line'`); } catch(e) {}
-  try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS notes TEXT`); } catch(e) {}
-  // Migrar salvage_value → residual_value si existía
-  try { await query(`UPDATE fixed_assets SET residual_value = salvage_value WHERE residual_value = 0 AND salvage_value > 0`); } catch(e) {}
-  // Migrar useful_life_years → useful_life_months si existía
-  try { await query(`UPDATE fixed_assets SET useful_life_months = useful_life_years * 12 WHERE useful_life_months = 60 AND useful_life_years IS NOT NULL AND useful_life_years != 5`); } catch(e) {}
+  // Migrations for fixed_assets
   try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS depreciacion_metodo TEXT DEFAULT 'linea_recta'`); } catch(e) {}
-  // Migrations for asset_depreciation — columnas que necesita la nueva lógica
-  try { await query(`ALTER TABLE asset_depreciation ADD COLUMN IF NOT EXISTS period_month INTEGER`); } catch(e) {}
-  try { await query(`ALTER TABLE asset_depreciation ADD COLUMN IF NOT EXISTS period_year INTEGER`); } catch(e) {}
-  try { await query(`ALTER TABLE asset_depreciation ADD COLUMN IF NOT EXISTS period_date DATE`); } catch(e) {}
-  try { await query(`ALTER TABLE asset_depreciation ADD COLUMN IF NOT EXISTS book_value_after NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
-  try { await query(`ALTER TABLE asset_depreciation ADD COLUMN IF NOT EXISTS method TEXT DEFAULT 'straight_line'`); } catch(e) {}
-  try { await query(`ALTER TABLE asset_depreciation ADD COLUMN IF NOT EXISTS notes TEXT`); } catch(e) {}
-  try { await query(`ALTER TABLE asset_depreciation ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`); } catch(e) {}
   // Migration: income_records - add all missing columns
   try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS date DATE NOT NULL DEFAULT CURRENT_DATE`); } catch(e) {}
   try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS amount NUMERIC(12,2)`); } catch(e) {}
@@ -4854,6 +4161,14 @@ async function initDB() {
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_pct NUMERIC(5,2) DEFAULT 0`); } catch(e) {}
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
   try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS discount_pct NUMERIC(5,2) DEFAULT 0`); } catch(e) {}
+  // ── CMV: nuevas columnas ──
+  try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cmv_amount NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
+  try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS product_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
+  try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS cmv_amount NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
+  // Actualizar status CHECK constraint para incluir 'issued' (además de 'pending','paid','cancelled')
+  try { await query(`ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_status_check`); } catch(e) {}
+  try { await query(`ALTER TABLE invoices ADD CONSTRAINT invoices_status_check CHECK (status IN ('draft','issued','pending','paid','partial','cancelled'))`); } catch(e) {}
 
   // Make first registered user an admin
   try {

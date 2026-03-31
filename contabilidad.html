@@ -149,8 +149,6 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 .btn-danger:hover { border-color:var(--accent2); }
 .btn-sm { padding:5px 10px; font-size:var(--fs-2xs); }
 .btn-full { width:100%; justify-content:center; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.4); border-top-color:#fff; border-radius:50%; animation:spin 0.7s linear infinite; flex-shrink:0; }
 
 /* ── PANEL / DRAWER ── */
 .panel { background:var(--surface); border:1px solid var(--border2); border-radius:var(--radius); padding:var(--space-md); margin-bottom:var(--space-md); }
@@ -205,6 +203,9 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   /* Hide some header items on small screens */
   .hdr-btn span { display:none; }
   .user-badge span { max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .header-actions { overflow-x:auto; max-width:100%; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  .header-actions::-webkit-scrollbar { display:none; }
+  .personal-link { display:none; }
   /* Page header stacks on mobile */
   .page-header { flex-direction:column; align-items:flex-start; }
   .page-header .btn { width:100%; justify-content:center; }
@@ -412,10 +413,6 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>
       Reportes
     </div>
-    <div class="nav-item" id="nav-conciliacion" onclick="showPage('conciliacion',this)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      📋 Conciliación
-    </div>
   </div>
   <div class="sidebar-section" id="adminNav" style="display:none">
     <div class="sidebar-label">Administración</div>
@@ -568,7 +565,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     </div>
     <!-- Filter bar -->
     <div style="display:flex;gap:8px;margin-bottom:var(--space-sm);flex-wrap:wrap">
-      <input class="form-input" id="prod-search" placeholder="🔍 Buscar producto..." oninput="debounceFilterProducts()" style="flex:1;min-width:160px;padding:7px 10px">
+      <input class="form-input" id="prod-search" placeholder="🔍 Buscar producto..." oninput="filterProducts()" style="flex:1;min-width:160px;padding:7px 10px">
       <select class="form-input form-select" id="prod-cat-filter" onchange="filterProducts()" style="width:140px;padding:7px 28px 7px 10px">
         <option value="">Todas las categorías</option>
       </select>
@@ -716,7 +713,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
         <option value="partial">Parcial</option>
         <option value="cancelled">Cancelada</option>
       </select>
-      <input class="form-input" id="inv-search" placeholder="🔍 Buscar..." oninput="debounceLoadInvoices()" style="flex:1;min-width:120px;padding:7px 10px">
+      <input class="form-input" id="inv-search" placeholder="🔍 Buscar..." oninput="loadInvoices()" style="flex:1;min-width:120px;padding:7px 10px">
     </div>
     <div class="card"><div class="card-body" id="invoicesList"></div></div>
   </div>
@@ -781,11 +778,6 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
                 <option value="card">Tarjeta</option>
               </select>
             </div>
-            <div class="form-group"><label class="form-label">Tipo de Ingreso</label>
-              <select class="form-input form-select" id="nf-income-type">
-                <option value="">Sin clasificar</option>
-              </select>
-            </div>
             <div class="form-grid form-grid-2" style="margin-top:10px">
               <div class="form-group"><label class="form-label">ITBIS %</label><input class="form-input" id="nf-tax" type="number" value="18" min="0" max="100" oninput="recalcInvoice()"></div>
               <div class="form-group"><label class="form-label">Descuento %</label><input class="form-input" id="nf-discount" type="number" value="0" min="0" max="100" oninput="recalcInvoice()"></div>
@@ -801,6 +793,14 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
             <div style="height:1px;background:var(--border);margin:10px 0"></div>
             <div style="display:flex;justify-content:space-between;font-weight:800;font-size:var(--fs-md)"><span>TOTAL</span><span id="nf-total" style="font-family:monospace;color:var(--accent)">RD$ 0.00</span></div>
           </div>
+        </div>
+        <!-- CMV Preview -->
+        <div id="nf-cmv-block" style="display:none;background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--accent2);border-radius:var(--radius-xs);padding:12px;margin-bottom:var(--space-sm)">
+          <div style="font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">📊 Rentabilidad Estimada</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">CMV (costo mercancía)</span><span id="nf-cmv-total" style="font-family:monospace;font-weight:700;color:var(--accent2)"></span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Margen Bruto</span><span id="nf-margen-bruto" style="font-family:monospace;font-weight:700"></span></div>
+          <div style="display:flex;justify-content:space-between;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">% Margen</span><span id="nf-margen-pct" style="font-weight:800;font-size:var(--fs-sm)"></span></div>
+          <div style="margin-top:8px;font-size:9px;color:var(--text-muted);background:var(--surface3);border-radius:4px;padding:5px 7px">💡 CMV y stock se actualizan automáticamente al emitir</div>
         </div>
         <div class="form-group" style="margin-bottom:10px"><label class="form-label">Notas</label><input class="form-input" id="nf-notes" placeholder="Notas de la factura"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -907,12 +907,6 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     <div class="modal-title"><span id="invDetailTitle">Factura</span> <button class="modal-close" onclick="closeModal('invoiceDetailModal')">✕</button></div>
     <div id="invoiceDetailContent"></div>
     <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap" id="invoiceDetailActions"></div>
-    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
-      <div style="font-size:var(--fs-xs);font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px">📒 Asientos Contables</div>
-      <div id="invoiceJournalEntries">
-        <div class="empty" style="padding:16px 0"><div class="empty-icon">⏳</div><div class="empty-title">Cargando asientos...</div></div>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -1293,38 +1287,6 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   </div>
 </div>
 
-<!-- CONCILIACIÓN BANCARIA -->
-<div id="page-conciliacion" class="page">
-  <div class="page-header">
-    <div><div class="page-title">📋 Conciliación Bancaria</div><div class="page-subtitle">Marcar asientos como conciliados</div></div>
-  </div>
-  <div class="card" style="margin-bottom:var(--space-md)">
-    <div class="card-header"><span class="card-title">Filtros</span></div>
-    <div style="padding:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-      <div class="form-group" style="margin:0;flex:1;min-width:120px">
-        <label class="form-label">Desde</label>
-        <input class="form-input" id="conc-from" type="date" onchange="loadConciliacion()">
-      </div>
-      <div class="form-group" style="margin:0;flex:1;min-width:120px">
-        <label class="form-label">Hasta</label>
-        <input class="form-input" id="conc-to" type="date" onchange="loadConciliacion()">
-      </div>
-      <div class="form-group" style="margin:0">
-        <label class="form-label">Solo sin conciliar</label>
-        <input type="checkbox" id="conc-unconciled" onchange="loadConciliacion()" style="width:18px;height:18px;accent-color:var(--orange)">
-      </div>
-      <button class="btn btn-primary" onclick="loadConciliacion()">🔍 Filtrar</button>
-    </div>
-  </div>
-  <div id="concBalanceAlert"></div>
-  <div class="card">
-    <div class="card-header"><span class="card-title">Asientos Contables</span><span id="concCount" style="font-size:var(--fs-2xs);color:var(--text-muted)"></span></div>
-    <div class="card-body" id="conciliacionList">
-      <div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin asientos</div><div class="empty-sub">Aplica un filtro de fechas</div></div>
-    </div>
-  </div>
-</div>
-
 <!-- ADMIN PAGE -->
   <div id="page-admin" class="page" style="position:fixed;top:var(--header-h);left:0;right:0;bottom:0;z-index:90;overflow-y:auto;padding:var(--space-md) var(--pad-x) 80px;background:var(--bg)">
     <div class="page-header">
@@ -1335,14 +1297,6 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
       <div id="adminLoading" style="text-align:center;padding:40px;color:var(--text-muted)">⏳ Cargando...</div>
     </div>
   </div>
-
-<!-- MODAL: VER ASIENTO CONTABLE -->
-<div class="modal-backdrop" id="jeViewModal">
-  <div class="modal-box" style="max-width:580px">
-    <div class="modal-title"><span id="jeViewTitle">Asiento Contable</span> <button class="modal-close" onclick="closeModal('jeViewModal')">✕</button></div>
-    <div id="jeViewContent"></div>
-  </div>
-</div>
 
 <!-- MODAL: REGISTRAR PAGO -->
 <div class="modal-backdrop" id="payModal">
@@ -1431,7 +1385,7 @@ async function doLogin() {
   const password = el('loginPassword').value;
   el('loginError').style.display = 'none';
   if (!username || !password) { el('loginError').textContent='Completa usuario y contraseña'; el('loginError').style.display='block'; return; }
-  const btn = el('loginBtn'); btn.innerHTML='<span class="spinner"></span> Verificando...'; btn.disabled=true;
+  const btn = el('loginBtn'); btn.textContent='Verificando...'; btn.disabled=true;
   try {
     const res = await fetch(SERVER_URL+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
     const d = await res.json();
@@ -1519,73 +1473,8 @@ let _currentPage = 'dashboard';
 function fabAction() { const fn = FAB_ACTIONS[_currentPage]; if(fn) fn(); }
 
 // ─── NAV ──────────────────────────────────────────────────────────────────────
-
-async function loadConciliacion() {
-  const from = el('conc-from').value;
-  const to = el('conc-to').value;
-  const onlyUnconciled = el('conc-unconciled').checked;
-  const container = el('conciliacionList');
-  container.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Cargando...</div></div>';
-  el('concBalanceAlert').innerHTML = '';
-  try {
-    let url = '/api/journal?limit=200';
-    if (from) url += '&from=' + from;
-    if (to) url += '&to=' + to;
-    const entries = await apiFetch(url);
-    let filtered = entries.filter(e => {
-      if (onlyUnconciled && e.reconciled) return false;
-      return true;
-    });
-    if (!filtered.length) {
-      container.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin asientos</div><div class="empty-sub">No hay asientos en el periodo</div></div>';
-      return;
-    }
-    let totalDebit = 0, totalCredit = 0;
-    el('concCount').textContent = filtered.length + ' asientos';
-    container.innerHTML = filtered.map(e => {
-      totalDebit += Number(e.debit||0);
-      totalCredit += Number(e.credit||0);
-      return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:12px;margin-bottom:6px;display:flex;align-items:center;gap:10px'+(e.reconciled?';opacity:0.6':'')+'">'+
-        '<input type="checkbox" class="conc-check" data-id="'+e.id+'" '+(e.reconciled?'checked ':'')+'onchange="toggleConciliacion(\''+e.id+'\',this.checked)" style="width:18px;height:18px;flex-shrink:0">'+
-        '<div style="flex:1;min-width:0">'+
-          '<div style="font-weight:700;font-size:var(--fs-xs)">'+e.description+'</div>'+
-          '<div style="font-size:var(--fs-2xs);color:var(--text-muted)">'+(e.date||'')+'</div>'+
-        '</div>'+
-        '<div style="text-align:right;flex-shrink:0">'+
-          '<div style="color:var(--accent2);font-family:monospace;font-size:var(--fs-xs)">RD$ '+fmt(e.debit||0)+'</div>'+
-          '<div style="color:var(--accent);font-family:monospace;font-size:var(--fs-xs)">RD$ '+fmt(e.credit||0)+'</div>'+
-        '</div>'+
-        '<div style="flex-shrink:0">'+(e.reconciled?'<span style="color:var(--accent);font-size:var(--fs-2xs)">✅</span>':'<span style="color:var(--text-muted);font-size:var(--fs-2xs)">⏳</span>')+'</div>'+
-      '</div>';
-    }).join('');
-    const diff = Math.abs(totalDebit - totalCredit);
-    if (diff > 0.01) {
-      el('concBalanceAlert').innerHTML = '<div style="background:#ff444420;border:1px solid #ff4444;border-radius:8px;padding:10px 14px;font-size:var(--fs-xs);color:#ff4444;margin-bottom:12px">⚠️ Diferencia: RD$ '+fmt(diff)+'</div>';
-    }
-  } catch(e) {
-    container.innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">'+e.message+'</div></div>';
-  }
-}
-
-async function toggleConciliacion(id, checked) {
-  try {
-    await apiFetch('/api/journal/'+id, {method:'PUT', body: JSON.stringify({reconciled: checked})});
-    loadConciliacion();
-  } catch(e) { toast('Error: '+e.message,'error'); }
-}
-
 function showPage(id, btn) {
   _currentPage = id;
-  if (id === 'conciliacion') {
-    if (!el('conc-from').value) {
-      const now = new Date();
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      el('conc-from').value = firstDay;
-      el('conc-to').value = now.toISOString().split('T')[0];
-    }
-    loadConciliacion();
-  }
-
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
   const pageEl = el('page-'+id);
@@ -1612,10 +1501,7 @@ function showPage(id, btn) {
   if (id==='facturas')        loadInvoices();
   if (id==='nueva-factura')   initNewInvoice();
   if (id==='reportes')        { const now=new Date(); el('rep-month').value=now.getMonth()+1; }
-  if (id==='conciliacion')    loadConciliacion();
   if (id==='admin')           renderAdmin();
-  // Hash routing
-  try { history.replaceState(null, '', '#' + id); } catch(e) {}
 }
 
 function setMobActive(id) { document.querySelectorAll('.mob-nav-btn').forEach(b=>b.classList.remove('active')); el(id).classList.add('active'); }
@@ -1702,11 +1588,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (currentUser?.token && !window.__sessionExpired) {
     showApp().catch(() => clearSession());
   }
-  // Hash routing: navigate to hash on load
-  const hash = location.hash?.replace('#', '');
-  if (hash && typeof showPage === 'function') {
-    setTimeout(() => showPage(hash), 100);
-  }
   // Backup click handler for login button
   const loginBtn = document.getElementById('loginBtn');
   if (loginBtn) loginBtn.addEventListener('click', function(e) {
@@ -1718,29 +1599,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
   ['prod-cost','prod-price','edit-prod-cost','edit-prod-price'].forEach(id=>{
     const el2=document.getElementById(id); if(el2) el2.addEventListener('input',calcMargin);
   });
-  // Autoguardado de borrador cada 30 segundos
-  setInterval(() => {
-    const activePage = document.querySelector('[id^="page-"]:not([style*="display: none"])');
-    const pageId = activePage?.id?.replace('page-','');
-    if (pageId === 'nueva-factura') {
-      const rows = window._invoiceRows || [];
-      if (rows.length > 0 || el('nf-client')?.value || el('nf-number')?.value) {
-        localStorage.setItem('invoiceDraft', JSON.stringify({
-          client: el('nf-client')?.value,
-          rnc: el('nf-rnc')?.value,
-          number: el('nf-number')?.value,
-          date: el('nf-date')?.value,
-          dueDate: el('nf-due-date')?.value,
-          paymentMethod: el('nf-payment-method')?.value,
-          rows: window._invoiceRows || [],
-          discount: el('nf-discount')?.value,
-          notes: el('nf-notes')?.value,
-          tax: el('nf-tax')?.value,
-          saved: new Date().toISOString()
-        }));
-      }
-    }
-  }, 30000);
 });
 
 async function saveProduct() {
@@ -1810,11 +1668,6 @@ async function deleteProduct(id) {
 }
 
 let _allProducts = [];
-// Debounce utility
-function debounce(fn, ms) { let t; return function(...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); }; }
-function debounceFilterProducts() { debounce(filterProducts, 300)(); }
-function debounceLoadInvoices() { debounce(loadInvoices, 300)(); }
-
 function filterProducts() {
   const search = (el('prod-search')?.value||'').toLowerCase();
   const cat    = el('prod-cat-filter')?.value||'';
@@ -2051,10 +1904,6 @@ async function renderMovimientosInv() {
       const qty     = isEntry?'+'+m.quantity:'-'+m.quantity;
       const color   = MOV_TYPE_COLORS[m.type]||'var(--text-muted)';
       const total   = isEntry ? m.quantity*m.unit_cost : m.quantity*m.unit_price;
-      // Journal entry link if exists
-      const jeLink = m.je_id || m.journal_entry_id
-        ? `<button class="btn btn-sm btn-secondary" onclick="viewMovementJournalEntry('${m.je_id||m.journal_entry_id}')" style="margin-top:6px;font-size:10px;padding:3px 8px">📒 Asiento #${m.je_id||m.journal_entry_id}</button>`
-        : '';
       return `<div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--radius-xs);padding:12px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
           <div style="flex:1;min-width:0">
@@ -2070,43 +1919,9 @@ async function renderMovimientosInv() {
           ${isEntry?`<span>Costo unit: <strong>RD$ ${fmt(m.unit_cost)}</strong></span>`:`<span>Precio unit: <strong>RD$ ${fmt(m.unit_price)}</strong></span>`}
           <span>Total: <strong style="color:${color}">RD$ ${fmt(total)}</strong></span>
         </div>
-        ${jeLink}
       </div>`;
     }).join('')+'</div>';
   } catch(e) { container.innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">'+e.message+'</div></div>'; }
-}
-
-// View journal entry from inventory movement
-async function viewMovementJournalEntry(jeId) {
-  el('jeViewTitle').textContent = `Asiento #${jeId}`;
-  el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⏳</div><div class="empty-title">Cargando...</div></div>';
-  openModal('jeViewModal');
-  apiFetch('/api/journal/' + jeId).then(entry => {
-    if (!entry) throw new Error('No encontrado');
-    const lines = entry.lines || [];
-    let debits = 0, credits = 0;
-    el('jeViewContent').innerHTML = `<div style="overflow-x:auto">
-      <table class="data-table"><thead><tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead><tbody>
-        ${lines.map(l => {
-          debits += Number(l.debit||0);
-          credits += Number(l.credit||0);
-          return `<tr>
-            <td class="num" style="font-weight:700">${entry.je_number||entry.id}</td>
-            <td style="font-size:var(--fs-2xs)">${entry.date||'—'}</td>
-            <td style="font-size:var(--fs-xs)">${entry.description||'—'}</td>
-            <td>${l.account_name||'—'}</td>
-            <td class="num" style="color:var(--accent2)">RD$ ${fmt(l.debit||0)}</td>
-            <td class="num" style="color:var(--accent)">RD$ ${fmt(l.credit||0)}</td>
-          </tr>`;
-        }).join('')}
-      </tbody></table></div>
-      <div class="balance-indicator ${Math.abs(debits-credits)<0.01?'ok':'mismatch'}" style="margin-top:8px">
-        Débito: RD$ ${fmt(debits)} | Crédito: RD$ ${fmt(credits)}
-        ${Math.abs(debits-credits)<0.01?' ✅':' ⚠️ Desc'}
-      </div>`;
-  }).catch(() => {
-    el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⚠️</div><div class="empty-title">Asiento no encontrado</div></div>';
-  });
 }
 
 async function renderStock() {
@@ -2306,42 +2121,10 @@ function renderCxc() {
       <div style="font-size:var(--fs-2xs);color:var(--text-muted);margin-bottom:8px">📅 ${due}</div>
       <div style="display:flex;gap:6px">
         ${pendFinal>0?`<button class="btn btn-sm btn-secondary" onclick="openPayModal('cxc','${r.id}',${pendFinal})" style="flex:1;justify-content:center">💰 Registrar Pago</button>`:''}
-        <button class="btn btn-sm btn-secondary" onclick="showCxcJournalEntry('${r.id}')" style="padding:5px 8px;font-size:11px">📒 Asiento</button>
         <button onclick="deleteCxc('${r.id}')" style="background:var(--accent2-dim);border:1px solid var(--accent2)50;border-radius:6px;padding:5px 10px;color:var(--accent2);font-size:12px;cursor:pointer">🗑️</button>
       </div>
     </div>`;
   }).join('')+'</div>';
-}
-
-// Modal for viewing CXC journal entry
-function showCxcJournalEntry(receivableId) {
-  const rec = receivables.find(r => r.id === receivableId);
-  if (!rec) return;
-  el('jeViewTitle').textContent = `Asiento — CxC ${rec.description || ''}`;
-  el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⏳</div><div class="empty-title">Buscando asiento...</div></div>';
-  openModal('jeViewModal');
-  // Find journal entries by invoice_number or ref_type/ref_id
-  apiFetch('/api/journal?ref_type=receivable&ref_id=' + receivableId).then(entries => {
-    if (!entries || !entries.length) {
-      el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">📋</div><div class="empty-title">Sin asiento contable</div><div class="empty-sub">Esta CxC aún no tiene asiento generado</div></div>';
-      return;
-    }
-    let debits = 0, credits = 0;
-    el('jeViewContent').innerHTML = `<div style="overflow-x:auto">
-      <table class="data-table"><thead><tr><th>#</th><th>Fecha</th><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead><tbody>
-        ${entries.map(e => {
-          debits += Number(e.debit||0);
-          credits += Number(e.credit||0);
-          return `<tr><td class="num" style="font-weight:700">${e.je_number||e.id}</td><td style="font-size:var(--fs-2xs)">${e.date||'—'}</td><td>${e.account_name||'—'}</td><td class="num" style="color:var(--accent2)">RD$ ${fmt(e.debit||0)}</td><td class="num" style="color:var(--accent)">RD$ ${fmt(e.credit||0)}</td></tr>`;
-        }).join('')}
-      </tbody></table></div>
-      <div class="balance-indicator ${Math.abs(debits-credits)<0.01?'ok':'mismatch'}" style="margin-top:8px">
-        Débito: RD$ ${fmt(debits)} | Crédito: RD$ ${fmt(credits)}
-        ${Math.abs(debits-credits)<0.01?' ✅':' ⚠️ Desc'}
-      </div>`;
-  }).catch(() => {
-    el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⚠️</div><div class="empty-title">Sin asiento</div><div class="empty-sub">No se encontraron asientos contables para esta CxC</div></div>';
-  });
 }
 
 // ─── CXP ──────────────────────────────────────────────────────────────────────
@@ -2762,7 +2545,6 @@ async function loadReportes() {
   const month = el('rep-month').value;
   const yr    = new Date().getFullYear();
   el('reportesContent').innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Generando reportes...</div></div>';
-  // Destroy old charts
   Object.values(_reportCharts).forEach(c => { try { c.destroy(); } catch{} });
   _reportCharts = {};
   try {
@@ -2773,6 +2555,7 @@ async function loadReportes() {
     ]);
     const netCF  = Number(cf.net||0);
     const inc    = Number(is.revenues||is.income||0);
+    const costos = Number(is.costs||is.costos||0);
     const gastos = Number(is.expenses||is.gastos||0);
     const netIS  = Number(is.net_income||0);
     const balAssets = Number(bal.assets||0);
@@ -2781,25 +2564,50 @@ async function loadReportes() {
     const cashIn  = Number(cf.cash_in||cf.cashIn||0);
     const cashOut = Number(cf.cash_out||cf.cashOut||0);
 
+    // Margen Bruto = Ventas - CMV
+    const margenBruto    = inc - costos;
+    const margenBrutoPct = inc > 0 ? (margenBruto/inc*100).toFixed(1) : 0;
+    const margenNetoPct  = inc > 0 ? (netIS/inc*100).toFixed(1) : 0;
+
     el('reportesContent').innerHTML = `
-      <!-- KPI Row -->
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:var(--space-md)">
-        <div class="kpi-card green"><div class="kpi-label">Ingresos</div><div class="kpi-value">RD$ ${fmt(inc)}</div></div>
-        <div class="kpi-card red"><div class="kpi-label">Gastos</div><div class="kpi-value">RD$ ${fmt(gastos)}</div></div>
-        <div class="kpi-card ${netIS>=0?'green':'red'}"><div class="kpi-label">Utilidad Neta</div><div class="kpi-value">RD$ ${fmt(netIS)}</div></div>
-        <div class="kpi-card ${netCF>=0?'green':'red'}"><div class="kpi-label">Flujo de Caja</div><div class="kpi-value">RD$ ${fmt(netCF)}</div></div>
+      <!-- KPIs fila 1: Ventas y márgenes -->
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:10px">
+        <div class="kpi-card green"><div class="kpi-label">Ingresos / Ventas</div><div class="kpi-value" style="font-size:clamp(13px,3vw,18px)">RD$ ${fmt(inc)}</div><div class="kpi-sub">Facturado neto</div></div>
+        <div class="kpi-card red"><div class="kpi-label">CMV (Costo Mercancía)</div><div class="kpi-value" style="font-size:clamp(13px,3vw,18px)">RD$ ${fmt(costos)}</div><div class="kpi-sub">Costo de lo vendido</div></div>
+        <div class="kpi-card ${margenBruto>=0?'blue':'red'}"><div class="kpi-label">Margen Bruto</div><div class="kpi-value" style="font-size:clamp(13px,3vw,18px)">RD$ ${fmt(margenBruto)}</div><div class="kpi-sub">${margenBrutoPct}% sobre ventas</div></div>
+        <div class="kpi-card ${netIS>=0?'green':'red'}"><div class="kpi-label">Utilidad Neta</div><div class="kpi-value" style="font-size:clamp(13px,3vw,18px)">RD$ ${fmt(netIS)}</div><div class="kpi-sub">${margenNetoPct}% margen neto</div></div>
       </div>
 
-      <!-- Gráfica: Ingresos vs Gastos -->
+      <!-- Estado de Resultados simplificado -->
       <div class="card" style="margin-bottom:var(--space-md)">
-        <div class="card-header"><span class="card-title">📊 Ingresos vs Gastos</span></div>
+        <div class="card-header"><span class="card-title">📋 Estado de Resultados</span></div>
+        <div style="padding:16px">
+          <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:var(--fs-xs)"><span style="color:var(--text-secondary)">Ventas Netas</span><span style="font-family:monospace;font-weight:700;color:var(--accent)">RD$ ${fmt(inc)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:var(--fs-xs)"><span style="color:var(--text-secondary)">(−) CMV</span><span style="font-family:monospace;font-weight:700;color:var(--accent2)">RD$ ${fmt(costos)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:2px solid var(--border2);font-size:var(--fs-sm);font-weight:700"><span>= Utilidad Bruta</span><span style="font-family:monospace;color:${margenBruto>=0?'var(--accent4)':'var(--accent2)'}">RD$ ${fmt(margenBruto)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:var(--fs-xs)"><span style="color:var(--text-secondary)">(−) Gastos Operativos</span><span style="font-family:monospace;font-weight:700;color:var(--accent2)">RD$ ${fmt(gastos)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:var(--fs-base);font-weight:800"><span>= Utilidad Neta</span><span style="font-family:monospace;color:${netIS>=0?'var(--accent)':'var(--accent2)'}">RD$ ${fmt(netIS)}</span></div>
+          <!-- Barra de margen -->
+          <div style="margin-top:12px">
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-bottom:4px"><span>Margen Bruto ${margenBrutoPct}%</span><span>Margen Neto ${margenNetoPct}%</span></div>
+            <div style="height:8px;background:var(--surface3);border-radius:4px;overflow:hidden;position:relative">
+              <div style="position:absolute;height:100%;width:${Math.min(100,Math.max(0,parseFloat(margenBrutoPct)))}%;background:var(--accent4);border-radius:4px;opacity:0.5"></div>
+              <div style="position:absolute;height:100%;width:${Math.min(100,Math.max(0,parseFloat(margenNetoPct)))}%;background:${netIS>=0?'var(--accent)':'var(--accent2)'};border-radius:4px"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gráfica: Ventas vs CMV vs Utilidad -->
+      <div class="card" style="margin-bottom:var(--space-md)">
+        <div class="card-header"><span class="card-title">📊 Ventas · CMV · Utilidad</span></div>
         <div style="padding:16px;height:220px;position:relative"><canvas id="chartIngGas"></canvas></div>
       </div>
 
       <!-- Gráfica: Flujo de Caja -->
       <div class="card" style="margin-bottom:var(--space-md)">
-        <div class="card-header"><span class="card-title">💧 Flujo de Caja</span></div>
-        <div style="padding:16px;height:200px;position:relative"><canvas id="chartCashflow"></canvas></div>
+        <div class="card-header"><span class="card-title">💧 Flujo de Caja</span><span style="font-size:var(--fs-xs);color:var(--text-muted)">Entradas RD$ ${fmt(cashIn)} · Salidas RD$ ${fmt(cashOut)}</span></div>
+        <div style="padding:16px;height:180px;position:relative"><canvas id="chartCashflow"></canvas></div>
       </div>
 
       <!-- Balance General -->
@@ -2811,6 +2619,11 @@ async function loadReportes() {
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="width:12px;height:12px;border-radius:2px;background:#00e5a0;flex-shrink:0"></div><div><div style="font-size:var(--fs-2xs);color:var(--text-muted)">Activos</div><div style="font-family:monospace;font-weight:700;font-size:var(--fs-xs);color:var(--accent)">RD$ ${fmt(balAssets)}</div></div></div>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="width:12px;height:12px;border-radius:2px;background:#ff4d6d;flex-shrink:0"></div><div><div style="font-size:var(--fs-2xs);color:var(--text-muted)">Pasivos</div><div style="font-family:monospace;font-weight:700;font-size:var(--fs-xs);color:var(--accent2)">RD$ ${fmt(liabs)}</div></div></div>
             <div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:2px;background:#ff7c2a;flex-shrink:0"></div><div><div style="font-size:var(--fs-2xs);color:var(--text-muted)">Capital</div><div style="font-family:monospace;font-weight:700;font-size:var(--fs-xs);color:var(--orange)">RD$ ${fmt(equity)}</div></div></div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+              <div style="font-size:9px;color:${Math.abs(balAssets-(liabs+equity))<1?'var(--accent)':'var(--accent2)'};font-weight:700">
+                ${Math.abs(balAssets-(liabs+equity))<1?'✅ Balance cuadrado':'⚠️ Balance desbalanceado'}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2837,13 +2650,31 @@ async function loadReportes() {
         </div>
       </div>`;
 
-    // Render charts after DOM update
+    // Render charts
     setTimeout(() => {
       const chartOpts = { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{grid:{color:'#1f3330'},ticks:{color:'#3d6660'}}, y:{grid:{color:'#1f3330'},ticks:{color:'#3d6660',callback:v=>v.toLocaleString()}} } };
 
-      // Ingresos vs Gastos bar chart
+      // Ventas vs CMV vs Utilidad Bruta vs Neta
       const c1 = el('chartIngGas');
-      if (c1) _reportCharts.ingGas = new Chart(c1, { type:'bar', data:{ labels:['Ingresos','Gastos','Utilidad'], datasets:[{ data:[inc,gastos,netIS], backgroundColor:['rgba(0,229,160,0.7)','rgba(255,77,109,0.7)',netIS>=0?'rgba(0,229,160,0.5)':'rgba(255,77,109,0.5)'], borderColor:['#00e5a0','#ff4d6d',netIS>=0?'#00e5a0':'#ff4d6d'], borderWidth:2, borderRadius:6 }] }, options:{...chartOpts} });
+      if (c1) _reportCharts.ingGas = new Chart(c1, {
+        type:'bar',
+        data:{
+          labels:['Ventas','CMV','Util. Bruta','Gastos Op.','Util. Neta'],
+          datasets:[{
+            data:[inc, costos, margenBruto, gastos, netIS],
+            backgroundColor:[
+              'rgba(0,229,160,0.7)',
+              'rgba(255,77,109,0.7)',
+              'rgba(77,159,255,0.7)',
+              'rgba(255,190,61,0.7)',
+              netIS>=0?'rgba(0,229,160,0.9)':'rgba(255,77,109,0.9)'
+            ],
+            borderColor:['#00e5a0','#ff4d6d','#4d9fff','#ffbe3d',netIS>=0?'#00e5a0':'#ff4d6d'],
+            borderWidth:2, borderRadius:5
+          }]
+        },
+        options:{...chartOpts}
+      });
 
       // Cashflow donut
       const c2 = el('chartCashflow');
@@ -2865,7 +2696,7 @@ async function doChangePassword() {
   if (!current||!newPwd) { errEl.textContent='Completa todos los campos'; errEl.style.display='block'; return; }
   if (newPwd!==newPwd2)  { errEl.textContent='Las contraseñas no coinciden'; errEl.style.display='block'; return; }
   if (newPwd.length<6)   { errEl.textContent='Mínimo 6 caracteres'; errEl.style.display='block'; return; }
-  const btn=el('pwdSaveBtn'); btn.innerHTML='<span class="spinner"></span> Guardando...'; btn.disabled=true;
+  const btn=el('pwdSaveBtn'); btn.textContent='Guardando...'; btn.disabled=true;
   try {
     const res=await fetch(SERVER_URL+'/api/auth/change-password',{method:'POST',headers:authHeaders(),body:JSON.stringify({currentPassword:current,newPassword:newPwd})});
     const d=await res.json(); if(!res.ok) throw new Error(d.error||'Error');
@@ -3088,8 +2919,7 @@ async function initNewInvoice() {
   try { const r=await apiFetch('/api/invoices/next-number'); el('nf-number').value=r.invoice_number; } catch { el('nf-number').value=''; }
   // Client select
   el('nf-client-id').innerHTML='<option value="">Sin cliente / Ocasional</option>'+clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
-  // Income type select
-  el('nf-income-type').innerHTML='<option value="">Sin clasificar</option>'+incomeTypes.map(t=>`<option value="${t.id}">${t.icon} ${t.name}</option>`).join('');
+  // Income types are handled automatically by the server on invoice emit
   // Add first line
   addInvoiceLine();
   recalcInvoice();
@@ -3107,18 +2937,50 @@ function addInvoiceLine(productId=null) {
   const opts = '<option value="">Sin producto</option>'+products.map(p=>`<option value="${p.id}" ${p.id===productId?'selected':''}>${p.code} — ${p.name}</option>`).join('');
   const row = document.createElement('div');
   row.id = `nf-line-${i}`;
-  row.style.cssText='display:grid;grid-template-columns:1fr 70px 90px 60px 28px;gap:5px;margin-bottom:6px;align-items:center';
+  row.style.cssText='margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;';
   row.innerHTML=`
-    <div>
-      <select class="form-input form-select" id="nfl-prod-${i}" onchange="onLineProductChange(${i})" style="font-size:11px;padding:6px 24px 6px 8px;margin-bottom:4px">${opts}</select>
-      <input class="form-input" id="nfl-desc-${i}" placeholder="Descripción *" style="font-size:11px;padding:6px 8px" value="${prod?prod.name:''}">
+    <div style="display:grid;grid-template-columns:1fr auto;gap:6px;align-items:flex-start;margin-bottom:6px">
+      <select class="form-input form-select" id="nfl-prod-${i}" onchange="onLineProductChange(${i})" style="font-size:11px;padding:6px 24px 6px 8px">${opts}</select>
+      <button onclick="removeInvoiceLine(${i})" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:5px;color:var(--accent2);cursor:pointer;width:28px;height:32px;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
     </div>
-    <input class="form-input" id="nfl-qty-${i}" type="number" step="0.001" placeholder="Cant." value="1" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px">
-    <input class="form-input" id="nfl-price-${i}" type="number" step="0.01" placeholder="Precio" value="${prod?prod.sale_price:''}" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px">
-    <input class="form-input" id="nfl-disc-${i}" type="number" step="0.1" placeholder="Desc%" value="0" min="0" max="100" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px">
-    <button onclick="removeInvoiceLine(${i})" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:5px;color:var(--accent2);cursor:pointer;width:26px;height:26px;font-size:14px;display:flex;align-items:center;justify-content:center">✕</button>`;
+    <input class="form-input" id="nfl-desc-${i}" placeholder="Descripción *" style="font-size:11px;padding:6px 8px;margin-bottom:6px;width:100%" value="${prod?prod.name:''}">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:4px">
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Cantidad</label>
+        <input class="form-input" id="nfl-qty-${i}" type="number" step="0.001" placeholder="1" value="1" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px"></div>
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Precio Venta</label>
+        <input class="form-input" id="nfl-price-${i}" type="number" step="0.01" placeholder="0.00" value="${prod?prod.sale_price:''}" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px"></div>
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Desc%</label>
+        <input class="form-input" id="nfl-disc-${i}" type="number" step="0.1" placeholder="0" value="0" min="0" max="100" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px"></div>
+    </div>
+    <div id="nfl-cmv-${i}" style="display:none;font-size:9px;color:var(--text-muted);background:var(--surface3);border-radius:5px;padding:5px 8px;display:flex;justify-content:space-between;align-items:center">
+      <span>📦 Costo unitario: <strong id="nfl-cost-${i}" style="color:var(--accent3)"></strong></span>
+      <span>CMV línea: <strong id="nfl-linecmv-${i}" style="color:var(--accent2)"></strong></span>
+      <span>Stock: <strong id="nfl-stock-${i}" style="color:var(--accent)"></strong></span>
+    </div>`;
   el('nf-lines').appendChild(row);
-  if (prod) recalcInvoice();
+  if (prod) { recalcInvoice(); _updateLineCMV(i, prod); }
+}
+
+function _updateLineCMV(i, prod) {
+  if (!prod) return;
+  const cmvDiv = el(`nfl-cmv-${i}`);
+  if (!cmvDiv) return;
+  const qty  = parseFloat(el(`nfl-qty-${i}`)?.value)||1;
+  const cost = parseFloat(prod.cost_price||0);
+  const stock= parseFloat(prod.stock_current||0);
+  if (cost > 0) {
+    cmvDiv.style.display='flex';
+    const costEl = el(`nfl-cost-${i}`); if(costEl) costEl.textContent='RD$ '+fmt(cost);
+    const cmvEl  = el(`nfl-linecmv-${i}`); if(cmvEl) cmvEl.textContent='RD$ '+fmt(qty*cost);
+    const stkEl  = el(`nfl-stock-${i}`);
+    if(stkEl) {
+      const remaining = stock - qty;
+      stkEl.textContent = `${stock} → ${Math.max(0,remaining)}`;
+      stkEl.style.color = remaining < 0 ? 'var(--accent2)' : remaining === 0 ? 'var(--accent3)' : 'var(--accent)';
+    }
+  } else {
+    cmvDiv.style.display='none';
+  }
 }
 
 function onLineProductChange(i) {
@@ -3128,6 +2990,10 @@ function onLineProductChange(i) {
     el(`nfl-desc-${i}`).value  = prod.name;
     el(`nfl-price-${i}`).value = prod.sale_price;
     recalcInvoice();
+    _updateLineCMV(i, prod);
+  } else {
+    const cmvDiv = el(`nfl-cmv-${i}`);
+    if (cmvDiv) cmvDiv.style.display='none';
   }
 }
 
@@ -3163,10 +3029,48 @@ function recalcInvoice() {
   const taxable  = subtotal - discAmt;
   const taxAmt   = taxable * taxRate / 100;
   const total    = taxable + taxAmt;
+
+  // Calcular CMV estimado
+  let totalCMV = 0;
+  lines.forEach(l => {
+    if (!l.product_id) return;
+    const prod = products.find(p=>p.id===l.product_id);
+    if (prod && prod.cost_price > 0) totalCMV += l.quantity * parseFloat(prod.cost_price);
+  });
+  const margenBruto = subtotal - totalCMV;
+  const margenPct   = subtotal > 0 ? (margenBruto / subtotal * 100) : 0;
+
   el('nf-subtotal').textContent    = 'RD$ '+fmt(subtotal);
   el('nf-discount-amt').textContent= '-RD$ '+fmt(discAmt);
   el('nf-tax-amt').textContent     = 'RD$ '+fmt(taxAmt);
   el('nf-total').textContent       = 'RD$ '+fmt(total);
+
+  // Mostrar bloque CMV si hay datos
+  const cmvBlk = el('nf-cmv-block');
+  if (cmvBlk) {
+    if (totalCMV > 0) {
+      cmvBlk.style.display='block';
+      const cmvEl = el('nf-cmv-total'); if(cmvEl) cmvEl.textContent='RD$ '+fmt(totalCMV);
+      const mbEl  = el('nf-margen-bruto'); if(mbEl) { mbEl.textContent='RD$ '+fmt(margenBruto); mbEl.style.color=margenBruto>=0?'var(--accent)':'var(--accent2)'; }
+      const mpEl  = el('nf-margen-pct');  if(mpEl) { mpEl.textContent=margenPct.toFixed(1)+'%'; mpEl.style.color=margenPct>=0?'var(--accent)':'var(--accent2)'; }
+    } else {
+      cmvBlk.style.display='none';
+    }
+  }
+
+  // Actualizar CMV por línea
+  let li=0;
+  while(li < _nfLineCount+20) {
+    const row=el(`nf-line-${li}`);
+    if (row) {
+      const pid = el(`nfl-prod-${li}`)?.value;
+      if (pid) {
+        const prod = products.find(p=>p.id===pid);
+        if (prod) _updateLineCMV(li, prod);
+      }
+    }
+    li++;
+  }
 }
 
 let _currentInvoice = null;
@@ -3212,9 +3116,25 @@ async function viewInvoice(id) {
         </div>
         ${inv.notes ? `<div style="margin-top:16px;font-size:11px;color:#666"><strong>Notas:</strong> ${inv.notes}</div>` : ''}
       </div>`;
-    el('invoiceDetailContent').innerHTML = html;
-    openModal('invoiceDetailModal');
+    el('invoiceModalBody').innerHTML = html;
+    openModal('invoiceModal');
   } catch(e) { toast('Error cargando factura: '+e.message, 'error'); }
+}
+function printInvoice() {
+  if (!_currentInvoice) { toast('Abre la factura primero', 'error'); return; }
+  // Use the modal body HTML directly - it already has the formatted invoice
+  const modalContent = el('invoiceModalBody');
+  if (!modalContent || !modalContent.innerHTML) { toast('No hay contenido para imprimir', 'error'); return; }
+  const w = window.open('', 'PRINT', 'width=700,height=900');
+  if (!w) { toast('Desbloquea los popups para imprimir', 'error'); return; }
+  w.document.write('<html><head><title>Factura '+(_currentInvoice?.invoice_number||'')+'</title>');
+  w.document.write('<style>body{font-family:Helvetica,Arial,sans-serif;padding:20px;max-width:600px;margin:0 auto}table{width:100%;border-collapse:collapse}th,td{padding:6px 8px;border-bottom:1px solid #eee;text-align:left}th{background:#f0f0f0}</style>');
+  w.document.write('</head><body>');
+  w.document.write(modalContent.innerHTML);
+  w.document.write('</body></html>');
+  w.document.close();
+  w.focus();
+  setTimeout(() => { try { w.print(); w.close(); } catch(e) { toast('Error al imprimir: '+e.message, 'error'); } }, 300);
 }
 function downloadInvoicePdf() {
   if (!_currentInvoice) { toast('Abre la factura primero', 'error'); return; }
@@ -3277,32 +3197,46 @@ async function saveInvoice(status='draft') {
   const total   = taxable + taxAmt;
 
   const body = {
-    invoice_number: invNum,
-    client_name:    el('nf-client-name')?.value?.trim() || null,
-    client_rnc:     el('nf-rnc')?.value?.trim() || null,
-    client_address: el('nf-address')?.value?.trim() || null,
-    date:           el('nf-date')?.value || new Date().toISOString().split('T')[0],
-    due_date:       el('nf-due')?.value || null,
-    subtotal:       Math.round(subtotal*100)/100,
-    tax:            Math.round(taxAmt*100)/100,
-    total:          Math.round((total||0.01)*100)/100,
+    invoice_number:  invNum,
+    client_name:     el('nf-client-name')?.value?.trim() || null,
+    client_rnc:      el('nf-rnc')?.value?.trim() || null,
+    client_address:  el('nf-address')?.value?.trim() || null,
+    date:            el('nf-date')?.value || new Date().toISOString().split('T')[0],
+    due_date:        el('nf-due')?.value || null,
+    subtotal:        Math.round(subtotal*100)/100,
+    tax:             Math.round(taxAmt*100)/100,
+    total:           Math.round((total||0.01)*100)/100,
     discount_amount: Math.round(discAmt*100)/100,
-    discount_pct:   discPct,
-    notes:          el('nf-notes')?.value?.trim() || null,
-    payment_method: el('nf-payment-method')?.value || 'credit',
+    discount_pct:    discPct,
+    notes:           el('nf-notes')?.value?.trim() || null,
+    payment_method:  el('nf-payment-method')?.value || 'credit',
     status,
     lines: lines.map(l => ({
-      description: l.description,
-      quantity:    Number(l.quantity||1),
-      unit_price:  Number(l.unit_price||0),
-      discount_pct:Number(l.discount_pct||0)
+      product_id:   l.product_id || null,   // ← CRÍTICO para CMV automático
+      description:  l.description,
+      quantity:     Number(l.quantity||1),
+      unit_price:   Number(l.unit_price||0),
+      discount_pct: Number(l.discount_pct||0)
     }))
   };
   try {
     const r = await apiFetch('/api/invoices',{method:'POST',body:JSON.stringify(body)});
-    const label = status==='draft'?'💾 Borrador guardado':'✅ Factura EMITIDA';
-    const cxcNote = status==='issued' && body.payment_method==='credit' ? ' + CxC creada' : (status==='issued' && body.payment_method==='cash' ? ' + Asiento generado' : '');
-    toast(`${label} — No. ${r.invoice_number||''} — RD$ ${fmt(r.total||total)}${cxcNote}`);
+    if (status === 'draft') {
+      toast(`💾 Borrador guardado — No. ${r.invoice_number||''}`);
+    } else {
+      // Calcular CMV estimado para el toast
+      let cmvEst = 0;
+      lines.forEach(l => {
+        if (l.product_id) {
+          const p = products.find(x=>x.id===l.product_id);
+          if (p && p.cost_price > 0) cmvEst += Number(l.quantity||1) * parseFloat(p.cost_price);
+        }
+      });
+      const margen = subtotal > 0 ? ((subtotal - cmvEst) / subtotal * 100).toFixed(1) : null;
+      let msg = `✅ Factura ${r.invoice_number||invNum} — RD$ ${fmt(r.total||total)}`;
+      if (cmvEst > 0) msg += ` | CMV: RD$ ${fmt(cmvEst)} | Margen: ${margen}%`;
+      toast(msg);
+    }
     // PDF generation (optional, only on desktop)
     if (status === 'issued' && window.jspdf) {
       try {
@@ -3412,97 +3346,82 @@ async function showInvoiceDetail(id) {
   el('invoiceDetailActions').innerHTML='';
   openModal('invoiceDetailModal');
   try {
-      const inv = await apiFetch('/api/invoices/'+id);
-      el('invDetailTitle').textContent = `Factura ${inv.invoice_number}`;
+    const inv = await apiFetch('/api/invoices/'+id);
+    el('invDetailTitle').textContent = `Factura ${inv.invoice_number}`;
     const statusColor = INV_STATUS_COLOR[inv.status]||'var(--text-muted)';
+    const cmvAmt   = parseFloat(inv.cmv_amount||0);
+    const subTotal = parseFloat(inv.subtotal||0);
+    const margenBruto = subTotal - cmvAmt;
+    const margenPct   = subTotal > 0 ? (margenBruto/subTotal*100).toFixed(1) : 0;
+    const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Banco/Transferencia', card:'💳 Tarjeta', credit:'📋 Crédito (CxC)' };
+    const pmLabel  = pmLabels[inv.payment_method] || inv.payment_method || '—';
+
     el('invoiceDetailContent').innerHTML = `
       <div style="display:flex;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
         <div>
           <div style="font-size:var(--fs-xs);color:var(--text-muted)">Cliente</div>
           <div style="font-weight:700">${inv.client_name||'Sin cliente'}</div>
           ${inv.client_rnc?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">RNC: ${inv.client_rnc}</div>`:''}
-          ${inv.ncf?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">NCF: ${inv.ncf}</div>`:''}
+          <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:2px">${pmLabel}</div>
         </div>
         <div style="text-align:right">
           <span style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:50px;background:${statusColor}20;color:${statusColor}">${INV_STATUS_LABEL[inv.status]||inv.status}</span>
-          <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:4px">Fecha: ${inv.date||inv.issue_date||'N/A'}</div>
+          <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:4px">📅 ${inv.date||inv.issue_date||'N/A'}</div>
           ${inv.due_date?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">Vence: ${inv.due_date}</div>`:''}
         </div>
       </div>
+
       <div style="overflow-x:auto;margin-bottom:16px">
         <table class="data-table">
-          <thead><tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Desc%</th><th class="num">Subtotal</th></tr></thead>
+          <thead><tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead>
           <tbody>${(inv.items||[]).map(l=>`<tr>
-            <td>${l.description||''}${l.product_id?`<div style="font-size:9px;color:var(--text-muted)">Referencia</div>`:''}</td>
+            <td>
+              <div style="font-weight:600">${l.description||''}</div>
+              ${l.product_id?`<div style="font-size:9px;color:var(--text-muted)">📦 Producto vinculado</div>`:''}
+            </td>
             <td class="num">${l.qty||1}</td>
             <td class="num">RD$ ${fmt(l.price||0)}</td>
-            <td class="num">—</td>
             <td class="num" style="font-weight:600">RD$ ${fmt(l.total||0)}</td>
           </tr>`).join('')}</tbody>
         </table>
       </div>
-      <div style="margin-left:auto;max-width:260px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Subtotal</span><span>RD$ ${fmt(inv.subtotal)}</span></div>
-        ${inv.discount_amount>0?`<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Descuento (${inv.discount_pct}%)</span><span style="color:var(--accent2)">-RD$ ${fmt(inv.discount_amount)}</span></div>`:''}
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">ITBIS (${inv.tax_rate}%)</span><span>RD$ ${fmt(inv.tax_amount)}</span></div>
-        <div style="height:1px;background:var(--border);margin:8px 0"></div>
-        <div style="display:flex;justify-content:space-between;font-weight:800;font-size:var(--fs-md)"><span>TOTAL</span><span style="color:var(--accent)">RD$ ${fmt(inv.total)}</span></div>
-        ${inv.paid_amount>0?`<div style="display:flex;justify-content:space-between;margin-top:6px;font-size:var(--fs-xs);color:var(--accent)"><span>Pagado</span><span>RD$ ${fmt(inv.paid_amount)}</span></div>`:''}
-      </div>
-      ${inv.notes?`<div style="margin-top:12px;font-size:var(--fs-xs);color:var(--text-muted);background:var(--surface2);border-radius:6px;padding:8px">${inv.notes}</div>`:''}`;
 
-      el('invoiceDetailActions').innerHTML=`
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <!-- Totales venta -->
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:12px">
+          <div style="font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">💰 Totales</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Subtotal</span><span>RD$ ${fmt(inv.subtotal)}</span></div>
+          ${parseFloat(inv.discount_amount||0)>0?`<div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Descuento</span><span style="color:var(--accent2)">-RD$ ${fmt(inv.discount_amount)}</span></div>`:''}
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">ITBIS</span><span>RD$ ${fmt(inv.tax||inv.tax_amount||0)}</span></div>
+          <div style="height:1px;background:var(--border);margin:6px 0"></div>
+          <div style="display:flex;justify-content:space-between;font-weight:800;font-size:var(--fs-base)"><span>TOTAL</span><span style="color:var(--accent)">RD$ ${fmt(inv.total)}</span></div>
+          ${parseFloat(inv.paid_amount||0)>0?`<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:var(--fs-xs);color:var(--accent)"><span>✅ Pagado</span><span>RD$ ${fmt(inv.paid_amount)}</span></div>`:''}
+        </div>
+        <!-- Rentabilidad CMV -->
+        <div style="background:var(--surface2);border:1px solid ${cmvAmt>0?'var(--accent2)30':'var(--border)'};border-radius:var(--radius-xs);padding:12px">
+          <div style="font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">📊 Rentabilidad</div>
+          ${cmvAmt>0 ? `
+            <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">CMV registrado</span><span style="color:var(--accent2);font-weight:700">RD$ ${fmt(cmvAmt)}</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Margen Bruto</span><span style="color:${margenBruto>=0?'var(--accent)':'var(--accent2)'};font-weight:700">RD$ ${fmt(margenBruto)}</span></div>
+            <div style="height:1px;background:var(--border);margin:6px 0"></div>
+            <div style="display:flex;justify-content:space-between;font-weight:800;font-size:var(--fs-base)"><span>% Margen</span><span style="color:${margenPct>=0?'var(--accent)':'var(--accent2)'}">${margenPct}%</span></div>
+            <div style="margin-top:8px;height:6px;background:var(--surface3);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.min(100,Math.max(0,parseFloat(margenPct)))}%;background:${parseFloat(margenPct)>30?'var(--accent)':parseFloat(margenPct)>10?'var(--accent3)':'var(--accent2)'};border-radius:3px"></div>
+            </div>
+          ` : `<div style="color:var(--text-muted);font-size:var(--fs-xs);text-align:center;padding:10px 0">Sin productos con costo<br>registrado</div>`}
+        </div>
+      </div>
+      ${inv.notes?`<div style="font-size:var(--fs-xs);color:var(--text-muted);background:var(--surface2);border-radius:6px;padding:8px">📝 ${inv.notes}</div>`:''}`;
+
+    el('invoiceDetailActions').innerHTML=`
       <button onclick="printInvoice('${inv.id}')" class="btn btn-secondary">🖨️ Imprimir</button>
       ${inv.status==='draft'?`<button onclick="changeInvoiceStatus('${inv.id}','issued');closeModal('invoiceDetailModal')" class="btn btn-primary">📤 Emitir</button>`:''}
       ${(inv.status==='issued'||inv.status==='partial')?`<button onclick="changeInvoiceStatus('${inv.id}','paid');closeModal('invoiceDetailModal')" class="btn btn-primary">✅ Marcar pagada</button>`:''}
       ${inv.status==='issued'?`<button onclick="changeInvoiceStatus('${inv.id}','cancelled');closeModal('invoiceDetailModal')" class="btn btn-danger">❌ Cancelar</button>`:''}`;
-
-      // Load journal entries for this invoice
-      loadInvoiceJournalEntries(inv.id);
   } catch(e) { el('invoiceDetailContent').innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">'+e.message+'</div></div>'; }
 }
 
-async function loadInvoiceJournalEntries(invoiceId) {
-  const container = el('invoiceJournalEntries');
-  container.innerHTML = '<div class="empty" style="padding:16px 0"><div class="empty-icon">⏳</div><div class="empty-title">Cargando asientos...</div></div>';
-  try {
-    // TODO: endpoint pendiente — cuando el backend implemente /api/invoices/{id}/journal-entries
-    const entries = await apiFetch(`/api/invoices/${invoiceId}/journal-entries`).catch(() => null);
-    if (!entries || !entries.length) {
-      container.innerHTML = '<div class="empty" style="padding:16px 0"><div class="empty-icon">📋</div><div class="empty-title">Sin asientos contables</div><div class="empty-sub">Esta factura aún no tiene asientos generados</div></div>';
-      return;
-    }
-    let totalDebit = 0, totalCredit = 0;
-    container.innerHTML = `
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead><tr><th># Asiento</th><th>Fecha</th><th>Descripción</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead>
-          <tbody>
-            ${entries.map(e => {
-              totalDebit += Number(e.debit||0);
-              totalCredit += Number(e.credit||0);
-              return `<tr>
-                <td class="num" style="font-weight:700">${e.je_number||e.id||'—'}</td>
-                <td style="font-size:var(--fs-2xs)">${e.date||'—'}</td>
-                <td style="font-size:var(--fs-xs)">${e.description||'—'}</td>
-                <td class="num" style="color:var(--accent2)">RD$ ${fmt(e.debit||0)}</td>
-                <td class="num" style="color:var(--accent)">RD$ ${fmt(e.credit||0)}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div class="balance-indicator ${Math.abs(totalDebit-totalCredit)<0.01?'ok':'mismatch'}" style="margin-top:8px">
-        Totales: Débito RD$ ${fmt(totalDebit)} | Crédito RD$ ${fmt(totalCredit)}
-        ${Math.abs(totalDebit-totalCredit)<0.01?' ✅ Cuadrado':' ⚠️ Desc cuadrado'}
-      </div>`;
-  } catch(e) {
-    container.innerHTML = '<div class="empty" style="padding:16px 0"><div class="empty-icon">⚠️</div><div class="empty-title">Sin asientos</div><div class="empty-sub">No se pudieron cargar los asientos contables</div></div>';
-  }
-}
-
 async function changeInvoiceStatus(id, status) {
-  if (status === 'cancelled' && !confirm('¿Anular factura? Esto revertirá los asientos contables asociados.')) return;
   const labels = {issued:'📤 EMITIENDO...', paid:'✅ Marcando como pagada...', cancelled:'❌ Cancelando...', draft:'💾 Guardando...'};
   toast(labels[status] || 'Actualizando...');
   try {
@@ -3524,13 +3443,6 @@ async function changeInvoiceStatus(id, status) {
 async function deleteInvoice(id) {
   if (!confirm('¿Eliminar esta factura? Se cancelarán los movimientos relacionados.')) return;
   try {
-    // Check if invoice has payments
-    const cxc = await apiFetch('/api/receivables?invoice_id='+id).catch(() => ({rows:[]}));
-    const hasPayments = cxc.rows && cxc.rows.some(r => r.status === 'paid' && parseFloat(r.paid_amount) > 0);
-    if (hasPayments) {
-      toast('No puede eliminarse: la factura tiene pagos registrados. Anule primero.', 'error');
-      return;
-    }
     await apiFetch('/api/invoices/'+id,{method:'DELETE'});
     toast('✅ Factura eliminada');
     invoices = await apiFetch('/api/invoices?limit=20');
@@ -4075,7 +3987,7 @@ function closeWizard() {
 async function wizardSubmit() {
   if (!_wizardSelected) return;
   const btn = el('wiz-submit-btn');
-  if (btn) { btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Creando...'; }
+  if (btn) { btn.disabled=true; btn.textContent='⏳ Creando...'; }
   try {
     await apiFetch('/api/setup/wizard',{method:'POST',body:JSON.stringify({businessType:_wizardSelected})});
     await loadAllData();
