@@ -1949,16 +1949,79 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
       const total = parseFloat(inv.total || 0);
       const tax   = parseFloat(inv.tax || 0);
       const sub   = parseFloat(inv.subtotal || total);
+      const pmeth = inv.payment_method || 'credit'; // cash | bank | card | credit
 
-      // 1) Create CxC (Cuentas por Cobrar)
-      const cxcId = `rec_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-      // Find client_id if client_name matches
-      let clientId = null;
-      if (inv.client_name) {
-        const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, inv.client_name]);
-        if (cl.rows[0]) clientId = cl.rows[0].id;
+      // Find accounts
+      const accts = await query(
+        `SELECT id, code FROM accounts WHERE user_id=$1 AND code IN ('1.1.01','1.1.02','1.2.01','4.1.01','4.1.02','4.2.01','2.1.02') ORDER BY code`,
+        [req.userId]
+      );
+      const acctMap = {};
+      accts.rows.forEach(a => { acctMap[a.code] = a.id; });
+
+      const cajaAcct   = acctMap['1.1.01'];
+      const bancoAcct  = acctMap['1.1.02'];
+      const clientAcct = acctMap['1.2.01'];
+      const salesAcct  = acctMap['4.1.01'] || acctMap['4.1.02'] || acctMap['4.2.01'];
+      const itbisAcct  = acctMap['2.1.02'];
+
+      // Determine which asset account to debit based on payment method
+      let debitAcct = null;
+      let payLabel  = '';
+      if (pmeth === 'cash') {
+        debitAcct = cajaAcct; payLabel = 'Caja (Efectivo)';
+      } else if (pmeth === 'bank') {
+        debitAcct = bancoAcct; payLabel = 'Banco (Transferencia)';
+      } else if (pmeth === 'card') {
+        debitAcct = bancoAcct; payLabel = 'Tarjeta';
+      } else {
+        debitAcct = clientAcct; payLabel = 'CxC (Crédito)';
       }
-      if (clientId || inv.client_name) {
+
+      const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      const jeDate = inv.date || new Date().toISOString().split('T')[0];
+      await query(
+        `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
+         VALUES($1,$2,$3,$4,$5,$6)`,
+        [jeId, req.userId, jeDate,
+         `Factura ${inv.invoice_number} — ${inv.client_name||'Cliente'} [${payLabel}]`,
+         'invoice', inv.id]
+      );
+
+      const lines = [];
+      // Debit: según método (Caja, Banco o Clientes)
+      lines.push({ acct: debitAcct, debit: total, credit: 0 });
+      // Credit: Ventas por subtotal
+      lines.push({ acct: salesAcct, debit: 0, credit: sub });
+      // Credit: ITBIS Cobrado si hay impuesto
+      if (tax > 0 && itbisAcct) {
+        lines.push({ acct: itbisAcct, debit: 0, credit: tax });
+      } else if (tax > 0) {
+        lines[1].credit += tax;
+      }
+
+      for (const ln of lines) {
+        if (!ln.acct) continue;
+        const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        await query(
+          `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit)
+           VALUES($1,$2,$3,$4,$5)`,
+          [lnId, jeId, ln.acct, ln.debit, ln.credit]
+        );
+        await query(
+          `INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
+          [ln.acct, ln.debit - ln.credit]
+        );
+      }
+
+      // Only create CxC for credit payments
+      if (pmeth === 'credit') {
+        const cxcId = `rec_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        let clientId = null;
+        if (inv.client_name) {
+          const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, inv.client_name]);
+          if (cl.rows[0]) clientId = cl.rows[0].id;
+        }
         await query(
           `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
            VALUES($1,$2,$3,$4,$5,$6,$7,$8)
@@ -1969,55 +2032,31 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
         );
       }
 
-      // 2) Create journal entry
-      // Find accounts: Clientes (1.2.01), Ventas (4.1.01/4.1.02), ITBIS Cobrado (2.1.02)
-      const accts = await query(
-        `SELECT id, code, name FROM accounts WHERE user_id=$1 AND code IN ('1.2.01','4.1.01','4.1.02','4.2.01','2.1.02') ORDER BY code`,
-        [req.userId]
-      );
-      const acctMap = {};
-      accts.rows.forEach(a => { acctMap[a.code] = a.id; });
-
-      const clientAcct  = acctMap['1.2.01'];
-      const salesAcct   = acctMap['4.1.01'] || acctMap['4.1.02'] || acctMap['4.2.01'];
-      const itbisAcct   = acctMap['2.1.02'];
-
-      if (clientAcct && salesAcct) {
-        const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      // For cash/bank/card: mark as PAID immediately and create income record
+      if (pmeth !== 'credit') {
+        await query(`UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2 AND user_id=$3`,
+          [total, inv.id, req.userId]);
+        // Income record
+        const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia', card:'💳 Tarjeta' };
+        const pmIcon   = { cash:'💵', bank:'🏦', card:'💳' };
+        let incTypeId = null;
+        const itR = await query(`SELECT id FROM income_types WHERE user_id=$1 AND (name=$2 OR icon=$3) LIMIT 1`,
+          [req.userId, pmLabels[pmeth], pmIcon[pmeth]]);
+        if (itR.rows[0]) {
+          incTypeId = itR.rows[0].id;
+        } else {
+          incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+          await query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
+            [incTypeId, req.userId, pmLabels[pmeth], 'Generado automáticamente desde factura', pmIcon[pmeth], '#00e5a0']);
+        }
+        const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
         await query(
-          `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
-           VALUES($1,$2,$3,$4,$5,$6)`,
-          [jeId, req.userId, inv.date||new Date().toISOString().split('T')[0],
-           `Factura ${inv.invoice_number} — ${inv.client_name||'Cliente'}`,
-           'invoice', inv.id]
+          `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
+           VALUES($1,$2,$3,$4,$5,$6,$7)`,
+          [incId, req.userId, incTypeId, total,
+           `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
+           jeDate, inv.invoice_number]
         );
-
-        const lines = [];
-        // Debit: Clientes (CxC) por el total
-        lines.push({ acct: clientAcct, debit: total, credit: 0 });
-        // Credit: Ventas por subtotal
-        lines.push({ acct: salesAcct, debit: 0, credit: sub });
-        // Credit: ITBIS Cobrado si hay impuesto
-        if (tax > 0 && itbisAcct) {
-          lines.push({ acct: itbisAcct, debit: 0, credit: tax });
-        } else if (tax > 0) {
-          // If no ITBIS account, add to sales
-          lines[1].credit += tax;
-        }
-
-        for (const ln of lines) {
-          const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-          await query(
-            `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit)
-             VALUES($1,$2,$3,$4,$5)`,
-            [lnId, jeId, ln.acct, ln.debit, ln.credit]
-          );
-          // Update account balance
-          await query(
-            `INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
-            [ln.acct, ln.debit - ln.credit]
-          );
-        }
       }
     }
 
