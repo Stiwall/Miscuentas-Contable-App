@@ -1801,9 +1801,9 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
     }
     const id = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await client.query(
-      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,subtotal,tax,total,discount_amount,discount_pct,status,date,due_date,notes)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-      [id, req.userId, resolvedInvoiceNumber, client_name||null, client_rnc||null, client_address||null, subtotal||0, tax||0, total, discount_amount||0, discount_pct||0, status||'pending', date||null, due_date||null, notes||null]
+      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,subtotal,tax,total,discount_amount,discount_pct,status,date,due_date,notes,payment_method,paid_amount)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+      [id, req.userId, resolvedInvoiceNumber, client_name||null, client_rnc||null, client_address||null, subtotal||0, tax||0, total, discount_amount||0, discount_pct||0, status||'pending', date||null, due_date||null, notes||null, req.body.payment_method||'credit', 0]
     );
     // Update counter
     const num = parseInt(resolvedInvoiceNumber) || 1;
