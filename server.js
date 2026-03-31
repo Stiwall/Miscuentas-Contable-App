@@ -4129,11 +4129,11 @@ app.get('/api/income-statement', authMiddleware, async (req, res) => {
       to   = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
     }
 
-    let params = [req.userId];
-    let p = 2;
+    const uid = req.userId;
     let dateFilter = '';
-    if (from) { dateFilter += ` AND je.date >= $${p++}::date`; params.push(from); }
-    if (to)   { dateFilter += ` AND je.date <= $${p++}::date`; params.push(to); }
+    let params = [];
+    if (from) { dateFilter += ` AND je.date >= $${params.length + 1}::date`; params.push(from); }
+    if (to)   { dateFilter += ` AND je.date <= $${params.length + 1}::date`; params.push(to); }
 
     const r = await query(
       `SELECT
@@ -4143,7 +4143,7 @@ app.get('/api/income-statement', authMiddleware, async (req, res) => {
        FROM journal_lines jl
        JOIN journal_entries je ON je.id = jl.journal_entry_id
        JOIN accounts a ON a.id = jl.account_id
-       WHERE a.user_id = $1 ${dateFilter}
+       WHERE a.user_id = '${uid}'${dateFilter}
        GROUP BY a.type, a.class, a.name, a.code
        ORDER BY a.class, a.code`,
       params
