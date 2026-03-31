@@ -3426,8 +3426,8 @@ app.get('/api/journal', authMiddleware, async (req, res) => {
                WHERE je.user_id=$1`;
     const params = [req.userId];
     let p = 2;
-    if (from) { sql += ` AND je.date >= $${p++}`; params.push(from); }
-    if (to)   { sql += ` AND je.date <= $${p++}`; params.push(to); }
+    if (from) { sql += ` AND je.date >= $${p++}::date`; params.push(from); }
+    if (to)   { sql += ` AND je.date <= $${p++}::date`; params.push(to); }
     if (account_id) { sql += ` AND jl.account_id = $${p++}`; params.push(account_id); }
     sql += ` ORDER BY je.date DESC, je.created_at DESC`;
     const r = await query(sql, params);
@@ -4062,8 +4062,8 @@ app.get('/api/cashflow', authMiddleware, async (req, res) => {
       let txWhere = `WHERE user_id=$1`;
       const txParams = [req.userId];
       let p = 2;
-      if (from) { txWhere += ` AND tx_date >= $${p++}`; txParams.push(from); }
-      if (to)   { txWhere += ` AND tx_date <= $${p++}`; txParams.push(to); }
+      if (from) { txWhere += ` AND tx_date >= $${p++}::date`; txParams.push(from); }
+      if (to)   { txWhere += ` AND tx_date <= $${p++}::date`; txParams.push(to); }
       const txr = await query(
         `SELECT type, SUM(amount) as total FROM transactions ${txWhere} GROUP BY type`, txParams
       );
@@ -4088,8 +4088,8 @@ app.get('/api/cashflow', authMiddleware, async (req, res) => {
       WHERE jl.account_id IN (${placeholders})`;
     const params = [...ids];
     let p = ids.length + 1;
-    if (from) { sql += ` AND je.date >= $${p++}`; params.push(from); }
-    if (to)   { sql += ` AND je.date <= $${p++}`; params.push(to); }
+    if (from) { sql += ` AND je.date >= $${p++}::date`; params.push(from); }
+    if (to)   { sql += ` AND je.date <= $${p++}::date`; params.push(to); }
     sql += ` GROUP BY je.date ORDER BY je.date`;
 
     const r = await query(sql, params);
@@ -4132,8 +4132,8 @@ app.get('/api/income-statement', authMiddleware, async (req, res) => {
     let params = [req.userId];
     let p = 2;
     let dateFilter = '';
-    if (from) { dateFilter += ` AND je.date >= $${p++}`; params.push(from); }
-    if (to)   { dateFilter += ` AND je.date <= $${p++}`; params.push(to); }
+    if (from) { dateFilter += ` AND je.date >= $${p++}::date`; params.push(from); }
+    if (to)   { dateFilter += ` AND je.date <= $${p++}::date`; params.push(to); }
 
     const r = await query(
       `SELECT
@@ -4182,8 +4182,8 @@ app.get('/api/income-statement', authMiddleware, async (req, res) => {
       let txWhere = `WHERE user_id=$1`;
       const txParams = [req.userId];
       let tp = 2;
-      if (from) { txWhere += ` AND tx_date >= $${tp++}`; txParams.push(from); }
-      if (to)   { txWhere += ` AND tx_date <= $${tp++}`; txParams.push(to); }
+      if (from) { txWhere += ` AND tx_date >= $${tp++}::date`; txParams.push(from); }
+      if (to)   { txWhere += ` AND tx_date <= $${tp++}::date`; txParams.push(to); }
       const txr = await query(
         `SELECT type, SUM(amount) AS total FROM transactions ${txWhere} GROUP BY type`, txParams
       );
