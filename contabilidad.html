@@ -398,6 +398,10 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   </div>
   <div class="sidebar-section">
     <div class="sidebar-label">Facturación</div>
+    <div class="nav-item" id="nav-cotizaciones" onclick="showPage('cotizaciones',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      Cotizaciones
+    </div>
     <div class="nav-item" id="nav-facturas" onclick="showPage('facturas',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
       Facturas
@@ -405,6 +409,14 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     <div class="nav-item" id="nav-nueva-factura" onclick="showPage('nueva-factura',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       Nueva Factura
+    </div>
+    <div class="nav-item" id="nav-recurrentes" onclick="showPage('recurrentes',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      Recurrentes
+    </div>
+    <div class="nav-item" id="nav-retenciones" onclick="showPage('retenciones',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Retenciones
     </div>
   </div>
   <div class="sidebar-section">
@@ -889,6 +901,132 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     <div id="concResumen"></div>
     <!-- Tabla movimientos -->
     <div id="concMovimientos"></div>
+  </div>
+
+
+  <!-- COTIZACIONES -->
+  <div id="page-cotizaciones" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Cotizaciones</div><div class="page-subtitle">Presupuestos para clientes</div></div>
+      <button class="btn btn-primary" onclick="initNewQuote();showPage("nueva-cotizacion",el("nav-cotizaciones"))">+ Nueva Cotización</button>
+    </div>
+    <div class="kpi-grid" id="quoteKpis" style="margin-bottom:var(--space-md)"></div>
+    <div style="display:flex;gap:8px;margin-bottom:var(--space-sm);flex-wrap:wrap">
+      <select class="form-input form-select" id="quote-status-filter" onchange="loadQuotes()" style="width:140px;padding:7px 28px 7px 10px">
+        <option value="">Todas</option><option value="draft">Borrador</option>
+        <option value="sent">Enviada</option><option value="approved">Aprobada</option>
+        <option value="rejected">Rechazada</option><option value="converted">Convertida</option>
+      </select>
+      <input class="form-input" id="quote-search" placeholder="🔍 Buscar..." oninput="loadQuotes()" style="flex:1;min-width:120px;padding:7px 10px">
+    </div>
+    <div class="card"><div class="card-body" id="quotesList"></div></div>
+  </div>
+
+  <!-- NUEVA COTIZACIÓN -->
+  <div id="page-nueva-cotizacion" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Nueva Cotización</div></div>
+      <button class="btn btn-secondary" onclick="showPage("cotizaciones",el("nav-cotizaciones"))">← Volver</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 320px;gap:var(--space-md);align-items:flex-start" class="invoice-form-grid">
+      <div>
+        <div class="card" style="margin-bottom:var(--space-sm)">
+          <div class="card-header"><span class="card-title">📋 Datos</span></div>
+          <div style="padding:16px">
+            <div class="form-grid form-grid-2">
+              <div class="form-group"><label class="form-label">N° Cotización</label><input class="form-input" id="nq-number" placeholder="Auto"></div>
+              <div class="form-group"><label class="form-label">Válida hasta</label><input class="form-input" id="nq-valid" type="date"></div>
+            </div>
+            <div class="form-grid form-grid-2" style="margin-top:10px">
+              <div class="form-group"><label class="form-label">Fecha</label><input class="form-input" id="nq-date" type="date"></div>
+              <div class="form-group"><label class="form-label">Cond. de pago</label><input class="form-input" id="nq-payment-terms" placeholder="Ej: 30 días"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:var(--space-sm)">
+          <div class="card-header"><span class="card-title">👤 Cliente</span></div>
+          <div style="padding:16px">
+            <div class="form-grid form-grid-2">
+              <div class="form-group"><label class="form-label">Cliente</label>
+                <select class="form-input form-select" id="nq-client-id" onchange="onQuoteClientChange()"><option value="">Ocasional</option></select>
+              </div>
+              <div class="form-group"><label class="form-label">RNC</label><input class="form-input" id="nq-rnc" placeholder="000-0000000-0"></div>
+            </div>
+            <div class="form-group" style="margin-top:10px"><label class="form-label">Nombre</label><input class="form-input" id="nq-client-name" placeholder="Nombre del cliente"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:var(--space-sm)">
+          <div class="card-header"><span class="card-title">🛒 Líneas</span></div>
+          <div style="padding:16px"><div id="nq-lines"></div>
+            <button class="btn btn-secondary btn-full" onclick="addQuoteLine()" style="margin-top:8px">+ Agregar línea</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">📝 Términos</span></div>
+          <div style="padding:16px">
+            <div class="form-group" style="margin-bottom:10px"><label class="form-label">Entrega</label><input class="form-input" id="nq-delivery" placeholder="Ej: 5 días hábiles"></div>
+            <div class="form-group"><label class="form-label">Notas</label><textarea class="form-input" id="nq-notes" rows="2" style="resize:vertical"></textarea></div>
+          </div>
+        </div>
+      </div>
+      <div style="position:sticky;top:calc(var(--header-h) + 16px)">
+        <div class="card" style="margin-bottom:var(--space-sm)">
+          <div style="padding:16px">
+            <div class="form-grid form-grid-2">
+              <div class="form-group"><label class="form-label">ITBIS %</label><input class="form-input" id="nq-tax" type="number" value="18" min="0" max="100" oninput="recalcQuote()"></div>
+              <div class="form-group"><label class="form-label">Descuento %</label><input class="form-input" id="nq-discount" type="number" value="0" min="0" max="100" oninput="recalcQuote()"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:var(--space-sm)">
+          <div style="padding:16px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Subtotal</span><span id="nq-subtotal" style="font-family:monospace">RD$ 0.00</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Descuento</span><span id="nq-discount-amt" style="font-family:monospace;color:var(--accent2)">-RD$ 0.00</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">ITBIS</span><span id="nq-tax-amt" style="font-family:monospace">RD$ 0.00</span></div>
+            <div style="height:1px;background:var(--border);margin:10px 0"></div>
+            <div style="display:flex;justify-content:space-between;font-weight:800;font-size:var(--fs-md)"><span>TOTAL</span><span id="nq-total" style="font-family:monospace;color:var(--accent)">RD$ 0.00</span></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="btn btn-secondary btn-full" onclick="saveQuote("draft")">💾 Borrador</button>
+          <button class="btn btn-primary btn-full" onclick="saveQuote("sent")">📤 Enviar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECURRENTES -->
+  <div id="page-recurrentes" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Facturas Recurrentes</div><div class="page-subtitle">Facturación automática periódica</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="processAllDue()">⚡ Generar Vencidas</button>
+        <button class="btn btn-primary" onclick="openRecurringModal()">+ Nueva Plantilla</button>
+      </div>
+    </div>
+    <div id="recurrentesList"></div>
+  </div>
+
+  <!-- RETENCIONES -->
+  <div id="page-retenciones" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Retenciones</div><div class="page-subtitle">ISR e ITBIS — República Dominicana</div></div>
+      <button class="btn btn-primary" onclick="openRetencionModal()">+ Registrar Retención</button>
+    </div>
+    <div id="retencionKpis" class="kpi-grid" style="margin-bottom:var(--space-md)"></div>
+    <div style="display:flex;gap:8px;margin-bottom:var(--space-sm);flex-wrap:wrap;align-items:flex-end">
+      <div class="form-group" style="margin:0;flex:1;min-width:120px"><label class="form-label">Mes</label>
+        <select class="form-input form-select" id="ret-month-filter" onchange="loadRetenciones()">
+          <option value="">Todos</option>
+          <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+          <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+          <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0;width:90px"><label class="form-label">Año</label><input class="form-input" id="ret-year-filter" type="number" placeholder="2025" onchange="loadRetenciones()"></div>
+    </div>
+    <div class="card"><div class="card-body" id="retencionesList"></div></div>
   </div>
 
 </div><!-- /main -->
@@ -1399,6 +1537,98 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   </div>
 </div>
 
+<!-- MODAL: NUEVA PLANTILLA RECURRENTE -->
+<div class="modal-backdrop" id="recurringModal">
+  <div class="modal-box" style="max-width:500px">
+    <div class="modal-title">🔄 Factura Recurrente <button class="modal-close" onclick="closeModal('recurringModal')">✕</button></div>
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Nombre de la plantilla *</label><input class="form-input" id="rec-name" placeholder="Ej: Alquiler mensual, Servicio internet..."></div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Cliente</label><input class="form-input" id="rec-client" placeholder="Nombre del cliente"></div>
+        <div class="form-group"><label class="form-label">Frecuencia *</label>
+          <select class="form-input form-select" id="rec-frequency">
+            <option value="weekly">Semanal</option>
+            <option value="biweekly">Quincenal</option>
+            <option value="monthly" selected>Mensual</option>
+            <option value="bimonthly">Bimestral</option>
+            <option value="quarterly">Trimestral</option>
+            <option value="yearly">Anual</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Descripción del servicio *</label><input class="form-input" id="rec-desc" placeholder="Ej: Servicio de mantenimiento mensual"></div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Monto (sin ITBIS) *</label><input class="form-input" id="rec-amount" type="number" step="0.01" placeholder="0.00" oninput="calcRecTotal()"></div>
+        <div class="form-group"><label class="form-label">ITBIS %</label><input class="form-input" id="rec-tax" type="number" value="0" min="0" max="100" oninput="calcRecTotal()"></div>
+      </div>
+      <div id="rec-total-preview" style="background:var(--surface2);border-radius:6px;padding:10px;font-size:var(--fs-xs);display:none">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-muted)">Total a facturar</span><span id="rec-total-val" style="font-weight:700;color:var(--accent)"></span></div>
+      </div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Primera fecha</label><input class="form-input" id="rec-start" type="date"></div>
+        <div class="form-group"><label class="form-label">Fecha fin (opcional)</label><input class="form-input" id="rec-end" type="date"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Método de cobro</label>
+        <select class="form-input form-select" id="rec-payment">
+          <option value="credit">Crédito (CxC)</option>
+          <option value="bank">Banco/Transferencia</option>
+          <option value="cash">Efectivo</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveRecurring()">✅ Crear Plantilla</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: REGISTRAR RETENCIÓN -->
+<div class="modal-backdrop" id="retencionModal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-title">📋 Registrar Retención <button class="modal-close" onclick="closeModal('retencionModal')">✕</button></div>
+    <div class="form-grid">
+      <!-- Tipo -->
+      <div class="form-group"><label class="form-label">Tipo de Retención *</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="retTipoBtns">
+          <button onclick="setRetTipo('isr')" id="retTipo-isr" class="btn btn-primary" style="justify-content:center">📋 ISR</button>
+          <button onclick="setRetTipo('itbis')" id="retTipo-itbis" class="btn btn-secondary" style="justify-content:center">🧾 ITBIS</button>
+        </div>
+      </div>
+      <div class="form-group" id="ret-subtipo-group"><label class="form-label">Subtipo ISR</label>
+        <select class="form-input form-select" id="ret-subtipo">
+          <option value="servicios">Servicios (10%)</option>
+          <option value="alquileres">Alquileres (10%)</option>
+          <option value="honorarios">Honorarios Profesionales (10%)</option>
+          <option value="otros">Otros (5%)</option>
+        </select>
+      </div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Entidad</label>
+          <select class="form-input form-select" id="ret-entity">
+            <option value="client">Cliente</option>
+            <option value="vendor">Proveedor</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Nombre</label>
+          <select class="form-input form-select" id="ret-entity-id"><option value="">Seleccionar...</option></select>
+        </div>
+      </div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Monto Base (RD$) *</label><input class="form-input" id="ret-base" type="number" step="0.01" placeholder="0.00" oninput="calcRetencion()"></div>
+        <div class="form-group"><label class="form-label">% Retención *</label><input class="form-input" id="ret-pct" type="number" step="0.01" placeholder="10" oninput="calcRetencion()"></div>
+      </div>
+      <div id="ret-calc-preview" style="display:none;background:var(--surface2);border:1px solid var(--accent2)30;border-radius:6px;padding:10px;font-size:var(--fs-xs)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--text-muted)">Monto retenido</span><span id="ret-amount-val" style="font-weight:700;color:var(--accent2)"></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-muted)">Monto neto a recibir</span><span id="ret-net-val" style="font-weight:700;color:var(--accent)"></span></div>
+      </div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Fecha</label><input class="form-input" id="ret-date" type="date"></div>
+        <div class="form-group"><label class="form-label">NCF del comprobante</label><input class="form-input" id="ret-ncf" placeholder="B0100000001"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Notas</label><input class="form-input" id="ret-notes" placeholder="Referencia o descripción"></div>
+      <button class="btn btn-primary btn-full" onclick="saveRetencion()">✅ Registrar Retención</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: CAMBIAR CONTRASEÑA -->
 <div class="modal-backdrop" id="pwdModal">
   <div class="modal-box" style="max-width:380px">
@@ -1556,8 +1786,12 @@ const FAB_ACTIONS = {
   'activos':          ()=> openAssetModal(),
   'ingresos':         ()=> openIncomeModal(),
   'tipos-ingreso':    ()=> openIncomeTypeModal(),
+  'cotizaciones':     ()=> { initNewQuote(); showPage('nueva-cotizacion',el('nav-cotizaciones')); },
+  'recurrentes':      ()=> openRecurringModal(),
+  'retenciones':      ()=> openRetencionModal(),
   'cierre':           null,
   'conciliacion':     null,
+  'nueva-cotizacion': null,
   'admin':            null,
 };
 let _currentPage = 'dashboard';
@@ -1591,6 +1825,9 @@ function showPage(id, btn) {
   if (id==='tipos-ingreso')   renderTiposIngreso();
   if (id==='facturas')        loadInvoices();
   if (id==='nueva-factura')   initNewInvoice();
+  if (id==='cotizaciones')    loadQuotes();
+  if (id==='recurrentes')     loadRecurrentes();
+  if (id==='retenciones')     loadRetenciones();
   if (id==='reportes')        { const now=new Date(); el('rep-month').value=now.getMonth()+1; }
   if (id==='cierre')          initCierrePage();
   if (id==='conciliacion')    initConciliacionPage();
@@ -4505,6 +4742,481 @@ function renderWizardStep(step) {
         ${step < steps.length ? `<button class="btn btn-primary" style="flex:1" onclick="renderWizardStep(${step+1})">${step===1?'Comenzar':'Siguiente'} →</button>` : `<button class="btn btn-primary btn-full" onclick="closeWizard()">¡Entendido! 🚀</button>`}
       </div>
     </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 2: COTIZACIONES, RECURRENTES, RETENCIONES ──────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── COTIZACIONES ─────────────────────────────────────────────────────────────
+const QUOTE_STATUS_LABEL = { draft:'Borrador', sent:'Enviada', approved:'✅ Aprobada', rejected:'❌ Rechazada', expired:'⏰ Vencida', converted:'🧾 Convertida' };
+const QUOTE_STATUS_COLOR = { draft:'var(--text-muted)', sent:'var(--accent4)', approved:'var(--accent)', rejected:'var(--accent2)', expired:'var(--accent3)', converted:'var(--orange)' };
+let _nqLineCount = 0;
+
+async function initNewQuote() {
+  _nqLineCount = 0;
+  el('nq-lines').innerHTML = '';
+  ['nq-number','nq-rnc','nq-client-name','nq-payment-terms','nq-delivery','nq-notes'].forEach(id => { const e=el(id); if(e) e.value=''; });
+  el('nq-tax').value = '18'; el('nq-discount').value = '0';
+  el('nq-date').value = new Date().toISOString().split('T')[0];
+  const validDate = new Date(); validDate.setDate(validDate.getDate()+30);
+  el('nq-valid').value = validDate.toISOString().split('T')[0];
+  el('nq-client-id').innerHTML = '<option value="">Ocasional</option>' + clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  try { const r = await apiFetch('/api/quotes/next-number'); el('nq-number').value = r.quote_number; } catch { el('nq-number').value=''; }
+  addQuoteLine();
+  recalcQuote();
+}
+
+function onQuoteClientChange() {
+  const cid = el('nq-client-id').value;
+  const c   = clients.find(x=>x.id===cid);
+  if (c) { el('nq-client-name').value=c.name; if(c.rnc) el('nq-rnc').value=c.rnc||''; }
+}
+
+function addQuoteLine(productId=null) {
+  const i = _nqLineCount++;
+  const prod = productId ? products.find(p=>p.id===productId) : null;
+  const opts = '<option value="">Sin producto</option>'+products.map(p=>`<option value="${p.id}" ${p.id===productId?'selected':''}>${p.code?p.code+' — ':''}${p.name}</option>`).join('');
+  const row = document.createElement('div');
+  row.id = `nq-line-${i}`;
+  row.style.cssText='margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px';
+  row.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:6px">
+      <select class="form-input form-select" id="nql-prod-${i}" onchange="onQuoteLineProductChange(${i})" style="font-size:11px;padding:6px 24px 6px 8px">${opts}</select>
+      <button onclick="removeQuoteLine(${i})" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:5px;color:var(--accent2);cursor:pointer;width:28px;height:32px;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
+    </div>
+    <input class="form-input" id="nql-desc-${i}" placeholder="Descripción *" style="font-size:11px;padding:6px 8px;margin-bottom:6px;width:100%" value="${prod?prod.name:''}">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Cantidad</label>
+        <input class="form-input" id="nql-qty-${i}" type="number" step="0.001" placeholder="1" value="1" oninput="recalcQuote()" style="font-size:11px;padding:6px 8px"></div>
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Precio</label>
+        <input class="form-input" id="nql-price-${i}" type="number" step="0.01" placeholder="0.00" value="${prod?prod.sale_price:''}" oninput="recalcQuote()" style="font-size:11px;padding:6px 8px"></div>
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Desc%</label>
+        <input class="form-input" id="nql-disc-${i}" type="number" step="0.1" placeholder="0" value="0" min="0" max="100" oninput="recalcQuote()" style="font-size:11px;padding:6px 8px"></div>
+    </div>`;
+  el('nq-lines').appendChild(row);
+  if (prod) recalcQuote();
+}
+
+function onQuoteLineProductChange(i) {
+  const pid = el(`nql-prod-${i}`)?.value;
+  const prod = products.find(p=>p.id===pid);
+  if (prod) { el(`nql-desc-${i}`).value=prod.name; el(`nql-price-${i}`).value=prod.sale_price; recalcQuote(); }
+}
+
+function removeQuoteLine(i) { const r=el(`nq-line-${i}`); if(r) r.remove(); recalcQuote(); }
+
+function getQuoteLines() {
+  const lines=[]; let i=0;
+  while(i < _nqLineCount+20) {
+    const row=el(`nq-line-${i}`);
+    if (row) {
+      const pid=el(`nql-prod-${i}`)?.value||null, desc=el(`nql-desc-${i}`)?.value?.trim()||'';
+      const qty=parseFloat(el(`nql-qty-${i}`)?.value)||0, price=parseFloat(el(`nql-price-${i}`)?.value)||0, disc=parseFloat(el(`nql-disc-${i}`)?.value)||0;
+      if (desc||price) lines.push({product_id:pid, description:desc, quantity:qty||1, unit_price:price, discount_pct:disc});
+    }
+    i++;
+  }
+  return lines;
+}
+
+function recalcQuote() {
+  const lines=getQuoteLines(), taxRate=parseFloat(el('nq-tax')?.value)||0, discPct=parseFloat(el('nq-discount')?.value)||0;
+  let subtotal=0; lines.forEach(l=>{ subtotal += l.quantity*l.unit_price*(1-l.discount_pct/100); });
+  const discAmt=subtotal*discPct/100, taxable=subtotal-discAmt, taxAmt=taxable*taxRate/100, total=taxable+taxAmt;
+  const s=id=>{const e=el(id);if(e) return e;return {textContent:''}};
+  s('nq-subtotal').textContent='RD$ '+fmt(subtotal);
+  s('nq-discount-amt').textContent='-RD$ '+fmt(discAmt);
+  s('nq-tax-amt').textContent='RD$ '+fmt(taxAmt);
+  s('nq-total').textContent='RD$ '+fmt(total);
+}
+
+async function saveQuote(status='draft') {
+  const quoteNum = el('nq-number')?.value?.trim();
+  const lines    = getQuoteLines().filter(l=>l.description?.trim());
+  if (!lines.length) { toast('⚠️ Agrega al menos una línea','error'); return; }
+  const taxRate=parseFloat(el('nq-tax')?.value)||0, discPct=parseFloat(el('nq-discount')?.value)||0;
+  let subtotal=0; lines.forEach(l=>{ subtotal+=l.quantity*l.unit_price*(1-l.discount_pct/100); });
+  const discAmt=subtotal*discPct/100, taxAmt=(subtotal-discAmt)*taxRate/100, total=subtotal-discAmt+taxAmt;
+  try {
+    const r = await apiFetch('/api/quotes',{method:'POST',body:JSON.stringify({
+      quote_number: quoteNum, client_name: el('nq-client-name')?.value?.trim()||null,
+      client_rnc:   el('nq-rnc')?.value?.trim()||null,
+      date: el('nq-date')?.value, valid_until: el('nq-valid')?.value||null,
+      subtotal:Math.round(subtotal*100)/100, tax:Math.round(taxAmt*100)/100, total:Math.round(total*100)/100,
+      discount_amount:Math.round(discAmt*100)/100, discount_pct:discPct,
+      notes: el('nq-notes')?.value?.trim()||null,
+      payment_terms: el('nq-payment-terms')?.value?.trim()||null,
+      delivery_terms: el('nq-delivery')?.value?.trim()||null,
+      status, lines: lines.map(l=>({product_id:l.product_id||null,description:l.description,quantity:l.quantity,unit_price:l.unit_price,discount_pct:l.discount_pct}))
+    })});
+    toast(status==='sent'?`📤 Cotización ${r.quote_number||''} enviada`:`💾 Cotización ${r.quote_number||''} guardada`);
+    showPage('cotizaciones',el('nav-cotizaciones'));
+    loadQuotes();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function loadQuotes() {
+  const status = el('quote-status-filter')?.value||'';
+  const search = (el('quote-search')?.value||'').toLowerCase();
+  const container = el('quotesList');
+  if (!container) return;
+  container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-muted)">⏳ Cargando...</div>';
+  try {
+    let url='/api/quotes'; if(status) url+=`?status=${status}`;
+    const all = await apiFetch(url);
+    const filtered = search ? all.filter(q=>(q.quote_number||'').toLowerCase().includes(search)||(q.client_name||'').toLowerCase().includes(search)) : all;
+
+    // KPIs
+    const kEl=el('quoteKpis');
+    if (kEl) {
+      const totAll=all.length, totApproved=all.filter(q=>q.status==='approved').length;
+      const totConverted=all.filter(q=>q.status==='converted').length;
+      const convRate=totApproved>0?Math.round(totConverted/totAll*100):0;
+      kEl.innerHTML=`
+        <div class="kpi-card blue"><div class="kpi-label">Total</div><div class="kpi-value">${totAll}</div><div class="kpi-sub">Cotizaciones</div></div>
+        <div class="kpi-card green"><div class="kpi-label">Aprobadas</div><div class="kpi-value">${totApproved}</div><div class="kpi-sub">Por convertir</div></div>
+        <div class="kpi-card orange"><div class="kpi-label">Convertidas</div><div class="kpi-value">${totConverted}</div><div class="kpi-sub">En facturas</div></div>
+        <div class="kpi-card ${convRate>=50?'green':'red'}"><div class="kpi-label">Conversión</div><div class="kpi-value">${convRate}%</div><div class="kpi-sub">Éxito comercial</div></div>`;
+    }
+
+    if (!filtered.length) {
+      container.innerHTML='<div class="empty"><div class="empty-icon">📄</div><div class="empty-title">Sin cotizaciones</div><div class="empty-sub">Crea tu primera cotización</div></div>';
+      return;
+    }
+    container.innerHTML='<div style="padding:10px">'+filtered.map(q=>{
+      const color=QUOTE_STATUS_COLOR[q.status]||'var(--text-muted)';
+      const isApproved=q.status==='approved';
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--radius-xs);padding:14px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:8px">
+          <div>
+            <div style="font-family:monospace;font-weight:700">${q.quote_number||'—'}</div>
+            <div style="font-size:var(--fs-xs);color:var(--text-secondary);margin-top:2px">${q.client_name||'Sin cliente'}</div>
+            <div style="font-size:var(--fs-2xs);color:var(--text-muted)">📅 ${q.date||''} ${q.valid_until?'· Válida: '+q.valid_until:''}</div>
+          </div>
+          <div style="text-align:right">
+            <span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:50px;background:${color}20;color:${color}">${QUOTE_STATUS_LABEL[q.status]||q.status}</span>
+            <div style="font-family:monospace;font-weight:800;font-size:var(--fs-lg);color:var(--accent);margin-top:4px">RD$ ${fmt(q.total)}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button onclick="printQuote('${q.id}')" class="btn btn-sm btn-secondary">🖨️ Ver/Imprimir</button>
+          ${q.status==='draft'?`<button onclick="changeQuoteStatus('${q.id}','sent')" class="btn btn-sm btn-secondary">📤 Marcar Enviada</button>`:''}
+          ${q.status==='sent'?`<button onclick="changeQuoteStatus('${q.id}','approved')" class="btn btn-sm btn-primary">✅ Aprobar</button><button onclick="changeQuoteStatus('${q.id}','rejected')" class="btn btn-sm btn-danger">❌ Rechazar</button>`:''}
+          ${isApproved?`<button onclick="convertQuoteToInvoice('${q.id}')" class="btn btn-sm btn-primary" style="background:var(--orange)">🧾 → Factura</button>`:''}
+          ${q.status!=='converted'?`<button onclick="deleteQuote('${q.id}')" class="btn btn-sm btn-danger">🗑️</button>`:''}
+        </div>
+      </div>`;
+    }).join('')+'</div>';
+  } catch(e) { container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+async function changeQuoteStatus(id, status) {
+  try {
+    await apiFetch(`/api/quotes/${id}/status`,{method:'PUT',body:JSON.stringify({status})});
+    const labels={sent:'📤 Marcada como enviada', approved:'✅ Cotización aprobada', rejected:'❌ Cotización rechazada'};
+    toast(labels[status]||'✅ Estado actualizado');
+    loadQuotes();
+  } catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function convertQuoteToInvoice(id) {
+  if (!confirm('¿Convertir esta cotización en factura?\nSe creará como borrador para que puedas revisar antes de emitir.')) return;
+  try {
+    const r = await apiFetch(`/api/quotes/${id}/convert`,{method:'POST',body:JSON.stringify({payment_method:'credit'})});
+    toast(`✅ Factura ${r.invoice_number} creada como borrador`);
+    invoices = await apiFetch('/api/invoices?limit=20');
+    loadQuotes();
+    showPage('facturas',el('nav-facturas'));
+    loadInvoices();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function deleteQuote(id) {
+  if (!confirm('¿Eliminar esta cotización?')) return;
+  try { await apiFetch('/api/quotes/'+id,{method:'DELETE'}); toast('✅ Eliminada'); loadQuotes(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function printQuote(id) {
+  try {
+    const q = await apiFetch('/api/quotes/'+id);
+    const lineRows=(q.items||[]).map(l=>`
+      <tr><td>${l.description||''}</td><td style="text-align:right">${l.qty||1}</td>
+      <td style="text-align:right">RD$ ${fmt(l.price||0)}</td>
+      <td style="text-align:right;font-weight:600">RD$ ${fmt(l.total||0)}</td></tr>`).join('');
+    const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Cotización ${q.quote_number}</title>
+      <style>body{font-family:sans-serif;padding:30px;color:#111;max-width:720px;margin:0 auto}
+      .header{display:flex;justify-content:space-between;margin-bottom:24px}
+      .logo{font-size:22px;font-weight:900;color:#ff7c2a}
+      .badge{background:#ff7c2a;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700}
+      table{width:100%;border-collapse:collapse;margin-bottom:20px}
+      th{background:#f5f5f5;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase}
+      td{padding:8px 10px;border-bottom:1px solid #eee}
+      .totals{margin-left:auto;max-width:260px}.total-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}
+      .total-final{font-weight:800;font-size:16px;border-top:2px solid #111;padding-top:8px;margin-top:4px}
+      .footer{margin-top:30px;font-size:11px;color:#aaa;text-align:center}
+      .validity{background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px;font-size:12px;margin-bottom:16px}
+      @media print{body{padding:10px}}</style></head><body>
+      <div class="header"><div><div class="logo">mis<span>cuentas</span></div><div style="font-size:11px;color:#888;margin-top:4px">Sistema Contable</div></div>
+      <div style="text-align:right"><div style="font-size:20px;font-weight:800">COTIZACIÓN</div><div class="badge">${q.quote_number}</div></div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:12px">
+        <div><strong>Cliente:</strong> ${q.client_name||'N/A'}${q.client_rnc?'<br><strong>RNC:</strong> '+q.client_rnc:''}</div>
+        <div><strong>Fecha:</strong> ${q.date||'N/A'}</div>
+      </div>
+      ${q.valid_until?`<div class="validity">⏰ Esta cotización es válida hasta el <strong>${q.valid_until}</strong></div>`:''}
+      <table><thead><tr><th>Descripción</th><th style="text-align:right">Cant.</th><th style="text-align:right">Precio</th><th style="text-align:right">Subtotal</th></tr></thead>
+      <tbody>${lineRows}</tbody></table>
+      <div class="totals">
+        <div class="total-row"><span>Subtotal</span><span>RD$ ${fmt(q.subtotal)}</span></div>
+        ${parseFloat(q.discount_amount||0)>0?`<div class="total-row"><span>Descuento</span><span style="color:#e53">-RD$ ${fmt(q.discount_amount)}</span></div>`:''}
+        <div class="total-row"><span>ITBIS (${q.tax_rate||18}%)</span><span>RD$ ${fmt(q.tax)}</span></div>
+        <div class="total-row total-final"><span>TOTAL</span><span>RD$ ${fmt(q.total)}</span></div>
+      </div>
+      ${q.payment_terms?`<div style="margin-top:16px;font-size:12px"><strong>Condiciones de pago:</strong> ${q.payment_terms}</div>`:''}
+      ${q.delivery_terms?`<div style="font-size:12px"><strong>Entrega:</strong> ${q.delivery_terms}</div>`:''}
+      ${q.notes?`<div style="margin-top:12px;padding:10px;background:#f9f9f9;border-radius:6px;font-size:12px">${q.notes}</div>`:''}
+      <div class="footer">Generado por MisCuentas Contable · ${new Date().toLocaleDateString()}</div>
+      </body></html>`;
+    const w=window.open('','_blank'); if(!w){toast('⚠️ Permite ventanas emergentes','error');return;}
+    w.document.write(html); w.document.close(); setTimeout(()=>w.print(),500);
+  } catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+// ─── RECURRENTES ──────────────────────────────────────────────────────────────
+const FREQ_LABELS = { weekly:'Semanal', biweekly:'Quincenal', monthly:'Mensual', bimonthly:'Bimestral', quarterly:'Trimestral', yearly:'Anual' };
+
+function openRecurringModal() {
+  ['rec-name','rec-client','rec-desc','rec-amount'].forEach(id=>{const e=el(id);if(e)e.value='';});
+  el('rec-tax').value='0'; el('rec-frequency').value='monthly'; el('rec-payment').value='credit';
+  el('rec-start').value=new Date().toISOString().split('T')[0];
+  el('rec-end').value='';
+  el('rec-total-preview').style.display='none';
+  openModal('recurringModal');
+}
+
+function calcRecTotal() {
+  const amount=parseFloat(el('rec-amount')?.value)||0, tax=parseFloat(el('rec-tax')?.value)||0;
+  const total=amount*(1+tax/100);
+  const prev=el('rec-total-preview');
+  if (amount>0) { el('rec-total-val').textContent='RD$ '+fmt(total); prev.style.display='block'; }
+  else prev.style.display='none';
+}
+
+async function saveRecurring() {
+  const name=el('rec-name').value.trim(), desc=el('rec-desc').value.trim();
+  const amount=parseFloat(el('rec-amount').value)||0;
+  const taxRate=parseFloat(el('rec-tax').value)||0;
+  const freq=el('rec-frequency').value;
+  if (!name||!desc||!amount) { toast('Nombre, descripción y monto son requeridos','error'); return; }
+  const subtotal=amount, taxAmt=subtotal*taxRate/100, total=subtotal+taxAmt;
+  try {
+    await apiFetch('/api/recurring',{method:'POST',body:JSON.stringify({
+      name, client_name:el('rec-client').value.trim()||null,
+      subtotal:Math.round(subtotal*100)/100, tax:Math.round(taxAmt*100)/100, total:Math.round(total*100)/100,
+      frequency:freq, start_date:el('rec-start').value, end_date:el('rec-end').value||null,
+      payment_method:el('rec-payment').value,
+      items:[{description:desc, qty:1, price:subtotal, total:subtotal}]
+    })});
+    toast('✅ Plantilla creada'); closeModal('recurringModal'); loadRecurrentes();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function loadRecurrentes() {
+  const container=el('recurrentesList');
+  if (!container) return;
+  container.innerHTML='<div class="empty"><div class="empty-icon">⏳</div></div>';
+  try {
+    const list=await apiFetch('/api/recurring');
+    if (!list.length) {
+      container.innerHTML='<div class="empty"><div class="empty-icon">🔄</div><div class="empty-title">Sin plantillas recurrentes</div><div class="empty-sub">Crea una plantilla para facturas automáticas</div></div>'; return;
+    }
+    const today=new Date().toISOString().split('T')[0];
+    container.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">'+
+      list.map(t=>{
+        const isDue=t.next_date<=today && t.is_active;
+        const isExpired=t.end_date && t.end_date<today;
+        return `<div style="background:var(--surface2);border:1px solid ${isDue?'var(--orange)':isExpired?'var(--accent2)':'var(--border)'};border-radius:var(--radius-sm);padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+              <div style="font-weight:700">${t.name}</div>
+              ${t.client_name?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">👤 ${t.client_name}</div>`:''}
+            </div>
+            <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:50px;background:${t.is_active?'var(--accent-dim)':'var(--surface3)'};color:${t.is_active?'var(--accent)':'var(--text-muted)'}">
+              ${t.is_active?'🟢 Activa':'⏸️ Pausada'}
+            </span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:var(--fs-xs)">
+            <span style="color:var(--text-muted)">${FREQ_LABELS[t.frequency]||t.frequency}</span>
+            <span style="font-family:monospace;font-weight:700;color:var(--accent)">RD$ ${fmt(t.total)}</span>
+          </div>
+          <div style="font-size:var(--fs-2xs);color:${isDue?'var(--orange)':'var(--text-muted)'};margin-bottom:10px">
+            ${isDue?'⚡ Vencida — ':'⏰ Próxima: '}${t.next_date}
+            ${t.end_date?` · Fin: ${t.end_date}`:''}
+            · ${t.generated_count||0} generada(s)
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${t.is_active?`<button onclick="generateRecurring('${t.id}')" class="btn btn-sm btn-primary" style="flex:1">🧾 Generar Ahora</button>`:''}
+            <button onclick="toggleRecurring('${t.id}',${!t.is_active})" class="btn btn-sm btn-secondary">${t.is_active?'⏸️ Pausar':'▶️ Activar'}</button>
+            <button onclick="deleteRecurring('${t.id}')" class="btn btn-sm btn-danger">🗑️</button>
+          </div>
+        </div>`;
+      }).join('')+'</div>';
+  } catch(e){ container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+async function generateRecurring(id) {
+  try {
+    const r=await apiFetch(`/api/recurring/${id}/generate`,{method:'POST'});
+    toast(`✅ Factura ${r.invoice_number} generada · Próxima: ${r.next_date}`);
+    invoices=await apiFetch('/api/invoices?limit=20');
+    loadRecurrentes();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function toggleRecurring(id, active) {
+  try { await apiFetch(`/api/recurring/${id}`,{method:'PUT',body:JSON.stringify({is_active:active})}); toast(active?'▶️ Activada':'⏸️ Pausada'); loadRecurrentes(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function deleteRecurring(id) {
+  if (!confirm('¿Eliminar esta plantilla recurrente?')) return;
+  try { await apiFetch('/api/recurring/'+id,{method:'DELETE'}); toast('✅ Eliminada'); loadRecurrentes(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function processAllDue() {
+  try {
+    const r=await apiFetch('/api/recurring/process-due',{method:'POST'});
+    if (r.processed>0) { toast(`⚡ ${r.processed} factura(s) generadas automáticamente`); invoices=await apiFetch('/api/invoices?limit=20'); loadRecurrentes(); }
+    else toast('ℹ️ No hay facturas vencidas pendientes');
+  } catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+// ─── RETENCIONES ──────────────────────────────────────────────────────────────
+let _retTipo = 'isr';
+const ISR_RATES = { servicios:10, alquileres:10, honorarios:10, otros:5 };
+
+function setRetTipo(tipo) {
+  _retTipo = tipo;
+  ['isr','itbis'].forEach(k => {
+    const btn=el('retTipo-'+k);
+    if (!btn) return;
+    if (k===tipo) { btn.className='btn btn-primary'; btn.style.justifyContent='center'; }
+    else          { btn.className='btn btn-secondary'; btn.style.justifyContent='center'; }
+  });
+  const subGrp=el('ret-subtipo-group');
+  if (subGrp) subGrp.style.display = tipo==='isr' ? 'flex' : 'none';
+  // Auto-pct
+  if (tipo==='itbis') { el('ret-pct').value='30'; }
+  else { const sub=el('ret-subtipo')?.value||'servicios'; el('ret-pct').value=ISR_RATES[sub]||10; }
+  calcRetencion();
+}
+
+function openRetencionModal() {
+  ['ret-base','ret-ncf','ret-notes'].forEach(id=>{const e=el(id);if(e)e.value='';});
+  el('ret-date').value=new Date().toISOString().split('T')[0];
+  el('ret-entity').value='client';
+  el('ret-calc-preview').style.display='none';
+  // Populate entity select
+  const sel=el('ret-entity-id');
+  sel.innerHTML='<option value="">Seleccionar cliente...</option>'+clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  el('ret-entity').onchange = function() {
+    const isClient=this.value==='client';
+    sel.innerHTML=`<option value="">Seleccionar ${isClient?'cliente':'proveedor'}...</option>`+
+      (isClient?clients:vendors).map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+  };
+  // Subtipo change auto-pct
+  el('ret-subtipo').onchange = function() {
+    if (_retTipo==='isr') el('ret-pct').value=ISR_RATES[this.value]||10;
+    calcRetencion();
+  };
+  setRetTipo('isr');
+  openModal('retencionModal');
+}
+
+function calcRetencion() {
+  const base=parseFloat(el('ret-base')?.value)||0, pct=parseFloat(el('ret-pct')?.value)||0;
+  const prev=el('ret-calc-preview');
+  if (base>0&&pct>0) {
+    const ret=base*pct/100;
+    el('ret-amount-val').textContent='RD$ '+fmt(ret);
+    el('ret-net-val').textContent='RD$ '+fmt(base-ret);
+    prev.style.display='block';
+  } else { if(prev) prev.style.display='none'; }
+}
+
+async function saveRetencion() {
+  const base=parseFloat(el('ret-base')?.value)||0, pct=parseFloat(el('ret-pct')?.value)||0;
+  const entityType=el('ret-entity')?.value||'client';
+  const entityId=el('ret-entity-id')?.value||null;
+  if (!base||!pct) { toast('Monto base y % son requeridos','error'); return; }
+  try {
+    const body={ tipo:_retTipo, subtipo:_retTipo==='isr'?(el('ret-subtipo')?.value||'servicios'):null,
+      entity_type:entityType, base_amount:base, retention_pct:pct,
+      date:el('ret-date').value, ncf:el('ret-ncf')?.value?.trim()||null,
+      notes:el('ret-notes')?.value?.trim()||null };
+    if (entityType==='client') body.client_id=entityId;
+    else body.vendor_id=entityId;
+    const r=await apiFetch('/api/retenciones',{method:'POST',body:JSON.stringify(body)});
+    toast(`✅ Retención registrada — RD$ ${fmt(r.retention_amount)} retenido`);
+    closeModal('retencionModal');
+    loadRetenciones();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function loadRetenciones() {
+  const month=el('ret-month-filter')?.value||'';
+  const year=el('ret-year-filter')?.value||new Date().getFullYear();
+  const container=el('retencionesList');
+  if (!container) return;
+  container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-muted)">⏳ Cargando...</div>';
+  try {
+    // KPIs anuales
+    const resumen=await apiFetch(`/api/retenciones/resumen?year=${year}`);
+    const totalISR=resumen.annual.find(x=>x.tipo==='isr')?.ret_total||0;
+    const totalITBIS=resumen.annual.find(x=>x.tipo==='itbis')?.ret_total||0;
+    const kEl=el('retencionKpis');
+    if (kEl) kEl.innerHTML=`
+      <div class="kpi-card red"><div class="kpi-label">ISR Retenido ${year}</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(totalISR)}</div><div class="kpi-sub">Impuesto sobre renta</div></div>
+      <div class="kpi-card orange"><div class="kpi-label">ITBIS Retenido ${year}</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(totalITBIS)}</div><div class="kpi-sub">Impuesto transferencia</div></div>
+      <div class="kpi-card blue"><div class="kpi-label">Total Retenido</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(parseFloat(totalISR)+parseFloat(totalITBIS))}</div><div class="kpi-sub">Año ${year}</div></div>
+      <div class="kpi-card green"><div class="kpi-label">Registros</div><div class="kpi-value">${resumen.annual.reduce((s,x)=>s+parseInt(x.count||0),0)}</div><div class="kpi-sub">Total retenciones</div></div>`;
+
+    // Lista
+    let url=`/api/retenciones`;
+    const params=[];
+    if (month) params.push(`month=${month}`);
+    if (year)  params.push(`year=${year}`);
+    if (params.length) url+='?'+params.join('&');
+    const list=await apiFetch(url);
+    if (!list.length) {
+      container.innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin retenciones en este período</div></div>'; return;
+    }
+    const SUBTIPO_LABEL={servicios:'Servicios',alquileres:'Alquileres',honorarios:'Honorarios',otros:'Otros'};
+    container.innerHTML='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Entidad</th><th>NCF</th><th class="num">Base</th><th class="num">%</th><th class="num">Retenido</th><th>Estado</th><th></th></tr></thead><tbody>'+
+      list.map(r=>{
+        const isISR=r.tipo==='isr';
+        const color=isISR?'var(--accent2)':'var(--orange)';
+        return `<tr>
+          <td style="white-space:nowrap">${r.date||''}</td>
+          <td><span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:50px;background:${color}20;color:${color}">${r.tipo.toUpperCase()}${r.subtipo?' · '+SUBTIPO_LABEL[r.subtipo]:''}</span></td>
+          <td>${r.client_name||r.vendor_name||'—'}</td>
+          <td class="muted">${r.ncf||'—'}</td>
+          <td class="num">RD$ ${fmt(r.base_amount)}</td>
+          <td class="num">${r.retention_pct}%</td>
+          <td class="num" style="color:${color};font-weight:700">RD$ ${fmt(r.retention_amount)}</td>
+          <td><span class="badge badge-gray">${r.status}</span></td>
+          <td><button onclick="deleteRetencion('${r.id}')" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:5px;padding:3px 7px;color:var(--accent2);font-size:11px;cursor:pointer">🗑️</button></td>
+        </tr>`;
+      }).join('')+'</tbody></table></div>';
+  } catch(e){ container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+async function deleteRetencion(id) {
+  if (!confirm('¿Eliminar esta retención?')) return;
+  try { await apiFetch('/api/retenciones/'+id,{method:'DELETE'}); toast('✅ Eliminada'); loadRetenciones(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
 }
 
 </script>

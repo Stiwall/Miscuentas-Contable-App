@@ -4201,6 +4201,473 @@ app.get('/api/export/transactions', authMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 2.1: COTIZACIONES / PRESUPUESTOS ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/quotes — listar cotizaciones
+app.get('/api/quotes', authMiddleware, async (req, res) => {
+  try {
+    const { status } = req.query;
+    let sql = `SELECT * FROM quotes WHERE user_id=$1`;
+    const params = [req.userId];
+    if (status) { sql += ` AND status=$2`; params.push(status); }
+    sql += ` ORDER BY date DESC, created_at DESC LIMIT 100`;
+    const r = await query(sql, params);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/quotes/next-number
+app.get('/api/quotes/next-number', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT COALESCE(MAX(CAST(REGEXP_REPLACE(quote_number,'[^0-9]','','g') AS INTEGER)),0) as last
+       FROM quotes WHERE user_id=$1`,
+      [req.userId]
+    );
+    const next = (parseInt(r.rows[0]?.last) || 0) + 1;
+    res.json({ quote_number: 'COT-' + String(next).padStart(5, '0') });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/quotes — crear cotización
+app.post('/api/quotes', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const {
+      quote_number, client_name, client_rnc, client_address,
+      date, valid_until, subtotal, tax, total,
+      discount_amount, discount_pct, notes, items, lines,
+      payment_terms, delivery_terms
+    } = req.body;
+    if (!total) { await pgClient.query('ROLLBACK'); return res.status(400).json({ error: 'total requerido' }); }
+
+    const id = `cot_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const quoteDate = date || new Date().toISOString().split('T')[0];
+
+    await pgClient.query(
+      `INSERT INTO quotes(id,user_id,quote_number,client_name,client_rnc,client_address,
+         date,valid_until,subtotal,tax,total,discount_amount,discount_pct,
+         notes,payment_terms,delivery_terms,status)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'draft')`,
+      [id, req.userId, quote_number, client_name||null, client_rnc||null, client_address||null,
+       quoteDate, valid_until||null, subtotal||0, tax||0, total,
+       discount_amount||0, discount_pct||0, notes||null,
+       payment_terms||null, delivery_terms||null]
+    );
+
+    // Insertar ítems
+    const rawItems = lines || items || [];
+    for (const item of rawItems) {
+      const itemId = `qi_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      const qty    = parseFloat(item.quantity || item.qty || 1);
+      const price  = parseFloat(item.unit_price || item.price || 0);
+      const disc   = parseFloat(item.discount_pct || 0);
+      const total  = Math.round(qty * price * (1 - disc/100) * 100) / 100;
+      await pgClient.query(
+        `INSERT INTO quote_items(id,quote_id,description,qty,price,total,discount_pct,product_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [itemId, id, item.description||'', qty, price, total, disc, item.product_id||null]
+      );
+    }
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, id, quote_number });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
+});
+
+// GET /api/quotes/:id
+app.get('/api/quotes/:id', authMiddleware, async (req, res) => {
+  try {
+    const q = await query(`SELECT * FROM quotes WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    if (!q.rows[0]) return res.status(404).json({ error: 'No encontrada' });
+    const items = await query(`SELECT * FROM quote_items WHERE quote_id=$1 ORDER BY rowid`, [req.params.id]).catch(
+      () => query(`SELECT * FROM quote_items WHERE quote_id=$1`, [req.params.id])
+    );
+    res.json({ ...q.rows[0], items: items.rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/quotes/:id/status — cambiar estado
+app.put('/api/quotes/:id/status', authMiddleware, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const valid = ['draft','sent','approved','rejected','expired','converted'];
+    if (!valid.includes(status)) return res.status(400).json({ error: 'Estado inválido' });
+    await query(`UPDATE quotes SET status=$1 WHERE id=$2 AND user_id=$3`, [status, req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/quotes/:id
+app.delete('/api/quotes/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM quote_items WHERE quote_id=$1`, [req.params.id]);
+    await query(`DELETE FROM quotes WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/quotes/:id/convert — convertir cotización en factura
+app.post('/api/quotes/:id/convert', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const q = await pgClient.query(
+      `SELECT q.*, array_agg(row_to_json(qi)) as items_json
+       FROM quotes q
+       LEFT JOIN quote_items qi ON qi.quote_id=q.id
+       WHERE q.id=$1 AND q.user_id=$2
+       GROUP BY q.id`,
+      [req.params.id, req.userId]
+    );
+    if (!q.rows[0]) { await pgClient.query('ROLLBACK'); return res.status(404).json({ error: 'Cotización no encontrada' }); }
+    const quote = q.rows[0];
+    if (quote.status === 'converted') { await pgClient.query('ROLLBACK'); return res.status(409).json({ error: 'Ya fue convertida en factura' }); }
+
+    // Obtener siguiente número de factura
+    const cntR = await pgClient.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
+    const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
+    const invNum  = String(nextNum).padStart(6, '0');
+
+    // Extraer datos del body (puede sobreescribir payment_method)
+    const { payment_method = 'credit', due_date } = req.body;
+
+    // Crear factura como borrador (status draft)
+    const invId  = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const invDate = new Date().toISOString().split('T')[0];
+    await pgClient.query(
+      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,
+         subtotal,tax,total,discount_amount,discount_pct,status,date,due_date,notes,
+         payment_method,quote_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft',$12,$13,$14,$15,$16)`,
+      [invId, req.userId, invNum, quote.client_name, quote.client_rnc, quote.client_address,
+       quote.subtotal, quote.tax, quote.total, quote.discount_amount, quote.discount_pct,
+       invDate, due_date||null, quote.notes, payment_method, req.params.id]
+    );
+    await pgClient.query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, nextNum]);
+
+    // Copiar ítems
+    const items = (quote.items_json || []).filter(Boolean);
+    for (const item of items) {
+      const iId = `item_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await pgClient.query(
+        `INSERT INTO invoice_items(id,invoice_id,description,qty,price,total,discount_pct,product_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [iId, invId, item.description||'', item.qty||1, item.price||0, item.total||0, item.discount_pct||0, item.product_id||null]
+      );
+    }
+
+    // Marcar cotización como convertida
+    await pgClient.query(`UPDATE quotes SET status='converted', invoice_id=$1 WHERE id=$2`, [invId, req.params.id]);
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, invoice_id: invId, invoice_number: invNum });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 2.2: FACTURAS RECURRENTES ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/recurring — listar plantillas recurrentes
+app.get('/api/recurring', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT * FROM recurring_invoices WHERE user_id=$1 ORDER BY next_date ASC`, [req.userId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/recurring — crear plantilla
+app.post('/api/recurring', authMiddleware, async (req, res) => {
+  try {
+    const {
+      name, client_name, client_rnc, subtotal, tax, total,
+      discount_amount, discount_pct, notes, payment_method,
+      frequency, // 'monthly' | 'bimonthly' | 'quarterly' | 'weekly'
+      start_date, end_date, items
+    } = req.body;
+    if (!name || !total || !frequency) return res.status(400).json({ error: 'name, total y frequency requeridos' });
+
+    const id = `rec_tmpl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const nextDate = start_date || new Date().toISOString().split('T')[0];
+
+    await query(
+      `INSERT INTO recurring_invoices(id,user_id,name,client_name,client_rnc,subtotal,tax,total,
+         discount_amount,discount_pct,notes,payment_method,frequency,next_date,end_date,
+         items_json,is_active)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,TRUE)`,
+      [id, req.userId, name, client_name||null, client_rnc||null, subtotal||0, tax||0, total,
+       discount_amount||0, discount_pct||0, notes||null, payment_method||'credit',
+       frequency, nextDate, end_date||null, JSON.stringify(items||[])]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/recurring/:id — activar/desactivar
+app.put('/api/recurring/:id', authMiddleware, async (req, res) => {
+  try {
+    const { is_active, name, end_date } = req.body;
+    await query(
+      `UPDATE recurring_invoices SET is_active=COALESCE($1,is_active), name=COALESCE($2,name), end_date=COALESCE($3,end_date)
+       WHERE id=$4 AND user_id=$5`,
+      [is_active, name||null, end_date||null, req.params.id, req.userId]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/recurring/:id
+app.delete('/api/recurring/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM recurring_invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/recurring/:id/generate — generar factura ahora desde plantilla
+app.post('/api/recurring/:id/generate', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const tmpl = await pgClient.query(
+      `SELECT * FROM recurring_invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]
+    );
+    if (!tmpl.rows[0]) { await pgClient.query('ROLLBACK'); return res.status(404).json({ error: 'Plantilla no encontrada' }); }
+    const t = tmpl.rows[0];
+
+    // Número de factura
+    const cntR = await pgClient.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
+    const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
+    const invNum  = String(nextNum).padStart(6, '0');
+    const invDate = new Date().toISOString().split('T')[0];
+    const invId   = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+
+    await pgClient.query(
+      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,subtotal,tax,total,
+         discount_amount,discount_pct,status,date,notes,payment_method,recurring_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14)`,
+      [invId, req.userId, invNum, t.client_name, t.client_rnc,
+       t.subtotal, t.tax, t.total, t.discount_amount, t.discount_pct,
+       invDate, t.notes, t.payment_method, t.id]
+    );
+    await pgClient.query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, nextNum]);
+
+    // Ítems
+    const items = typeof t.items_json === 'string' ? JSON.parse(t.items_json) : (t.items_json || []);
+    for (const item of items) {
+      const iId = `item_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await pgClient.query(
+        `INSERT INTO invoice_items(id,invoice_id,description,qty,price,total,discount_pct,product_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [iId, invId, item.description||'', item.qty||1, item.price||0, item.total||0, item.discount_pct||0, item.product_id||null]
+      );
+    }
+
+    // Calcular próxima fecha
+    const freqDays = { weekly:7, biweekly:14, monthly:30, bimonthly:60, quarterly:90, yearly:365 };
+    const days = freqDays[t.frequency] || 30;
+    const nextDate = new Date();
+    nextDate.setDate(nextDate.getDate() + days);
+    const nextDateStr = nextDate.toISOString().split('T')[0];
+
+    await pgClient.query(
+      `UPDATE recurring_invoices SET next_date=$1, generated_count=COALESCE(generated_count,0)+1 WHERE id=$2`,
+      [nextDateStr, t.id]
+    );
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, invoice_id: invId, invoice_number: invNum, next_date: nextDateStr });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
+});
+
+// POST /api/recurring/process-due — generar todas las vencidas (cron o manual)
+app.post('/api/recurring/process-due', authMiddleware, async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const due = await query(
+      `SELECT id FROM recurring_invoices
+       WHERE user_id=$1 AND is_active=TRUE AND next_date<=$2
+         AND (end_date IS NULL OR end_date>=$2)`,
+      [req.userId, today]
+    );
+    const generated = [];
+    for (const row of due.rows) {
+      try {
+        const r = await fetch(`http://localhost:${PORT}/api/recurring/${row.id}/generate`, {
+          method:'POST', headers: { 'Content-Type':'application/json', 'x-session-token': req.headers['x-session-token'] }
+        });
+        const d = await r.json();
+        if (d.ok) generated.push({ id: row.id, invoice_number: d.invoice_number });
+      } catch(e) { console.error('Recurring generate error:', e.message); }
+    }
+    res.json({ ok: true, processed: generated.length, generated });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 2.3: RETENCIONES ISR / ITBIS (RD) ──────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/retenciones — listar retenciones
+app.get('/api/retenciones', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    let sql = `SELECT r.*, c.name as client_name, v.name as vendor_name
+               FROM retenciones r
+               LEFT JOIN clients c ON c.id=r.client_id
+               LEFT JOIN vendors v ON v.id=r.vendor_id
+               WHERE r.user_id=$1`;
+    const params = [req.userId]; let p = 2;
+    if (month && year) {
+      sql += ` AND EXTRACT(MONTH FROM r.date)=$${p++} AND EXTRACT(YEAR FROM r.date)=$${p++}`;
+      params.push(month, year);
+    }
+    sql += ` ORDER BY r.date DESC`;
+    const result = await query(sql, params);
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/retenciones — registrar retención
+app.post('/api/retenciones', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const {
+      tipo,          // 'isr' | 'itbis'
+      subtipo,       // 'servicios' | 'alquileres' | 'honorarios' | 'otros' (para ISR)
+      entity_type,   // 'client' | 'vendor'
+      client_id, vendor_id,
+      invoice_id,
+      base_amount,   // monto base sobre el que se aplica la retención
+      retention_pct, // % de retención (ej: 10 para ISR servicios, 30 para ITBIS)
+      date, ncf, notes
+    } = req.body;
+
+    if (!tipo || !base_amount || !retention_pct) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'tipo, base_amount y retention_pct requeridos' });
+    }
+
+    const retention_amount = Math.round(parseFloat(base_amount) * parseFloat(retention_pct) / 100 * 100) / 100;
+    const id = `ret_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const retDate = date || new Date().toISOString().split('T')[0];
+
+    await pgClient.query(
+      `INSERT INTO retenciones(id,user_id,tipo,subtipo,entity_type,client_id,vendor_id,
+         invoice_id,base_amount,retention_pct,retention_amount,date,ncf,notes,status)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending')`,
+      [id, req.userId, tipo, subtipo||null, entity_type||'client',
+       client_id||null, vendor_id||null, invoice_id||null,
+       parseFloat(base_amount), parseFloat(retention_pct), retention_amount,
+       retDate, ncf||null, notes||null]
+    );
+
+    // Asiento contable de la retención
+    // ISR retenido: Débito Gasto ISR / Crédito ISR por Pagar al Estado
+    // ITBIS retenido: Débito ITBIS Retenido (activo) / Crédito CxC (reduce lo cobrable)
+    const acctR = await pgClient.query(
+      `SELECT id, code FROM accounts WHERE user_id=$1
+       AND code IN ('1101','1.1.01','1102','1.1.02','1201','1.2.01',
+                    '2301','2.3.01','2302','2.3.02','2303',
+                    '6201','6.2.01','6202','6.2.02','1401','1.4.01')`,
+      [req.userId]
+    );
+    const am = {}; acctR.rows.forEach(a => { am[a.code] = a.id; });
+
+    // Cuentas para retención ISR por pagar al estado (pasivo)
+    const isrPagarAcct = am['2301'] || am['2.3.01'] || am['2302'] || am['2.3.02'] || am['2303'];
+    // Gasto ISR
+    const isrGastoAcct = am['6201'] || am['6.2.01'] || am['6202'] || am['6.2.02'];
+    // ITBIS retenido por cobrar (activo — cuando somos nosotros quienes retenemos al proveedor)
+    const itbisRetAcct = am['1401'] || am['1.4.01'];
+    // CxC y Caja/Banco
+    const cxcAcct  = am['1201'] || am['1.2.01'];
+    const cashAcct = am['1102'] || am['1.1.02'] || am['1101'] || am['1.1.01'];
+
+    if (tipo === 'isr' && isrGastoAcct && isrPagarAcct) {
+      // El cliente nos retiene ISR: registramos el gasto y la cuenta por pagar al estado
+      await insertJournalEntry(pgClient, req.userId, retDate,
+        `Retención ISR ${retention_pct}% — ${subtipo||'servicios'} — RD$ ${retention_amount}`,
+        'retencion', id,
+        [
+          { acct: isrGastoAcct,  d: retention_amount, c: 0 },
+          { acct: isrPagarAcct,  d: 0, c: retention_amount },
+        ]
+      );
+    } else if (tipo === 'itbis' && cxcAcct) {
+      // El cliente retiene 30% del ITBIS: reduce lo que nos deben en CxC
+      await insertJournalEntry(pgClient, req.userId, retDate,
+        `Retención ITBIS ${retention_pct}% — RD$ ${retention_amount}`,
+        'retencion', id,
+        itbisRetAcct ? [
+          { acct: itbisRetAcct, d: retention_amount, c: 0 },  // ITBIS retenido por cobrar
+          { acct: cxcAcct,      d: 0, c: retention_amount },  // Reduce CxC
+        ] : [
+          { acct: cashAcct || cxcAcct, d: retention_amount, c: 0 },
+          { acct: cxcAcct, d: 0, c: retention_amount },
+        ]
+      );
+    }
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, id, retention_amount });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
+});
+
+// DELETE /api/retenciones/:id
+app.delete('/api/retenciones/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM retenciones WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/retenciones/resumen — totales ISR e ITBIS por período
+app.get('/api/retenciones/resumen', authMiddleware, async (req, res) => {
+  try {
+    const { year } = req.query;
+    const y = parseInt(year) || new Date().getFullYear();
+    const r = await query(
+      `SELECT
+         tipo,
+         EXTRACT(MONTH FROM date) as month,
+         SUM(base_amount) as base_total,
+         SUM(retention_amount) as ret_total,
+         COUNT(*) as count
+       FROM retenciones
+       WHERE user_id=$1 AND EXTRACT(YEAR FROM date)=$2
+       GROUP BY tipo, EXTRACT(MONTH FROM date)
+       ORDER BY month, tipo`,
+      [req.userId, y]
+    );
+    // Totales anuales
+    const totR = await query(
+      `SELECT tipo, SUM(base_amount) as base_total, SUM(retention_amount) as ret_total
+       FROM retenciones WHERE user_id=$1 AND EXTRACT(YEAR FROM date)=$2
+       GROUP BY tipo`,
+      [req.userId, y]
+    );
+    res.json({ monthly: r.rows, annual: totR.rows, year: y });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Registro del webhook (llamar una vez desde Railway shell o al startup)
 app.post('/setup-webhook', async (req, res) => {
   const secret = req.headers['x-setup-secret'] || req.query.secret;
@@ -4583,6 +5050,97 @@ async function initDB() {
   try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS conciliado BOOLEAN DEFAULT FALSE`); } catch(e) {}
   try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS bank_reference TEXT`); } catch(e) {}
   try { await query(`CREATE INDEX IF NOT EXISTS idx_jl_conciliado ON journal_lines(conciliado) WHERE conciliado=FALSE`); } catch(e) {}
+
+  // ── Fase 2.1: Cotizaciones ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS quotes (
+      id               TEXT PRIMARY KEY,
+      user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      quote_number     TEXT NOT NULL,
+      client_name      TEXT,
+      client_rnc       TEXT,
+      client_address   TEXT,
+      date             DATE NOT NULL DEFAULT CURRENT_DATE,
+      valid_until      DATE,
+      subtotal         NUMERIC(12,2) DEFAULT 0,
+      tax              NUMERIC(12,2) DEFAULT 0,
+      total            NUMERIC(12,2) NOT NULL,
+      discount_amount  NUMERIC(12,2) DEFAULT 0,
+      discount_pct     NUMERIC(5,2)  DEFAULT 0,
+      notes            TEXT,
+      payment_terms    TEXT,
+      delivery_terms   TEXT,
+      status           TEXT NOT NULL DEFAULT 'draft'
+                       CHECK (status IN ('draft','sent','approved','rejected','expired','converted')),
+      invoice_id       TEXT,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch(e) { console.warn('quotes table:', e.message); }
+
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS quote_items (
+      id           TEXT PRIMARY KEY,
+      quote_id     TEXT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+      description  TEXT NOT NULL,
+      qty          NUMERIC(12,3) NOT NULL DEFAULT 1,
+      price        NUMERIC(12,2) NOT NULL DEFAULT 0,
+      total        NUMERIC(12,2) NOT NULL DEFAULT 0,
+      discount_pct NUMERIC(5,2)  DEFAULT 0,
+      product_id   TEXT
+    )`);
+  } catch(e) { console.warn('quote_items table:', e.message); }
+
+  // Columna quote_id en invoices
+  try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS quote_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS recurring_id TEXT`); } catch(e) {}
+
+  // ── Fase 2.2: Facturas Recurrentes ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS recurring_invoices (
+      id               TEXT PRIMARY KEY,
+      user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name             TEXT NOT NULL,
+      client_name      TEXT,
+      client_rnc       TEXT,
+      subtotal         NUMERIC(12,2) DEFAULT 0,
+      tax              NUMERIC(12,2) DEFAULT 0,
+      total            NUMERIC(12,2) NOT NULL,
+      discount_amount  NUMERIC(12,2) DEFAULT 0,
+      discount_pct     NUMERIC(5,2)  DEFAULT 0,
+      notes            TEXT,
+      payment_method   TEXT DEFAULT 'credit',
+      frequency        TEXT NOT NULL DEFAULT 'monthly'
+                       CHECK (frequency IN ('weekly','biweekly','monthly','bimonthly','quarterly','yearly')),
+      next_date        DATE NOT NULL,
+      end_date         DATE,
+      items_json       JSONB DEFAULT '[]',
+      is_active        BOOLEAN NOT NULL DEFAULT TRUE,
+      generated_count  INTEGER DEFAULT 0,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch(e) { console.warn('recurring_invoices table:', e.message); }
+
+  // ── Fase 2.3: Retenciones ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS retenciones (
+      id               TEXT PRIMARY KEY,
+      user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      tipo             TEXT NOT NULL CHECK (tipo IN ('isr','itbis')),
+      subtipo          TEXT,
+      entity_type      TEXT DEFAULT 'client' CHECK (entity_type IN ('client','vendor')),
+      client_id        TEXT REFERENCES clients(id),
+      vendor_id        TEXT REFERENCES vendors(id),
+      invoice_id       TEXT,
+      base_amount      NUMERIC(12,2) NOT NULL,
+      retention_pct    NUMERIC(5,2)  NOT NULL,
+      retention_amount NUMERIC(12,2) NOT NULL,
+      date             DATE NOT NULL DEFAULT CURRENT_DATE,
+      ncf              TEXT,
+      notes            TEXT,
+      status           TEXT DEFAULT 'pending' CHECK (status IN ('pending','filed','paid')),
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch(e) { console.warn('retenciones table:', e.message); }
 
   // Make first registered user an admin
   try {
