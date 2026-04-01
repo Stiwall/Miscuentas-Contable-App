@@ -446,7 +446,19 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     <div class="sidebar-label">Administración</div>
     <div class="nav-item" id="nav-admin" onclick="showPage('admin',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 8v4l3 3"/></svg>
-      Admin
+      Usuarios
+    </div>
+    <div class="nav-item" id="nav-sucursales" onclick="showPage('sucursales',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Sucursales
+    </div>
+    <div class="nav-item" id="nav-monedas" onclick="showPage('monedas',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
+      Monedas / Tasa
+    </div>
+    <div class="nav-item" id="nav-pagos-config" onclick="showPage('pagos-config',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+      Pasarelas de Pago
     </div>
   </div>
   <div class="sidebar-footer">
@@ -1125,6 +1137,62 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     </div>
   </div>
 
+
+  <!-- SUCURSALES -->
+  <div id="page-sucursales" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Sucursales</div><div class="page-subtitle">Gestión multi-sucursal</div></div>
+      <button class="btn btn-primary" onclick="openBranchModal()">+ Nueva Sucursal</button>
+    </div>
+    <div id="sucursalesList"></div>
+  </div>
+
+  <!-- MONEDAS / TASA DE CAMBIO -->
+  <div id="page-monedas" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Monedas</div><div class="page-subtitle">Tasa de cambio USD/DOP y otras monedas</div></div>
+      <button class="btn btn-primary" onclick="openRateModal()">+ Registrar Tasa</button>
+    </div>
+    <!-- Tasa actual -->
+    <div class="kpi-grid" id="rateKpis" style="margin-bottom:var(--space-md)"></div>
+    <!-- Convertidor -->
+    <div class="card" style="margin-bottom:var(--space-md)">
+      <div class="card-header"><span class="card-title">🔄 Convertidor</span></div>
+      <div style="padding:16px">
+        <div style="display:grid;grid-template-columns:1fr auto 1fr auto;gap:10px;align-items:flex-end">
+          <div class="form-group" style="margin:0"><label class="form-label">Monto</label><input class="form-input" id="conv-amount" type="number" step="0.01" placeholder="0.00" oninput="convertCurrency()"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">De</label>
+            <select class="form-input form-select" id="conv-from" onchange="convertCurrency()" style="padding:9px 28px 9px 10px">
+              <option value="DOP">RD$ DOP</option><option value="USD">$ USD</option><option value="EUR">€ EUR</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0"><label class="form-label">A</label>
+            <select class="form-input form-select" id="conv-to" onchange="convertCurrency()" style="padding:9px 28px 9px 10px">
+              <option value="USD">$ USD</option><option value="DOP">RD$ DOP</option><option value="EUR">€ EUR</option>
+            </select>
+          </div>
+          <div style="padding-bottom:2px"><div id="conv-result" style="font-family:monospace;font-weight:700;font-size:var(--fs-lg);color:var(--accent)">—</div></div>
+        </div>
+      </div>
+    </div>
+    <!-- Historial tasas -->
+    <div class="card"><div class="card-header"><span class="card-title">📋 Historial de Tasas</span></div><div class="card-body" id="ratesList"></div></div>
+  </div>
+
+  <!-- PASARELAS DE PAGO -->
+  <div id="page-pagos-config" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Pasarelas de Pago</div><div class="page-subtitle">Links de pago y configuración</div></div>
+    </div>
+    <!-- Config pasarelas -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-sm);margin-bottom:var(--space-md)" id="gatewayCards"></div>
+    <!-- Links activos -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">🔗 Links de Pago Activos</span><button class="btn btn-sm btn-secondary" onclick="loadPaymentLinks()">Actualizar</button></div>
+      <div class="card-body" id="paymentLinksList"></div>
+    </div>
+  </div>
+
 </div><!-- /main -->
 
 <!-- MOBILE BOTTOM NAV -->
@@ -1725,6 +1793,64 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   </div>
 </div>
 
+<!-- MODAL: NUEVA SUCURSAL -->
+<div class="modal-backdrop" id="branchModal">
+  <div class="modal-box" style="max-width:460px">
+    <div class="modal-title">🏢 Sucursal <button class="modal-close" onclick="closeModal('branchModal')">✕</button></div>
+    <input type="hidden" id="branch-id">
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Nombre *</label><input class="form-input" id="branch-name" placeholder="Ej: Sucursal Santo Domingo Norte"></div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Teléfono</label><input class="form-input" id="branch-phone" placeholder="809-000-0000"></div>
+        <div class="form-group"><label class="form-label">RNC</label><input class="form-input" id="branch-rnc" placeholder="000-00000-0"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Dirección</label><input class="form-input" id="branch-address" placeholder="Dirección de la sucursal"></div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Responsable</label><input class="form-input" id="branch-manager" placeholder="Nombre del encargado"></div>
+        <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="branch-email" type="email" placeholder="sucursal@empresa.com"></div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveBranch()">Guardar Sucursal</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: REGISTRAR TASA DE CAMBIO -->
+<div class="modal-backdrop" id="rateModal">
+  <div class="modal-box" style="max-width:380px">
+    <div class="modal-title">💱 Tasa de Cambio <button class="modal-close" onclick="closeModal('rateModal')">✕</button></div>
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Moneda</label>
+        <select class="form-input form-select" id="rate-currency">
+          <option value="USD">USD — Dólar Americano</option>
+          <option value="EUR">EUR — Euro</option>
+          <option value="CAD">CAD — Dólar Canadiense</option>
+          <option value="GBP">GBP — Libra Esterlina</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Tasa (RD$ por 1 unidad) *</label>
+        <input class="form-input" id="rate-value" type="number" step="0.0001" placeholder="Ej: 60.50 significa 1 USD = RD$ 60.50">
+      </div>
+      <div class="form-group"><label class="form-label">Fecha</label><input class="form-input" id="rate-date" type="date"></div>
+      <div id="rate-preview" style="display:none;background:var(--surface2);border-radius:6px;padding:10px;font-size:var(--fs-xs)">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-muted)">Ejemplo: 100 USD =</span><span id="rate-example" style="font-weight:700;color:var(--accent)"></span></div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveRate()">Guardar Tasa</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: CONFIGURAR PASARELA -->
+<div class="modal-backdrop" id="gatewayModal">
+  <div class="modal-box" style="max-width:460px">
+    <div class="modal-title">💳 Configurar Pasarela <button class="modal-close" onclick="closeModal('gatewayModal')">✕</button></div>
+    <input type="hidden" id="gw-provider">
+    <div class="form-grid">
+      <div id="gw-fields"></div>
+      <button class="btn btn-primary btn-full" onclick="saveGateway()">Guardar Configuración</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: CAMBIAR CONTRASEÑA -->
 <div class="modal-backdrop" id="pwdModal">
   <div class="modal-box" style="max-width:380px">
@@ -1888,6 +2014,9 @@ const FAB_ACTIONS = {
   'alertas':          null,
   'dgii':             null,
   'cierre':           null,
+  'sucursales':       ()=> openBranchModal(),
+  'monedas':          ()=> openRateModal(),
+  'pagos-config':     null,
   'conciliacion':     null,
   'nueva-cotizacion': null,
   'admin':            null,
@@ -1929,6 +2058,9 @@ function showPage(id, btn) {
   if (id==='reportes')        { const now=new Date(); el('rep-month').value=now.getMonth()+1; }
   if (id==='alertas')         renderAlertas();
   if (id==='dgii')            initDGIIPage();
+  if (id==='sucursales')      loadSucursales();
+  if (id==='monedas')         loadMonedas();
+  if (id==='pagos-config')    loadPagosConfig();
   if (id==='cierre')          initCierrePage();
   if (id==='conciliacion')    initConciliacionPage();
   if (id==='admin')           renderAdmin();
@@ -4082,6 +4214,7 @@ async function showInvoiceDetail(id) {
       <button onclick="printInvoice('${inv.id}')" class="btn btn-secondary">🖨️ Imprimir</button>
       ${inv.status==='draft'?`<button onclick="changeInvoiceStatus('${inv.id}','issued');closeModal('invoiceDetailModal')" class="btn btn-primary">📤 Emitir</button>`:''}
       ${(inv.status==='issued'||inv.status==='partial')?`<button onclick="changeInvoiceStatus('${inv.id}','paid');closeModal('invoiceDetailModal')" class="btn btn-primary">✅ Marcar pagada</button>`:''}
+      ${(inv.status==='issued'||inv.status==='partial')?`<button onclick="generatePaymentLink('${inv.id}')" class="btn btn-secondary">🔗 Link de Pago</button>`:''}
       ${inv.status==='issued'?`<button onclick="changeInvoiceStatus('${inv.id}','cancelled');closeModal('invoiceDetailModal')" class="btn btn-danger">❌ Cancelar</button>`:''}`;
   } catch(e) { el('invoiceDetailContent').innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">'+e.message+'</div></div>'; }
 }
@@ -5664,6 +5797,317 @@ function exportDGII(tipo) {
   a.href=url; a.download=`DGII_${tipo}_${data.period?.replace('/','_')}.csv`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   toast(`✅ DGII ${tipo} exportado`);
+}
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 4: MONEDAS, SUCURSALES, ROLES, PASARELAS ───────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── MONEDAS / TASA DE CAMBIO ─────────────────────────────────────────────────
+let _currentRates = { USD: 60.00 };
+const CURRENCY_SYMBOLS = { DOP:'RD$', USD:'$', EUR:'€', CAD:'CA$', GBP:'£' };
+const CURRENCY_FLAGS   = { DOP:'🇩🇴', USD:'🇺🇸', EUR:'🇪🇺', CAD:'🇨🇦', GBP:'🇬🇧' };
+
+async function loadMonedas() {
+  try {
+    const data = await apiFetch('/api/exchange-rates');
+    _currentRates = data.current || { USD: 60.00 };
+
+    // KPIs
+    const kEl = el('rateKpis');
+    if (kEl) {
+      const entries = Object.entries(_currentRates);
+      kEl.innerHTML = entries.map(([cur, rate]) => `
+        <div class="kpi-card blue">
+          <div class="kpi-label">${CURRENCY_FLAGS[cur]||'💱'} ${cur} / DOP</div>
+          <div class="kpi-value" style="font-size:clamp(14px,4vw,22px)">RD$ ${fmt(rate)}</div>
+          <div class="kpi-sub">1 ${cur} = RD$ ${fmt(rate)}</div>
+        </div>`).join('') +
+        `<div class="kpi-card green">
+          <div class="kpi-label">🔄 Última actualización</div>
+          <div class="kpi-value" style="font-size:clamp(12px,3vw,16px)">${data.rates[0]?.date||'Sin datos'}</div>
+          <div class="kpi-sub">Registra tasas diariamente</div>
+        </div>`;
+    }
+
+    // Lista historial
+    const container = el('ratesList');
+    if (container) {
+      if (!data.rates.length) {
+        container.innerHTML='<div class="empty"><div class="empty-icon">💱</div><div class="empty-title">Sin tasas registradas</div><div class="empty-sub">Registra la tasa de cambio del día</div></div>';
+        return;
+      }
+      container.innerHTML=`<table class="data-table"><thead><tr><th>Moneda</th><th>Tasa (RD$ x 1)</th><th>Fecha</th><th></th></tr></thead><tbody>`+
+        data.rates.map(r=>`<tr>
+          <td><strong>${CURRENCY_FLAGS[r.currency]||'💱'} ${r.currency}</strong></td>
+          <td class="num" style="font-weight:700;color:var(--accent)">RD$ ${fmt(r.rate)}</td>
+          <td class="muted">${r.date}</td>
+          <td><button onclick="deleteRate('${r.id}')" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:5px;padding:3px 8px;color:var(--accent2);font-size:11px;cursor:pointer">🗑️</button></td>
+        </tr>`).join('')+'</tbody></table>';
+    }
+  } catch(e) { console.warn('loadMonedas:', e.message); }
+}
+
+function openRateModal() {
+  el('rate-currency').value='USD';
+  el('rate-value').value='';
+  el('rate-date').value=new Date().toISOString().split('T')[0];
+  el('rate-preview').style.display='none';
+  // Auto-fill with current rate
+  el('rate-value').oninput = function() {
+    const v = parseFloat(this.value)||0;
+    if (v>0) { el('rate-preview').style.display='block'; el('rate-example').textContent='RD$ '+fmt(100*v); }
+    else el('rate-preview').style.display='none';
+  };
+  openModal('rateModal');
+}
+
+async function saveRate() {
+  const currency = el('rate-currency').value;
+  const rate     = parseFloat(el('rate-value').value);
+  const date     = el('rate-date').value;
+  if (!rate||rate<=0) { toast('Ingresa una tasa válida','error'); return; }
+  try {
+    await apiFetch('/api/exchange-rates',{method:'POST',body:JSON.stringify({currency,rate,date})});
+    toast(`✅ Tasa ${currency}: RD$ ${fmt(rate)}`);
+    closeModal('rateModal');
+    _currentRates[currency] = rate;
+    loadMonedas();
+  } catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function deleteRate(id) {
+  if (!confirm('¿Eliminar esta tasa?')) return;
+  try { await apiFetch('/api/exchange-rates/'+id,{method:'DELETE'}); toast('✅ Eliminada'); loadMonedas(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function convertCurrency() {
+  const amount = parseFloat(el('conv-amount')?.value)||0;
+  const from   = el('conv-from')?.value||'USD';
+  const to     = el('conv-to')?.value||'DOP';
+  if (!amount) { el('conv-result').textContent='—'; return; }
+  try {
+    const r = await apiFetch(`/api/exchange-rates/convert?amount=${amount}&from=${from}&to=${to}`);
+    const sym = CURRENCY_SYMBOLS[to]||to;
+    el('conv-result').textContent = `${sym} ${fmt(r.result)}`;
+    el('conv-result').title = `Tasa: 1 ${from} = ${r.rate} ${to}`;
+  } catch(e) { el('conv-result').textContent='—'; }
+}
+
+// Función utilitaria para convertir montos en facturas
+function convertToDisplay(amount, currency='DOP') {
+  if (currency==='DOP' || !_currentRates[currency]) return { DOP: amount, display: 'RD$ '+fmt(amount) };
+  const rate = _currentRates[currency];
+  return {
+    DOP:     amount,
+    foreign: Math.round(amount/rate*100)/100,
+    display: `RD$ ${fmt(amount)} (${CURRENCY_SYMBOLS[currency]||currency} ${fmt(amount/rate)})`
+  };
+}
+
+// ─── SUCURSALES ───────────────────────────────────────────────────────────────
+let _currentBranch = null; // sucursal activa para filtrar datos
+
+async function loadSucursales() {
+  const container = el('sucursalesList');
+  if (!container) return;
+  container.innerHTML='<div class="empty"><div class="empty-icon">⏳</div></div>';
+  try {
+    const list = await apiFetch('/api/branches');
+    if (!list.length) {
+      container.innerHTML='<div class="empty"><div class="empty-icon">🏢</div><div class="empty-title">Sin sucursales</div><div class="empty-sub">Registra tu primera sucursal o punto de venta</div></div>';
+      return;
+    }
+    container.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--space-sm)">'+
+      list.map(b=>`
+        <div style="background:var(--surface2);border:1px solid ${b.is_active?'var(--border)':'var(--accent2)30'};border-radius:var(--radius-sm);padding:16px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+            <div>
+              <div style="font-weight:700;font-size:var(--fs-base)">${b.name}</div>
+              ${b.manager?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">👤 ${b.manager}</div>`:''}
+              ${b.address?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">📍 ${b.address}</div>`:''}
+              ${b.phone?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">📱 ${b.phone}</div>`:''}
+            </div>
+            <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:50px;background:${b.is_active?'var(--accent-dim)':'var(--surface3)'};color:${b.is_active?'var(--accent)':'var(--text-muted)'}">${b.is_active?'🟢 Activa':'⏸️ Inactiva'}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+            <div style="background:var(--surface3);border-radius:6px;padding:7px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted)">Facturas</div>
+              <div style="font-weight:700;color:var(--accent4)">${b.invoice_count||0}</div>
+            </div>
+            <div style="background:var(--surface3);border-radius:6px;padding:7px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted)">Ventas</div>
+              <div style="font-weight:700;color:var(--accent)" style="font-size:var(--fs-2xs)">RD$ ${fmt(b.total_sales||0)}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button onclick="editBranch('${b.id}')" class="btn btn-sm btn-secondary" style="flex:1;justify-content:center">✏️ Editar</button>
+            <button onclick="toggleBranch('${b.id}',${!b.is_active})" class="btn btn-sm btn-secondary">${b.is_active?'⏸️':'▶️'}</button>
+            <button onclick="deleteBranch('${b.id}')" class="btn btn-sm btn-danger">🗑️</button>
+          </div>
+        </div>`).join('')+'</div>';
+  } catch(e) { container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+function openBranchModal(data=null) {
+  el('branch-id').value   = data?.id||'';
+  el('branch-name').value = data?.name||'';
+  el('branch-phone').value= data?.phone||'';
+  el('branch-rnc').value  = data?.rnc||'';
+  el('branch-address').value = data?.address||'';
+  el('branch-manager').value = data?.manager||'';
+  el('branch-email').value   = data?.email||'';
+  openModal('branchModal');
+}
+
+async function editBranch(id) {
+  try {
+    const list = await apiFetch('/api/branches');
+    const b = list.find(x=>x.id===id);
+    if (b) openBranchModal(b);
+  } catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function saveBranch() {
+  const id   = el('branch-id').value;
+  const name = el('branch-name').value.trim();
+  if (!name) { toast('Nombre requerido','error'); return; }
+  const body = {
+    name, phone:el('branch-phone').value.trim()||null,
+    rnc:el('branch-rnc').value.trim()||null,
+    address:el('branch-address').value.trim()||null,
+    manager:el('branch-manager').value.trim()||null,
+    email:el('branch-email').value.trim()||null,
+  };
+  try {
+    if (id) { await apiFetch(`/api/branches/${id}`,{method:'PUT',body:JSON.stringify(body)}); toast('✅ Sucursal actualizada'); }
+    else    { await apiFetch('/api/branches',{method:'POST',body:JSON.stringify(body)}); toast('✅ Sucursal creada'); }
+    closeModal('branchModal');
+    loadSucursales();
+  } catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function toggleBranch(id, active) {
+  try { await apiFetch(`/api/branches/${id}`,{method:'PUT',body:JSON.stringify({is_active:active})}); loadSucursales(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function deleteBranch(id) {
+  if (!confirm('¿Eliminar esta sucursal?')) return;
+  try { await apiFetch(`/api/branches/${id}`,{method:'DELETE'}); toast('✅ Eliminada'); loadSucursales(); }
+  catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast(msg,'error'); }
+}
+
+// ─── PASARELAS DE PAGO ────────────────────────────────────────────────────────
+const GATEWAYS = [
+  { id:'azul',      name:'Azul',       logo:'💳', desc:'Tarjetas Visa/MC — República Dominicana', fields:['merchant_id','api_key'] },
+  { id:'pagoflash', name:'PagoFlash',  logo:'⚡', desc:'Pagos en línea — Venezuela/RD',           fields:['merchant_id','api_key'] },
+  { id:'paypal',    name:'PayPal',     logo:'🅿️', desc:'Pagos internacionales USD',               fields:['client_id','client_secret'] },
+  { id:'stripe',    name:'Stripe',     logo:'◼️', desc:'Tarjetas internacionales',                 fields:['publishable_key','secret_key'] },
+  { id:'generic',   name:'Genérico',   logo:'🔗', desc:'Link manual / Transferencia / Efectivo',   fields:[] },
+];
+
+async function loadPagosConfig() {
+  try {
+    const configs = await apiFetch('/api/payment-config');
+    const configMap = {};
+    configs.forEach(c => { configMap[c.provider] = c; });
+
+    const cards = el('gatewayCards');
+    if (cards) cards.innerHTML = GATEWAYS.map(gw => {
+      const cfg = configMap[gw.id];
+      return `<div style="background:var(--surface2);border:1px solid ${cfg?.is_active?'var(--accent)30':'var(--border)'};border-radius:var(--radius-sm);padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div><div style="font-size:20px;margin-bottom:4px">${gw.logo}</div><div style="font-weight:700">${gw.name}</div><div style="font-size:var(--fs-xs);color:var(--text-muted)">${gw.desc}</div></div>
+          ${cfg?.is_active?'<span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:50px;background:var(--accent-dim);color:var(--accent)">✅ Activa</span>':'<span style="font-size:9px;padding:2px 7px;border-radius:50px;background:var(--surface3);color:var(--text-muted)">Inactiva</span>'}
+        </div>
+        <button onclick="openGatewayModal('${gw.id}')" class="btn btn-sm btn-secondary btn-full">⚙️ Configurar</button>
+      </div>`;
+    }).join('');
+
+    loadPaymentLinks();
+  } catch(e){ console.warn('loadPagosConfig:', e.message); }
+}
+
+function openGatewayModal(provider) {
+  const gw = GATEWAYS.find(g=>g.id===provider);
+  if (!gw) return;
+  el('gw-provider').value = provider;
+  const fieldsEl = el('gw-fields');
+  if (!fieldsEl) return;
+  if (!gw.fields.length) {
+    fieldsEl.innerHTML=`<div style="background:var(--surface2);border-radius:8px;padding:14px;text-align:center;font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:14px">
+      <div style="font-size:24px;margin-bottom:6px">${gw.logo}</div>
+      <div style="font-weight:700;margin-bottom:4px">${gw.name}</div>
+      <div>Esta pasarela genera links de pago simples sin configuración adicional.<br>Los clientes ven las instrucciones de pago manual.</div>
+    </div>`;
+  } else {
+    fieldsEl.innerHTML=`<div style="margin-bottom:14px;font-size:var(--fs-sm);font-weight:700">${gw.logo} ${gw.name}</div>`+
+      gw.fields.map(f=>`<div class="form-group" style="margin-bottom:12px"><label class="form-label">${f.replace(/_/g,' ').toUpperCase()}</label><input class="form-input" id="gw-field-${f}" placeholder="${f}" type="password"></div>`).join('');
+  }
+  fieldsEl.innerHTML += `<div class="form-group"><label class="form-label">Estado</label>
+    <select class="form-input form-select" id="gw-active"><option value="true">✅ Activa</option><option value="false">⏸️ Inactiva</option></select>
+  </div>`;
+  openModal('gatewayModal');
+}
+
+async function saveGateway() {
+  const provider = el('gw-provider').value;
+  const gw = GATEWAYS.find(g=>g.id===provider);
+  const is_active = el('gw-active').value === 'true';
+  const config_public = {};
+  const body = { provider, is_active };
+  gw?.fields.forEach(f => {
+    const val = el(`gw-field-${f}`)?.value?.trim();
+    if (val) { body[f.includes('key')||f.includes('secret')?'api_key':'merchant_id'] = val; config_public[f] = val; }
+  });
+  body.config_public = config_public;
+  try {
+    await apiFetch('/api/payment-config',{method:'POST',body:JSON.stringify(body)});
+    toast(`✅ ${gw?.name||provider} configurado`); closeModal('gatewayModal'); loadPagosConfig();
+  } catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function loadPaymentLinks() {
+  const container = el('paymentLinksList');
+  if (!container) return;
+  try {
+    const list = await apiFetch('/api/payment-links');
+    if (!list.length) {
+      container.innerHTML='<div class="empty"><div class="empty-icon">🔗</div><div class="empty-title">Sin links de pago</div><div class="empty-sub">Genera links desde el detalle de una factura</div></div>';
+      return;
+    }
+    container.innerHTML=`<table class="data-table"><thead><tr><th>Factura</th><th>Cliente</th><th>Monto</th><th>Pasarela</th><th>Estado</th><th>Vence</th><th>Link</th></tr></thead><tbody>`+
+      list.map(l=>{
+        const expired = new Date(l.expires_at) < new Date();
+        const statusColor = l.status==='active'&&!expired?'var(--accent)':l.status==='used'?'var(--accent4)':'var(--accent2)';
+        const statusText  = l.status==='used'?'✅ Cobrado':expired?'⏰ Expirado':l.status==='active'?'🟢 Activo':'Cancelado';
+        return `<tr>
+          <td style="font-family:monospace;font-weight:700">${l.invoice_number||l.invoice_id?.substr(0,8)}</td>
+          <td>${l.client_name||'—'}</td>
+          <td class="num" style="font-weight:700">RD$ ${fmt(l.amount)}</td>
+          <td class="muted">${l.provider}</td>
+          <td><span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:50px;background:${statusColor}20;color:${statusColor}">${statusText}</span></td>
+          <td class="muted" style="font-size:var(--fs-2xs)">${new Date(l.expires_at).toLocaleDateString('es-DO')}</td>
+          <td>${l.status==='active'&&!expired?`<button onclick="copyPayLink('${l.token}')" class="btn btn-sm btn-secondary">📋 Copiar</button>`:''}</td>
+        </tr>`;
+      }).join('')+'</tbody></table>';
+  } catch(e){ container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+async function generatePaymentLink(invoiceId) {
+  try {
+    const r = await apiFetch('/api/payment-links',{method:'POST',body:JSON.stringify({invoice_id:invoiceId,expires_in_days:3})});
+    await navigator.clipboard.writeText(r.url).catch(()=>{});
+    toast(`✅ Link generado y copiado · Vence en 3 días`);
+    if (_currentPage==='pagos-config') loadPaymentLinks();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function copyPayLink(token) {
+  const url = `${window.location.origin}/pay/${token}`;
+  try { await navigator.clipboard.writeText(url); toast('📋 Link copiado al portapapeles'); }
+  catch(e){ prompt('Copia este link:', url); }
 }
 
 </script>

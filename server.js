@@ -5131,6 +5131,440 @@ app.get('/api/dgii/itbis', authMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 4.1: MÚLTIPLES MONEDAS ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/exchange-rates — tasas de cambio actuales
+app.get('/api/exchange-rates', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT * FROM exchange_rates WHERE user_id=$1 ORDER BY date DESC LIMIT 30`,
+      [req.userId]
+    );
+    // Si no hay tasas registradas, devolver defaults
+    if (!r.rows.length) {
+      return res.json({
+        rates: [{ currency:'USD', rate:60.00, date: new Date().toISOString().split('T')[0] }],
+        current: { USD: 60.00 }
+      });
+    }
+    // Tasa más reciente por moneda
+    const current = {};
+    const seen = new Set();
+    r.rows.forEach(row => {
+      if (!seen.has(row.currency)) { current[row.currency] = parseFloat(row.rate); seen.add(row.currency); }
+    });
+    res.json({ rates: r.rows, current });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/exchange-rates — registrar tasa de cambio
+app.post('/api/exchange-rates', authMiddleware, async (req, res) => {
+  try {
+    const { currency, rate, date } = req.body;
+    if (!currency || !rate) return res.status(400).json({ error: 'currency y rate requeridos' });
+    const id = `exr_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO exchange_rates(id,user_id,currency,rate,date)
+       VALUES($1,$2,$3,$4,$5)
+       ON CONFLICT(user_id,currency,date) DO UPDATE SET rate=$4`,
+      [id, req.userId, currency.toUpperCase(), parseFloat(rate), date||new Date().toISOString().split('T')[0]]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/exchange-rates/:id
+app.delete('/api/exchange-rates/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM exchange_rates WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/exchange-rates/convert — convertir monto entre monedas
+app.get('/api/exchange-rates/convert', authMiddleware, async (req, res) => {
+  try {
+    const { amount, from, to } = req.query;
+    if (!amount || !from || !to) return res.status(400).json({ error: 'amount, from y to requeridos' });
+    if (from === to) return res.json({ result: parseFloat(amount), rate: 1 });
+
+    // Obtener tasas vs DOP (moneda base)
+    const getRate = async (currency) => {
+      if (currency === 'DOP') return 1;
+      const r = await query(
+        `SELECT rate FROM exchange_rates WHERE user_id=$1 AND currency=$2 ORDER BY date DESC LIMIT 1`,
+        [req.userId, currency]
+      );
+      return parseFloat(r.rows[0]?.rate || (currency==='USD'?60:1));
+    };
+
+    const fromRate = await getRate(from.toUpperCase());
+    const toRate   = await getRate(to.toUpperCase());
+    // Convertir: amount(from) → DOP → to
+    const inDOP    = parseFloat(amount) * fromRate;
+    const result   = inDOP / toRate;
+    const rate     = fromRate / toRate;
+    res.json({ result: Math.round(result*100)/100, rate: Math.round(rate*10000)/10000, from, to });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 4.2: MULTI-SUCURSAL ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/branches
+app.get('/api/branches', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT b.*, COUNT(DISTINCT inv.id) as invoice_count,
+              COALESCE(SUM(inv.total),0) as total_sales
+       FROM branches b
+       LEFT JOIN invoices inv ON inv.branch_id=b.id AND inv.status IN ('issued','paid')
+       WHERE b.user_id=$1
+       GROUP BY b.id ORDER BY b.name`,
+      [req.userId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/branches
+app.post('/api/branches', authMiddleware, async (req, res) => {
+  try {
+    const { name, address, phone, email, manager, rnc, is_active=true } = req.body;
+    if (!name) return res.status(400).json({ error: 'name requerido' });
+    const id = `branch_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO branches(id,user_id,name,address,phone,email,manager,rnc,is_active)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, req.userId, name, address||null, phone||null, email||null, manager||null, rnc||null, is_active]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/branches/:id
+app.put('/api/branches/:id', authMiddleware, async (req, res) => {
+  try {
+    const { name, address, phone, email, manager, rnc, is_active } = req.body;
+    await query(
+      `UPDATE branches SET name=COALESCE($1,name), address=COALESCE($2,address),
+       phone=COALESCE($3,phone), email=COALESCE($4,email), manager=COALESCE($5,manager),
+       rnc=COALESCE($6,rnc), is_active=COALESCE($7,is_active)
+       WHERE id=$8 AND user_id=$9`,
+      [name||null, address||null, phone||null, email||null, manager||null, rnc||null, is_active, req.params.id, req.userId]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/branches/:id
+app.delete('/api/branches/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM branches WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/branches/:id/stats — estadísticas de una sucursal
+app.get('/api/branches/:id/stats', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    const from = month && year ? `${year}-${String(month).padStart(2,'0')}-01` : null;
+    const lastDay = month && year ? new Date(year, month, 0).getDate() : null;
+    const to = month && year ? `${year}-${String(month).padStart(2,'0')}-${lastDay}` : null;
+
+    let sql = `SELECT COUNT(*) as invoices, COALESCE(SUM(total),0) as ventas,
+               COALESCE(SUM(paid_amount),0) as cobrado,
+               COALESCE(SUM(total-paid_amount),0) as pendiente
+               FROM invoices WHERE user_id=$1 AND branch_id=$2 AND status IN ('issued','paid','partial')`;
+    const params = [req.userId, req.params.id];
+    if (from) { sql += ` AND date>=$3 AND date<=$4`; params.push(from, to); }
+
+    const r = await query(sql, params);
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 4.3: ROLES Y PERMISOS DE USUARIOS ──────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Roles: admin (todo), contador (todo menos eliminar usuarios), cajero (solo facturas + cobros)
+const ROLE_PERMISSIONS = {
+  admin:    ['*'],
+  contador: ['invoices','quotes','products','clients','vendors','receivables','payables','journal','accounts','reports','inventory','assets','income','retenciones','recurring','branches'],
+  cajero:   ['invoices_read','invoices_create','clients_read','products_read','receivables_read','receivables_pay'],
+};
+
+// GET /api/user-roles — listar usuarios con roles
+app.get('/api/user-roles', authMiddleware, async (req, res) => {
+  try {
+    // Solo admins pueden ver roles de otros usuarios
+    const adminR = await query(`SELECT is_admin FROM users WHERE id=$1`, [req.userId]);
+    if (!adminR.rows[0]?.is_admin) return res.status(403).json({ error: 'Solo admins' });
+
+    const r = await query(
+      `SELECT u.id, uc.username, ur.role, ur.branch_id, b.name as branch_name,
+              ur.is_active, ur.created_at
+       FROM users u
+       LEFT JOIN user_credentials uc ON uc.user_id=u.id
+       LEFT JOIN user_roles ur ON ur.user_id=u.id AND ur.owner_id=$1
+       LEFT JOIN branches b ON b.id=ur.branch_id
+       ORDER BY uc.username`,
+      [req.userId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/user-roles — asignar rol a usuario
+app.post('/api/user-roles', authMiddleware, async (req, res) => {
+  try {
+    const adminR = await query(`SELECT is_admin FROM users WHERE id=$1`, [req.userId]);
+    if (!adminR.rows[0]?.is_admin) return res.status(403).json({ error: 'Solo admins' });
+
+    const { target_user_id, role, branch_id } = req.body;
+    if (!target_user_id || !role) return res.status(400).json({ error: 'target_user_id y role requeridos' });
+    if (!['admin','contador','cajero'].includes(role)) return res.status(400).json({ error: 'Rol inválido' });
+
+    const id = `role_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO user_roles(id,user_id,owner_id,role,branch_id,is_active)
+       VALUES($1,$2,$3,$4,$5,TRUE)
+       ON CONFLICT(user_id,owner_id) DO UPDATE SET role=$4, branch_id=$5, is_active=TRUE`,
+      [id, target_user_id, req.userId, role, branch_id||null]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/user-roles/:userId — revocar acceso
+app.delete('/api/user-roles/:userId', authMiddleware, async (req, res) => {
+  try {
+    const adminR = await query(`SELECT is_admin FROM users WHERE id=$1`, [req.userId]);
+    if (!adminR.rows[0]?.is_admin) return res.status(403).json({ error: 'Solo admins' });
+    await query(`DELETE FROM user_roles WHERE user_id=$1 AND owner_id=$2`, [req.params.userId, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 4.4: LINKS DE PAGO (AZUL / PAGOFLASH / GENÉRICO) ───────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/payment-config — configuración de pasarelas
+app.get('/api/payment-config', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT provider, is_active, config_public FROM payment_configs WHERE user_id=$1`,
+      [req.userId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/payment-config — guardar configuración de pasarela
+app.post('/api/payment-config', authMiddleware, async (req, res) => {
+  try {
+    const { provider, api_key, merchant_id, config_public, is_active } = req.body;
+    if (!provider) return res.status(400).json({ error: 'provider requerido' });
+    const id = `pc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO payment_configs(id,user_id,provider,api_key_enc,merchant_id,config_public,is_active)
+       VALUES($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT(user_id,provider) DO UPDATE SET
+         api_key_enc=COALESCE($4,api_key_enc), merchant_id=COALESCE($5,merchant_id),
+         config_public=COALESCE($6,config_public), is_active=$7`,
+      [id, req.userId, provider, api_key||null, merchant_id||null,
+       config_public ? JSON.stringify(config_public) : null, is_active!==false]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/payment-links — generar link de pago para una factura
+app.post('/api/payment-links', authMiddleware, async (req, res) => {
+  try {
+    const { invoice_id, provider = 'generic', expires_in_days = 3 } = req.body;
+    if (!invoice_id) return res.status(400).json({ error: 'invoice_id requerido' });
+
+    const inv = await query(`SELECT * FROM invoices WHERE id=$1 AND user_id=$2`, [invoice_id, req.userId]);
+    if (!inv.rows[0]) return res.status(404).json({ error: 'Factura no encontrada' });
+    const invoice = inv.rows[0];
+
+    // Token único para el link
+    const token     = crypto.randomBytes(20).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + parseInt(expires_in_days));
+    const id = `pl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+
+    await query(
+      `INSERT INTO payment_links(id,user_id,invoice_id,token,provider,amount,currency,expires_at,status)
+       VALUES($1,$2,$3,$4,$5,$6,'DOP',$7,'active')`,
+      [id, req.userId, invoice_id, token, provider,
+       parseFloat(invoice.total)-parseFloat(invoice.paid_amount||0), expiresAt.toISOString()]
+    );
+
+    const baseUrl = process.env.API_BASE || `https://miscuentas-contable-app-production.up.railway.app`;
+    const payUrl  = `${baseUrl}/pay/${token}`;
+
+    res.json({ ok: true, id, token, url: payUrl, expires_at: expiresAt.toISOString(), amount: parseFloat(invoice.total)-parseFloat(invoice.paid_amount||0) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/payment-links — listar links de pago
+app.get('/api/payment-links', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT pl.*, inv.invoice_number, inv.client_name
+       FROM payment_links pl
+       LEFT JOIN invoices inv ON inv.id=pl.invoice_id
+       WHERE pl.user_id=$1
+       ORDER BY pl.created_at DESC LIMIT 50`,
+      [req.userId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /pay/:token — página pública de pago (sin auth)
+app.get('/pay/:token', async (req, res) => {
+  try {
+    const pl = await query(
+      `SELECT pl.*, inv.invoice_number, inv.client_name, inv.total, inv.paid_amount, u.id as owner_id
+       FROM payment_links pl
+       JOIN invoices inv ON inv.id=pl.invoice_id
+       JOIN users u ON u.id=pl.user_id
+       WHERE pl.token=$1`,
+      [req.params.token]
+    );
+    if (!pl.rows[0]) return res.status(404).send('<h2>Link no encontrado o expirado</h2>');
+    const link = pl.rows[0];
+    if (link.status !== 'active') return res.status(410).send('<h2>Este link ya fue utilizado o cancelado</h2>');
+    if (new Date(link.expires_at) < new Date()) {
+      await query(`UPDATE payment_links SET status='expired' WHERE id=$1`, [link.id]);
+      return res.status(410).send('<h2>Este link de pago ha expirado</h2>');
+    }
+
+    const pending = parseFloat(link.total||0) - parseFloat(link.paid_amount||0);
+    // Obtener config pública de pasarela si existe
+    const pcR = await query(
+      `SELECT config_public FROM payment_configs WHERE user_id=$1 AND provider=$2 AND is_active=TRUE`,
+      [link.owner_id, link.provider]
+    );
+    const config = pcR.rows[0]?.config_public ? JSON.parse(pcR.rows[0].config_public) : {};
+
+    res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pagar Factura ${link.invoice_number}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#09100f;color:#e8f0ee;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{background:#0f1a18;border:1px solid #1f3330;border-radius:16px;padding:28px;width:100%;max-width:420px}
+    .logo{font-size:20px;font-weight:900;color:#ff7c2a;text-align:center;margin-bottom:20px}
+    .amount{text-align:center;font-size:42px;font-weight:900;color:#00e5a0;margin:16px 0}
+    .label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#3d6660;margin-bottom:4px}
+    .value{font-size:14px;font-weight:600;margin-bottom:12px}
+    .btn{width:100%;padding:14px;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px;transition:.2s}
+    .btn-pay{background:#ff7c2a;color:#000}
+    .btn-pay:hover{opacity:.9}
+    .btn-azul{background:#0066cc;color:#fff}
+    .info{font-size:11px;color:#3d6660;text-align:center;margin-top:14px}
+    .badge{display:inline-flex;align-items:center;gap:4px;background:rgba(0,229,160,.1);border:1px solid rgba(0,229,160,.2);border-radius:50px;padding:4px 10px;font-size:11px;color:#00e5a0;margin-bottom:16px}
+    .divider{height:1px;background:#1f3330;margin:16px 0}
+    #paySuccess{display:none;text-align:center;padding:20px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">mis<span style="color:#fff">cuentas</span></div>
+    <div style="text-align:center"><span class="badge">🔒 Pago Seguro</span></div>
+    <div class="label">Factura</div>
+    <div class="value">${link.invoice_number}</div>
+    <div class="label">Cliente</div>
+    <div class="value">${link.client_name||'Sin nombre'}</div>
+    <div class="divider"></div>
+    <div class="label">Monto a Pagar</div>
+    <div class="amount">RD$ ${Number(pending).toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+    <div class="divider"></div>
+    <div id="payForms">
+      ${link.provider === 'azul' && config.merchant_id ? `
+      <div>
+        <div class="label" style="margin-bottom:8px">Tarjeta de Crédito/Débito</div>
+        <input type="text" id="cardNumber" placeholder="Número de tarjeta" style="width:100%;padding:10px 12px;background:#162220;border:1px solid #1f3330;border-radius:8px;color:#e8f0ee;font-size:14px;margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <input type="text" id="cardExp" placeholder="MM/AA" style="padding:10px 12px;background:#162220;border:1px solid #1f3330;border-radius:8px;color:#e8f0ee;font-size:14px">
+          <input type="text" id="cardCVV" placeholder="CVV" style="padding:10px 12px;background:#162220;border:1px solid #1f3330;border-radius:8px;color:#e8f0ee;font-size:14px">
+        </div>
+        <button class="btn btn-azul" onclick="processAzul()">💳 Pagar con Azul</button>
+      </div>` : `
+      <div style="text-align:center;padding:12px;background:#162220;border-radius:10px;margin-bottom:12px">
+        <div style="font-size:12px;color:#8aada8;margin-bottom:6px">Realiza tu pago por:</div>
+        <div style="font-size:14px;font-weight:600">Transferencia Bancaria · Efectivo</div>
+        <div style="font-size:11px;color:#3d6660;margin-top:4px">Contacta al emisor de la factura para coordinar el pago</div>
+      </div>
+      <button class="btn btn-pay" onclick="confirmPayment()">✅ Confirmar Pago Realizado</button>`}
+    </div>
+    <div id="paySuccess">
+      <div style="font-size:48px;margin-bottom:12px">✅</div>
+      <div style="font-size:18px;font-weight:700;color:#00e5a0">¡Pago Confirmado!</div>
+      <div style="font-size:13px;color:#8aada8;margin-top:8px">Tu pago ha sido registrado. Gracias.</div>
+    </div>
+    <div class="info">Vence: ${new Date(link.expires_at).toLocaleDateString('es-DO')} · Generado por MisCuentas Contable</div>
+  </div>
+  <script>
+    function confirmPayment() {
+      fetch('/api/payment-links/${link.token}/confirm', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'manual'})})
+        .then(r=>r.json())
+        .then(d=>{ if(d.ok){ document.getElementById('payForms').style.display='none'; document.getElementById('paySuccess').style.display='block'; } else alert('Error: '+d.error); })
+        .catch(()=>alert('Error al procesar'));
+    }
+    function processAzul() { alert('Integración Azul en configuración. Contacta al emisor.'); }
+  </script>
+</body>
+</html>`);
+  } catch(e) { res.status(500).send('<h2>Error interno</h2>'); }
+});
+
+// POST /api/payment-links/:token/confirm — confirmar pago desde link público
+app.post('/api/payment-links/:token/confirm', async (req, res) => {
+  try {
+    const { method = 'manual', reference } = req.body;
+    const pl = await query(
+      `SELECT pl.*, inv.user_id, inv.total, inv.paid_amount
+       FROM payment_links pl JOIN invoices inv ON inv.id=pl.invoice_id
+       WHERE pl.token=$1 AND pl.status='active' AND pl.expires_at>NOW()`,
+      [req.params.token]
+    );
+    if (!pl.rows[0]) return res.status(404).json({ error: 'Link no válido o expirado' });
+    const link   = pl.rows[0];
+    const amount = parseFloat(link.total)-parseFloat(link.paid_amount||0);
+
+    // Marcar link como usado
+    await query(`UPDATE payment_links SET status='used', used_at=NOW() WHERE token=$1`, [req.params.token]);
+
+    // Registrar pago en CxC/factura
+    const payId = `rpay_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const today = new Date().toISOString().split('T')[0];
+    // Actualizar factura
+    await query(`UPDATE invoices SET paid_amount=total, status='paid' WHERE id=$1`, [link.invoice_id]);
+    // Actualizar CxC relacionada
+    await query(
+      `UPDATE receivables SET paid_amount=total_amount, status='paid'
+       WHERE user_id=$1 AND description ILIKE $2`,
+      [link.user_id, `%${link.invoice_number}%`]
+    );
+
+    res.json({ ok: true, amount, method });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Registro del webhook (llamar una vez desde Railway shell o al startup)
 app.post('/setup-webhook', async (req, res) => {
   const secret = req.headers['x-setup-secret'] || req.query.secret;
@@ -5604,6 +6038,87 @@ async function initDB() {
       created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
   } catch(e) { console.warn('retenciones table:', e.message); }
+
+  // ── Fase 4.1: Tasas de Cambio ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS exchange_rates (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      currency   TEXT NOT NULL,
+      rate       NUMERIC(12,6) NOT NULL,
+      date       DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, currency, date)
+    )`);
+  } catch(e) { console.warn('exchange_rates:', e.message); }
+
+  // ── Fase 4.2: Sucursales ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS branches (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name       TEXT NOT NULL,
+      address    TEXT,
+      phone      TEXT,
+      email      TEXT,
+      manager    TEXT,
+      rnc        TEXT,
+      is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch(e) { console.warn('branches:', e.message); }
+
+  // columna branch_id en invoices y quotes
+  try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS branch_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE quotes   ADD COLUMN IF NOT EXISTS branch_id TEXT`); } catch(e) {}
+
+  // ── Fase 4.3: Roles ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS user_roles (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      owner_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role       TEXT NOT NULL CHECK (role IN ('admin','contador','cajero')),
+      branch_id  TEXT,
+      is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, owner_id)
+    )`);
+  } catch(e) { console.warn('user_roles:', e.message); }
+
+  // ── Fase 4.4: Pasarelas de Pago ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS payment_configs (
+      id             TEXT PRIMARY KEY,
+      user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider       TEXT NOT NULL,
+      api_key_enc    TEXT,
+      merchant_id    TEXT,
+      config_public  TEXT,
+      is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, provider)
+    )`);
+  } catch(e) { console.warn('payment_configs:', e.message); }
+
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS payment_links (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      invoice_id  TEXT NOT NULL,
+      token       TEXT NOT NULL UNIQUE,
+      provider    TEXT NOT NULL DEFAULT 'generic',
+      amount      NUMERIC(12,2) NOT NULL,
+      currency    TEXT NOT NULL DEFAULT 'DOP',
+      expires_at  TIMESTAMPTZ NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','used','expired','cancelled')),
+      used_at     TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch(e) { console.warn('payment_links:', e.message); }
+
+  // invoice_number en payment_links (para referencia)
+  try { await query(`ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS invoice_number TEXT`); } catch(e) {}
 
   // Make first registered user an admin
   try {
