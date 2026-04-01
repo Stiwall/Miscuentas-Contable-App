@@ -413,6 +413,14 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>
       Reportes
     </div>
+    <div class="nav-item" id="nav-cierre" onclick="showPage('cierre',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14l2 2 4-4"/></svg>
+      Cierre de Período
+    </div>
+    <div class="nav-item" id="nav-conciliacion" onclick="showPage('conciliacion',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      Conciliación
+    </div>
   </div>
   <div class="sidebar-section" id="adminNav" style="display:none">
     <div class="sidebar-label">Administración</div>
@@ -809,6 +817,78 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- CIERRE DE PERÍODO -->
+  <div id="page-cierre" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Cierre de Período</div><div class="page-subtitle">Asiento de cierre mensual y reseteo de cuentas de resultado</div></div>
+    </div>
+    <!-- Selector período -->
+    <div class="card" style="margin-bottom:var(--space-md)">
+      <div class="card-header"><span class="card-title">📅 Seleccionar Período</span></div>
+      <div style="padding:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:flex-end">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Mes</label>
+            <select class="form-input form-select" id="cierre-month">
+              <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+              <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+              <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+              <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Año</label>
+            <input class="form-input" id="cierre-year" type="number" min="2020" max="2099" placeholder="2025">
+          </div>
+          <button class="btn btn-secondary" onclick="previewCierre()" style="white-space:nowrap">👁️ Vista Previa</button>
+        </div>
+      </div>
+    </div>
+    <div id="cierrePreview"></div>
+    <!-- Historial de cierres -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">📋 Historial de Cierres</span></div>
+      <div class="card-body" id="cierreHistorial"><div style="padding:20px;text-align:center;color:var(--text-muted);font-size:var(--fs-xs)">⏳ Cargando...</div></div>
+    </div>
+  </div>
+
+  <!-- CONCILIACIÓN BANCARIA -->
+  <div id="page-conciliacion" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Conciliación Bancaria</div><div class="page-subtitle">Verificar movimientos de banco y caja</div></div>
+    </div>
+    <!-- Filtros -->
+    <div class="card" style="margin-bottom:var(--space-md)">
+      <div class="card-header"><span class="card-title">⚙️ Configuración</span></div>
+      <div style="padding:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Mes</label>
+            <select class="form-input form-select" id="conc-month">
+              <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+              <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+              <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+              <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Año</label>
+            <input class="form-input" id="conc-year" type="number" min="2020" max="2099" placeholder="2025">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Cuenta</label>
+            <select class="form-input form-select" id="conc-account"><option value="">Todas las cuentas</option></select>
+          </div>
+          <button class="btn btn-primary" onclick="loadConciliacion()" style="white-space:nowrap">🔍 Generar</button>
+        </div>
+      </div>
+    </div>
+    <!-- Resumen -->
+    <div id="concResumen"></div>
+    <!-- Tabla movimientos -->
+    <div id="concMovimientos"></div>
   </div>
 
 </div><!-- /main -->
@@ -1300,13 +1380,22 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 
 <!-- MODAL: REGISTRAR PAGO -->
 <div class="modal-backdrop" id="payModal">
-  <div class="modal-box" style="max-width:360px">
+  <div class="modal-box" style="max-width:380px">
     <div class="modal-title">💰 Registrar Pago <button class="modal-close" onclick="closeModal('payModal')">✕</button></div>
-    <div id="payModalInfo" style="font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:14px;text-align:center"></div>
+    <div id="payModalInfo" style="font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:14px;background:var(--surface2);border-radius:var(--radius-xs);padding:9px 12px;text-align:center"></div>
     <div id="payModalError" style="display:none;background:var(--accent2-dim);border:1px solid #ff4d6d40;border-radius:var(--radius-xs);padding:8px;color:var(--accent2);font-size:var(--fs-sm);font-weight:600;margin-bottom:12px"></div>
-    <div class="form-group" style="margin-bottom:14px"><label class="form-label">Monto a registrar (RD$)</label><input class="form-input" id="payAmount" type="number" inputmode="decimal" placeholder="0.00"></div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Método de Cobro</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px" id="payMethodBtns">
+        <button onclick="setPayMethod('bank')" id="payMethod-bank" class="btn btn-secondary" style="justify-content:center;font-size:var(--fs-xs);padding:7px 4px">🏦 Banco</button>
+        <button onclick="setPayMethod('cash')" id="payMethod-cash" class="btn btn-secondary" style="justify-content:center;font-size:var(--fs-xs);padding:7px 4px">💵 Efectivo</button>
+        <button onclick="setPayMethod('card')" id="payMethod-card" class="btn btn-secondary" style="justify-content:center;font-size:var(--fs-xs);padding:7px 4px">💳 Tarjeta</button>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px"><label class="form-label">Monto a registrar (RD$)</label><input class="form-input" id="payAmount" type="number" inputmode="decimal" placeholder="0.00"></div>
     <div class="form-group" style="margin-bottom:14px"><label class="form-label">Fecha del pago</label><input class="form-input" id="payDate" type="date"></div>
-    <button class="btn btn-primary btn-full" onclick="submitPay()">Confirmar Pago</button>
+    <div class="form-group" style="margin-bottom:14px"><label class="form-label">Referencia / Notas</label><input class="form-input" id="payNotes" placeholder="Ej: Transferencia #12345"></div>
+    <button class="btn btn-primary btn-full" onclick="submitPay()">✅ Confirmar Pago</button>
   </div>
 </div>
 
@@ -1467,6 +1556,8 @@ const FAB_ACTIONS = {
   'activos':          ()=> openAssetModal(),
   'ingresos':         ()=> openIncomeModal(),
   'tipos-ingreso':    ()=> openIncomeTypeModal(),
+  'cierre':           null,
+  'conciliacion':     null,
   'admin':            null,
 };
 let _currentPage = 'dashboard';
@@ -1501,6 +1592,8 @@ function showPage(id, btn) {
   if (id==='facturas')        loadInvoices();
   if (id==='nueva-factura')   initNewInvoice();
   if (id==='reportes')        { const now=new Date(); el('rep-month').value=now.getMonth()+1; }
+  if (id==='cierre')          initCierrePage();
+  if (id==='conciliacion')    initConciliacionPage();
   if (id==='admin')           renderAdmin();
 }
 
@@ -2120,7 +2213,7 @@ function renderCxc() {
       </div>
       <div style="font-size:var(--fs-2xs);color:var(--text-muted);margin-bottom:8px">📅 ${due}</div>
       <div style="display:flex;gap:6px">
-        ${pendFinal>0?`<button class="btn btn-sm btn-secondary" onclick="openPayModal('cxc','${r.id}',${pendFinal})" style="flex:1;justify-content:center">💰 Registrar Pago</button>`:''}
+        ${pendFinal>0?`<button class="btn btn-sm btn-secondary" onclick="openPayModal('cxc','${r.id}',${pendFinal},'${c.name.replace(/'/g,'\`')}')" style="flex:1;justify-content:center">💰 Registrar Pago</button>`:''}
         <button onclick="deleteCxc('${r.id}')" style="background:var(--accent2-dim);border:1px solid var(--accent2)50;border-radius:6px;padding:5px 10px;color:var(--accent2);font-size:12px;cursor:pointer">🗑️</button>
       </div>
     </div>`;
@@ -2165,7 +2258,7 @@ function renderCxp() {
       </div>
       <div style="font-size:var(--fs-2xs);color:var(--text-muted);margin-bottom:8px">📅 ${due}</div>
       <div style="display:flex;gap:6px">
-        ${pendFinal>0?`<button class="btn btn-sm btn-secondary" onclick="openPayModal('cxp','${p.id}',${pendFinal})" style="flex:1;justify-content:center">💰 Registrar Pago</button>`:''}
+        ${pendFinal>0?`<button class="btn btn-sm btn-secondary" onclick="openPayModal('cxp','${p.id}',${pendFinal},'${v.name.replace(/'/g,'\`')}')" style="flex:1;justify-content:center">💰 Registrar Pago</button>`:''}
         <button onclick="deleteCxp('${p.id}')" style="background:var(--accent2-dim);border:1px solid var(--accent2)50;border-radius:6px;padding:5px 10px;color:var(--accent2);font-size:12px;cursor:pointer">🗑️</button>
       </div>
     </div>`;
@@ -2173,27 +2266,262 @@ function renderCxp() {
 }
 
 // ─── PAYMENT MODAL ────────────────────────────────────────────────────────────
-function openPayModal(type, id, max) {
+let _payMethod = 'bank';
+function setPayMethod(m) {
+  _payMethod = m;
+  ['bank','cash','card'].forEach(k => {
+    const btn = el('payMethod-'+k);
+    if (!btn) return;
+    if (k === m) {
+      btn.style.background='var(--orange)'; btn.style.color='#000'; btn.style.borderColor='var(--orange)';
+    } else {
+      btn.style.background='var(--surface2)'; btn.style.color='var(--text-secondary)'; btn.style.borderColor='var(--border2)';
+    }
+  });
+}
+
+function openPayModal(type, id, max, clientName='') {
   _payType=type; _payId=id; _payMax=max;
+  _payMethod='bank';
   el('payAmount').value=''; el('payAmount').max=max;
   el('payDate').value=new Date().toISOString().split('T')[0];
-  el('payModalInfo').textContent='Máximo: RD$ '+fmt(max);
+  el('payNotes').value='';
+  el('payModalInfo').innerHTML=`${clientName?'<strong>'+clientName+'</strong><br>':''}Pendiente: <strong style="color:var(--accent)">RD$ ${fmt(max)}</strong>`;
   el('payModalError').style.display='none';
+  setPayMethod('bank');
   openModal('payModal');
 }
+
 async function submitPay() {
-  const amount=parseFloat(el('payAmount').value);
-  const payment_date=el('payDate').value||new Date().toISOString().split('T')[0];
-  const errEl=el('payModalError');
+  const amount       = parseFloat(el('payAmount').value);
+  const payment_date = el('payDate').value||new Date().toISOString().split('T')[0];
+  const notes        = el('payNotes').value.trim();
+  const errEl        = el('payModalError');
+  errEl.style.display='none';
   if (!amount||amount<=0) { errEl.textContent='Ingresa un monto válido'; errEl.style.display='block'; return; }
-  if (amount>_payMax) { errEl.textContent='El monto excede lo pendiente'; errEl.style.display='block'; return; }
+  if (amount > _payMax+0.01) { errEl.textContent=`El monto excede lo pendiente (RD$ ${fmt(_payMax)})`; errEl.style.display='block'; return; }
   try {
-    const endpoint = _payType==='cxc' ? `/api/receivables/${_payId}/payments` : `/api/payables/${_payId}/payments`;
-    await apiFetch(endpoint,{method:'POST',body:JSON.stringify({amount, payment_date})});
-    toast('✅ Pago registrado'); closeModal('payModal');
-    receivables=await apiFetch('/api/receivables'); payables=await apiFetch('/api/payables');
+    const endpoint = _payType==='cxc'
+      ? `/api/receivables/${_payId}/payments`
+      : `/api/payables/${_payId}/payments`;
+    const r = await apiFetch(endpoint, {
+      method:'POST',
+      body: JSON.stringify({ amount, payment_date, notes: notes||null, payment_method: _payMethod })
+    });
+    const pmEmojis = {bank:'🏦',cash:'💵',card:'💳'};
+    const statusTxt = r.new_status==='paid' ? '✅ SALDADO' : `📋 Parcial — Resta RD$ ${fmt(r.outstanding||0)}`;
+    toast(`${pmEmojis[_payMethod]||'💰'} Pago registrado · ${statusTxt}`);
+    closeModal('payModal');
+    receivables = await apiFetch('/api/receivables');
+    payables    = await apiFetch('/api/payables');
+    incomeTypes = await apiFetch('/api/income-types/with-totals');
     renderCxc(); renderCxp(); renderDashboard();
-  } catch(e) { errEl.textContent='Error: '+e.message; errEl.style.display='block'; }
+    if (_currentPage==='ingresos') renderIngresos();
+  } catch(e) {
+    let msg = e.message; try{msg=JSON.parse(msg).error||msg;}catch{}
+    errEl.textContent='Error: '+msg; errEl.style.display='block';
+  }
+}
+
+// ─── CIERRE DE PERÍODO ────────────────────────────────────────────────────────
+async function initCierrePage() {
+  const now = new Date();
+  el('cierre-month').value = now.getMonth()+1;
+  el('cierre-year').value  = now.getFullYear();
+  await loadCierreHistorial();
+}
+
+async function previewCierre() {
+  const month = el('cierre-month').value;
+  const year  = el('cierre-year').value;
+  if (!year) { toast('Ingresa el año','error'); return; }
+  const prev = el('cierrePreview');
+  prev.innerHTML='<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Calculando...</div></div>';
+  try {
+    const data = await apiFetch(`/api/cierre/preview?month=${month}&year=${year}`);
+    if (data.already_closed) {
+      prev.innerHTML=`<div class="card" style="margin-bottom:var(--space-md)"><div style="padding:20px;text-align:center"><div style="font-size:28px;margin-bottom:8px">✅</div><div style="font-weight:700;color:var(--accent)">El período ${month}/${year} ya fue cerrado</div></div></div>`;
+      return;
+    }
+    const mColor = data.utilidad_neta >= 0 ? 'var(--accent)' : 'var(--accent2)';
+    prev.innerHTML=`
+      <div class="card" style="margin-bottom:var(--space-md)">
+        <div class="card-header"><span class="card-title">👁️ Vista Previa — ${month}/${year}</span></div>
+        <div style="padding:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+            <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Ingresos</div>
+              <div style="font-family:monospace;font-weight:700;color:var(--accent);margin-top:4px">RD$ ${fmt(data.ingresos)}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">CMV</div>
+              <div style="font-family:monospace;font-weight:700;color:var(--accent2);margin-top:4px">RD$ ${fmt(data.costos)}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Gastos</div>
+              <div style="font-family:monospace;font-weight:700;color:var(--accent2);margin-top:4px">RD$ ${fmt(data.gastos)}</div>
+            </div>
+            <div style="background:var(--surface2);border:2px solid ${mColor}40;border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Utilidad Neta</div>
+              <div style="font-family:monospace;font-weight:800;color:${mColor};margin-top:4px">RD$ ${fmt(data.utilidad_neta)}</div>
+            </div>
+          </div>
+          <div style="background:var(--surface2);border-left:3px solid var(--orange);border-radius:var(--radius-xs);padding:12px;margin-bottom:14px;font-size:var(--fs-xs)">
+            <div style="font-weight:700;margin-bottom:6px">📋 El asiento de cierre hará:</div>
+            <div style="color:var(--text-secondary);line-height:1.8">
+              • Llevar la Utilidad Neta (RD$ ${fmt(data.utilidad_neta)}) a <strong>Utilidades Retenidas</strong><br>
+              • Resetear a <strong>0</strong> todas las cuentas de Ingresos, Costos y Gastos<br>
+              • Crear asiento de cierre en el Diario Contable<br>
+              • <strong>⚠️ Esta acción no se puede deshacer</strong>
+            </div>
+          </div>
+          ${data.advertencias.length > 0 ? `<div style="background:var(--accent3-dim);border:1px solid var(--accent3)40;border-radius:var(--radius-xs);padding:10px;margin-bottom:14px;font-size:var(--fs-xs);color:var(--accent3)">${data.advertencias.map(a=>'⚠️ '+a).join('<br>')}</div>` : ''}
+          <button class="btn btn-primary btn-full" onclick="ejecutarCierre(${month},${year})" style="background:var(--accent2)">
+            🔒 Ejecutar Cierre de Período ${month}/${year}
+          </button>
+        </div>
+      </div>`;
+  } catch(e) { prev.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+async function ejecutarCierre(month, year) {
+  if (!confirm(`¿Confirmas el cierre de período ${month}/${year}?\n\nEsta acción:\n• Lleva la utilidad a Utilidades Retenidas\n• Resetea saldos de Ingresos, Costos y Gastos\n• NO se puede deshacer`)) return;
+  try {
+    showLoading(true);
+    const r = await apiFetch('/api/cierre', { method:'POST', body: JSON.stringify({ month, year }) });
+    toast(`✅ Período ${month}/${year} cerrado — Utilidad: RD$ ${fmt(r.utilidad_neta)}`);
+    el('cierrePreview').innerHTML=`<div class="card" style="margin-bottom:var(--space-md)"><div style="padding:20px;text-align:center"><div style="font-size:32px;margin-bottom:8px">✅</div><div style="font-weight:700;color:var(--accent)">¡Período ${month}/${year} cerrado exitosamente!</div><div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:6px">Utilidad trasladada a Utilidades Retenidas: RD$ ${fmt(r.utilidad_neta)}</div></div></div>`;
+    accounts = await apiFetch('/api/accounts');
+    renderPlan();
+    await loadCierreHistorial();
+  } catch(e) {
+    let msg = e.message; try{msg=JSON.parse(msg).error||msg;}catch{}
+    toast('Error: '+msg,'error');
+  } finally { showLoading(false); }
+}
+
+async function loadCierreHistorial() {
+  const container = el('cierreHistorial');
+  try {
+    const data = await apiFetch('/api/cierre/historial');
+    if (!data.length) {
+      container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:var(--fs-xs)">Sin cierres realizados aún</div>';
+      return;
+    }
+    const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    container.innerHTML='<table class="data-table"><thead><tr><th>Período</th><th class="num">Ingresos</th><th class="num">CMV + Gastos</th><th class="num">Utilidad</th><th>Fecha Cierre</th></tr></thead><tbody>'+
+      data.map(c=>`<tr>
+        <td style="font-weight:700">${MESES[c.month]} ${c.year}</td>
+        <td class="num" style="color:var(--accent)">RD$ ${fmt(c.ingresos)}</td>
+        <td class="num" style="color:var(--accent2)">RD$ ${fmt(parseFloat(c.costos||0)+parseFloat(c.gastos||0))}</td>
+        <td class="num" style="color:${parseFloat(c.utilidad_neta)>=0?'var(--accent)':'var(--accent2)'};font-weight:700">RD$ ${fmt(c.utilidad_neta)}</td>
+        <td style="font-size:var(--fs-2xs);color:var(--text-muted)">${new Date(c.closed_at).toLocaleDateString('es-DO')}</td>
+      </tr>`).join('')+
+      '</tbody></table>';
+  } catch(e) { container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+// ─── CONCILIACIÓN BANCARIA ────────────────────────────────────────────────────
+async function initConciliacionPage() {
+  const now = new Date();
+  el('conc-month').value = now.getMonth()+1;
+  el('conc-year').value  = now.getFullYear();
+  // Cargar cuentas disponibles
+  try {
+    const data = await apiFetch('/api/conciliacion?month=1&year=2000');
+    const sel = el('conc-account');
+    sel.innerHTML = '<option value="">Todas las cuentas banco/caja</option>' +
+      (data.accounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${a.name}</option>`).join('');
+  } catch{}
+}
+
+async function loadConciliacion() {
+  const month   = el('conc-month').value;
+  const year    = el('conc-year').value;
+  const account = el('conc-account').value;
+  if (!year) { toast('Ingresa el año','error'); return; }
+  el('concResumen').innerHTML='<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Generando conciliación...</div></div>';
+  el('concMovimientos').innerHTML='';
+  try {
+    let url = `/api/conciliacion?month=${month}&year=${year}`;
+    if (account) url += `&account_code=${account}`;
+    const data = await apiFetch(url);
+    const s = data.summary;
+    const movs = data.movements || [];
+
+    // Resumen
+    el('concResumen').innerHTML=`
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:var(--space-md)">
+        <div class="kpi-card blue"><div class="kpi-label">Saldo Inicial</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(s.saldo_inicial)}</div><div class="kpi-sub">Inicio del período</div></div>
+        <div class="kpi-card green"><div class="kpi-label">Entradas</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(s.total_entradas)}</div><div class="kpi-sub">${movs.filter(m=>m.debit>0).length} movimientos</div></div>
+        <div class="kpi-card red"><div class="kpi-label">Salidas</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(s.total_salidas)}</div><div class="kpi-sub">${movs.filter(m=>m.credit>0).length} movimientos</div></div>
+        <div class="kpi-card ${parseFloat(s.saldo_final)>=0?'green':'red'}"><div class="kpi-label">Saldo Final</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(s.saldo_final)}</div><div class="kpi-sub">Libro contable</div></div>
+      </div>`;
+
+    if (!movs.length) {
+      el('concMovimientos').innerHTML='<div class="empty"><div class="empty-icon">🏦</div><div class="empty-title">Sin movimientos en este período</div><div class="empty-sub">Registra transacciones bancarias primero</div></div>';
+      return;
+    }
+
+    const REF_LABELS = { invoice:'Factura', receivable:'CxC', payable:'CxP', cmv:'CMV', period_close:'Cierre', manual:'Manual', receivable_payment:'Cobro' };
+    el('concMovimientos').innerHTML=`
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📋 Movimientos — ${s.period}</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:var(--fs-2xs);color:var(--text-muted)">${movs.length} líneas</span>
+            <button onclick="marcarTodosConciliados()" class="btn btn-sm btn-secondary">✅ Marcar todos</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table" id="concTable">
+            <thead><tr>
+              <th style="width:32px">✓</th>
+              <th>Fecha</th>
+              <th>Descripción</th>
+              <th>Cuenta</th>
+              <th>Ref.</th>
+              <th class="num">Entrada</th>
+              <th class="num">Salida</th>
+              <th class="num">Saldo</th>
+            </tr></thead>
+            <tbody>
+              ${movs.map((m,idx)=>`
+                <tr id="concRow-${idx}" style="${m.conciliado?'opacity:0.5':''}">
+                  <td><input type="checkbox" ${m.conciliado?'checked':''} onchange="toggleConciliado('${m.line_id}',this.checked,${idx})"
+                    style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer"></td>
+                  <td style="white-space:nowrap;font-size:var(--fs-xs)">${m.date||''}</td>
+                  <td>
+                    <div style="font-size:var(--fs-xs);font-weight:600">${m.description||''}</div>
+                    ${m.auxiliary_name?`<div style="font-size:9px;color:var(--text-muted)">${m.auxiliary_name}</div>`:''}
+                  </td>
+                  <td style="font-size:var(--fs-2xs);color:var(--text-muted)">${m.account_name||''}</td>
+                  <td><span style="font-size:9px;padding:2px 6px;border-radius:50px;background:var(--surface3);color:var(--text-muted)">${REF_LABELS[m.ref_type]||m.ref_type||'—'}</span></td>
+                  <td class="num" style="color:var(--accent);font-weight:700">${m.debit>0?'RD$ '+fmt(m.debit):'—'}</td>
+                  <td class="num" style="color:var(--accent2);font-weight:700">${m.credit>0?'RD$ '+fmt(m.credit):'—'}</td>
+                  <td class="num" style="font-weight:700;color:${m.balance>=0?'var(--text)':'var(--accent2)'}">RD$ ${fmt(m.balance)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  } catch(e) {
+    el('concResumen').innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">${e.message}</div></div>`;
+    el('concMovimientos').innerHTML='';
+  }
+}
+
+async function toggleConciliado(lineId, checked, rowIdx) {
+  try {
+    await apiFetch('/api/conciliacion/mark', { method:'POST', body: JSON.stringify({ line_id: lineId, conciliado: checked }) });
+    const row = el(`concRow-${rowIdx}`);
+    if (row) row.style.opacity = checked ? '0.5' : '1';
+  } catch(e) { toast('Error al actualizar: '+e.message,'error'); }
+}
+
+async function marcarTodosConciliados() {
+  const checkboxes = document.querySelectorAll('#concTable input[type=checkbox]');
+  for (const cb of checkboxes) { if (!cb.checked) cb.click(); }
 }
 
 // ─── DIARIO ───────────────────────────────────────────────────────────────────

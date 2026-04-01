@@ -3216,71 +3216,150 @@ app.post('/api/receivables', authMiddleware, async (req, res) => {
 });
 
 // POST /api/receivables/:id/payments
+// Body: { amount, payment_date, notes, payment_method: 'cash'|'bank'|'card' }
 app.post('/api/receivables/:id/payments', authMiddleware, async (req, res) => {
-  const client = await pool.connect();
+  const pgClient = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const { amount, payment_date, notes } = req.body;
-    if (!amount) return res.status(400).json({ error: 'Amount required' });
-    const rec = await client.query(
-      `SELECT * FROM receivables WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]
-    );
-    if (!rec.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Not found' }); }
+    await pgClient.query('BEGIN');
+    const { amount, payment_date, notes, payment_method = 'bank' } = req.body;
+    if (!amount || parseFloat(amount) <= 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'Monto requerido y debe ser mayor a 0' });
+    }
 
-    const payId = `rpay_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-    await client.query(
-      `INSERT INTO receivable_payments(id, receivable_id, amount, payment_date, notes)
+    // Cargar CxC con info del cliente
+    const rec = await pgClient.query(
+      `SELECT r.*, c.name as client_name
+       FROM receivables r LEFT JOIN clients c ON c.id=r.client_id
+       WHERE r.id=$1 AND r.user_id=$2`,
+      [req.params.id, req.userId]
+    );
+    if (!rec.rows[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'Cuenta por cobrar no encontrada' });
+    }
+    const recRow    = rec.rows[0];
+    const amtNum    = parseFloat(amount);
+    const payDate   = payment_date || new Date().toISOString().split('T')[0];
+    const outstanding = parseFloat(recRow.total_amount) - parseFloat(recRow.paid_amount);
+
+    if (amtNum > outstanding + 0.01) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: `Monto excede lo pendiente (RD$ ${outstanding.toFixed(2)})` });
+    }
+
+    // 1. Registrar pago
+    const payId = `rpay_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await pgClient.query(
+      `INSERT INTO receivable_payments(id,receivable_id,amount,payment_date,notes)
        VALUES($1,$2,$3,$4,$5)`,
-      [payId, req.params.id, amount, payment_date || new Date().toISOString().split('T')[0], notes]
+      [payId, req.params.id, amtNum, payDate, notes||null]
     );
-    await client.query(
-      `UPDATE receivables SET paid_amount = paid_amount + $1,
-       status = CASE WHEN paid_amount + $1 >= total_amount THEN 'paid'
-                     WHEN paid_amount + $1 > 0 THEN 'partial' ELSE status END
-       WHERE id=$2`,
-      [amount, req.params.id]
+
+    // 2. Actualizar saldo CxC
+    const newPaid = parseFloat(recRow.paid_amount) + amtNum;
+    const newStatus = newPaid >= parseFloat(recRow.total_amount) - 0.01 ? 'paid' : 'partial';
+    await pgClient.query(
+      `UPDATE receivables SET paid_amount=$1, status=$2 WHERE id=$3`,
+      [newPaid, newStatus, req.params.id]
     );
-    // Reverse the receivable journal: Debit "Caja/Banco", Credit "Cuentas por Cobrar"
-    const caja = await client.query(`SELECT id FROM accounts WHERE code='1.1.01' AND user_id=$1`, [req.userId]);
-    const banco = await client.query(`SELECT id FROM accounts WHERE code='1.1.02' AND user_id=$1`, [req.userId]);
-    const cxc = await client.query(`SELECT id FROM accounts WHERE code='1.2.01' AND user_id=$1`, [req.userId]);
-    const cashAcc = banco.rows[0]?.id || caja.rows[0]?.id;
-    if (cashAcc && cxc.rows[0]) {
-      const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-      await client.query(
-        `INSERT INTO journal_entries(id, user_id, date, description, ref_type, ref_id)
-         VALUES($1,$2,CURRENT_DATE,$3,'receivable',$4)`,
-        [jeId, req.userId, `Pago de cliente: ${rec.rows[0].description}`, req.params.id]
-      );
-      const debitLine  = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-      const creditLine = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-      const clientId = rec.rows[0].client_id;
-      await client.query(
-        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,$4,0)`, [debitLine, jeId, cashAcc, amount]
-      );
-      await client.query(
-        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
-         VALUES($1,$2,$3,0,$4,'client',$5,$6)`, [creditLine, jeId, cxc.rows[0].id, amount, clientId||null, rec.rows[0].client_name||null]
-      );
-      await client.query(
-        `INSERT INTO account_balances(account_id, balance)
-         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2`,
-        [cashAcc, amount]
-      );
-      await client.query(
-        `INSERT INTO account_balances(account_id, balance)
-         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance - $2`,
-        [cxc.rows[0].id, amount]
+
+    // 3. Buscar cuentas contables (soporta ambos formatos de código)
+    const acctR = await pgClient.query(
+      `SELECT id, code FROM accounts WHERE user_id=$1
+       AND code IN ('1101','1.1.01','1102','1.1.02','1201','1.2.01',
+                    '4101','4.1.01','4102','4.1.02')`,
+      [req.userId]
+    );
+    const am = {}; acctR.rows.forEach(a => { am[a.code] = a.id; });
+    const cajaAcct   = am['1101'] || am['1.1.01'];
+    const bancoAcct  = am['1102'] || am['1.1.02'];
+    const cxcAcct    = am['1201'] || am['1.2.01'];
+    const salesAcct  = am['4101'] || am['4.1.01'] || am['4102'] || am['4.1.02'];
+
+    // Cuenta de destino según método de pago
+    const cashAcct = payment_method === 'cash'
+      ? (cajaAcct || bancoAcct)
+      : (bancoAcct || cajaAcct);
+
+    const pmLabels = { cash:'Efectivo', bank:'Banco/Transferencia', card:'Tarjeta' };
+    const pmLabel  = pmLabels[payment_method] || 'Banco';
+
+    // 4. Asiento contable: Débito Caja/Banco → Crédito CxC
+    if (cashAcct && cxcAcct) {
+      await insertJournalEntry(pgClient, req.userId, payDate,
+        `Cobro CxC — ${recRow.client_name||recRow.description} [${pmLabel}]`,
+        'receivable_payment', req.params.id,
+        [
+          { acct: cashAcct, d: amtNum, c: 0,
+            auxType: 'client', auxId: recRow.client_id, auxName: recRow.client_name },
+          { acct: cxcAcct,  d: 0, c: amtNum,
+            auxType: 'client', auxId: recRow.client_id, auxName: recRow.client_name },
+        ]
       );
     }
-    await client.query('COMMIT');
-    res.json({ ok: true });
+
+    // 5. ── INGRESO AUTOMÁTICO ──
+    // Solo registrar ingreso si la CxC viene de una factura con cuenta de ventas
+    // O si no tiene referencia a factura (CxC manual = servicio)
+    const pmIncLabels = { cash:'💵 Cobros Efectivo', bank:'🏦 Cobros Banco', card:'💳 Cobros Tarjeta' };
+    const pmIncLabel  = pmIncLabels[payment_method] || '🏦 Cobros Banco';
+    const pmIncIcon   = payment_method === 'cash' ? '💵' : payment_method === 'card' ? '💳' : '🏦';
+
+    // Buscar o crear tipo de ingreso para este método
+    let incTypeId = null;
+    const itR = await pgClient.query(
+      `SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`,
+      [req.userId, pmIncLabel]
+    );
+    if (itR.rows[0]) {
+      incTypeId = itR.rows[0].id;
+    } else {
+      incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await pgClient.query(
+        `INSERT INTO income_types(id,user_id,name,description,icon,color)
+         VALUES($1,$2,$3,$4,$5,$6)`,
+        [incTypeId, req.userId, pmIncLabel, 'Generado automáticamente al cobrar CxC',
+         pmIncIcon, '#00e5a0']
+      );
+    }
+
+    // Registrar ingreso por el monto cobrado
+    const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await pgClient.query(
+      `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
+       VALUES($1,$2,$3,$4,$5,$6,$7)`,
+      [incId, req.userId, incTypeId, amtNum,
+       `Cobro — ${recRow.client_name||recRow.description}`,
+       payDate, recRow.description]
+    );
+
+    // 6. Si la CxC quedó pagada y viene de factura, marcar factura como pagada
+    if (newStatus === 'paid') {
+      const invMatch = recRow.description?.match(/Factura\s+(\S+)/i);
+      if (invMatch) {
+        await pgClient.query(
+          `UPDATE invoices SET status='paid', paid_amount=total
+           WHERE user_id=$1 AND invoice_number=$2 AND status IN ('issued','partial')`,
+          [req.userId, invMatch[1]]
+        );
+      }
+    }
+
+    await pgClient.query('COMMIT');
+    res.json({
+      ok: true,
+      new_status: newStatus,
+      paid: newPaid,
+      outstanding: parseFloat(recRow.total_amount) - newPaid,
+      income_registered: true
+    });
   } catch(e) {
-    await client.query('ROLLBACK');
+    await pgClient.query('ROLLBACK');
+    console.error('Receivable payment error:', e.message);
     res.status(500).json({ error: e.message });
   } finally {
-    client.release();
+    pgClient.release();
   }
 });
 
@@ -3657,6 +3736,319 @@ app.get('/api/balance', authMiddleware, async (req, res) => {
 });
 
 // ─── EXPORT endpoints (CSV) ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 1.2: CIERRE DE PERÍODO MENSUAL ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/cierre/preview — vista previa antes de cerrar
+app.get('/api/cierre/preview', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return res.status(400).json({ error: 'month y year requeridos' });
+    const m = parseInt(month); const y = parseInt(year);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    // Verificar si ya hay cierre para este período
+    const existing = await query(
+      `SELECT id FROM period_closings WHERE user_id=$1 AND month=$2 AND year=$3`,
+      [req.userId, m, y]
+    );
+    if (existing.rows[0]) {
+      return res.json({ already_closed: true, month: m, year: y });
+    }
+
+    // Saldos de cuentas de resultado (clase 4,5,6)
+    const r = await query(
+      `SELECT a.code, a.name, a.type, a.class,
+              COALESCE(ab.balance, 0) as balance
+       FROM accounts a
+       LEFT JOIN account_balances ab ON ab.account_id = a.id
+       WHERE a.user_id=$1 AND a.class IN (4,5,6) AND a.is_active=TRUE
+       ORDER BY a.class, a.code`,
+      [req.userId]
+    );
+
+    let ingresos = 0, costos = 0, gastos = 0;
+    const lineas = r.rows.map(row => {
+      const bal = parseFloat(row.balance || 0);
+      if (row.class === 4) ingresos += bal;
+      if (row.class === 5) costos   += bal;
+      if (row.class === 6) gastos   += bal;
+      return { code: row.code, name: row.name, type: row.type, class: row.class, balance: bal };
+    });
+
+    const utilidad_neta = ingresos - costos - gastos;
+
+    // Buscar cuenta de Utilidades Retenidas (patrimonio clase 3)
+    const utRet = await query(
+      `SELECT id, code, name FROM accounts
+       WHERE user_id=$1 AND class=3
+       AND (code ILIKE '%utilidad%' OR code IN ('3201','3.2.01','3101','3.1.01') OR name ILIKE '%utilidad%' OR name ILIKE '%retenid%')
+       LIMIT 1`,
+      [req.userId]
+    );
+
+    res.json({
+      already_closed: false, month: m, year: y,
+      periodo: `${from} al ${to}`,
+      ingresos, costos, gastos, utilidad_neta,
+      lineas,
+      utilidades_retenidas_cuenta: utRet.rows[0] || null,
+      advertencias: utRet.rows.length === 0
+        ? ['No se encontró cuenta de Utilidades Retenidas (clase 3). Se necesita para el asiento de cierre.']
+        : []
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/cierre — ejecutar cierre mensual
+app.post('/api/cierre', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const { month, year } = req.body;
+    if (!month || !year) { await pgClient.query('ROLLBACK'); return res.status(400).json({ error: 'month y year requeridos' }); }
+    const m = parseInt(month); const y = parseInt(year);
+    const lastDay = new Date(y, m, 0).getDate();
+    const closeDate = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    // Verificar duplicado
+    const existing = await pgClient.query(
+      `SELECT id FROM period_closings WHERE user_id=$1 AND month=$2 AND year=$3`,
+      [req.userId, m, y]
+    );
+    if (existing.rows[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ error: `El período ${m}/${y} ya fue cerrado` });
+    }
+
+    // Obtener saldos de cuentas de resultado (4,5,6)
+    const r = await pgClient.query(
+      `SELECT a.id, a.code, a.name, a.class, COALESCE(ab.balance,0) as balance
+       FROM accounts a LEFT JOIN account_balances ab ON ab.account_id=a.id
+       WHERE a.user_id=$1 AND a.class IN (4,5,6) AND a.is_active=TRUE`,
+      [req.userId]
+    );
+
+    let ingresos = 0, costos = 0, gastos = 0;
+    r.rows.forEach(row => {
+      const bal = parseFloat(row.balance || 0);
+      if (row.class === 4) ingresos += bal;
+      if (row.class === 5) costos   += bal;
+      if (row.class === 6) gastos   += bal;
+    });
+    const utilidad_neta = ingresos - costos - gastos;
+
+    // Buscar cuenta Utilidades Retenidas
+    const utRet = await pgClient.query(
+      `SELECT id, code, name FROM accounts
+       WHERE user_id=$1 AND class=3
+       AND (code IN ('3201','3.2.01') OR name ILIKE '%utilidad%' OR name ILIKE '%retenid%')
+       LIMIT 1`,
+      [req.userId]
+    );
+
+    // Si no existe cuenta de Utilidades Retenidas, crearla
+    let utRetId = utRet.rows[0]?.id;
+    if (!utRetId) {
+      utRetId = `acc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await pgClient.query(
+        `INSERT INTO accounts(id,user_id,code,name,type,class,currency)
+         VALUES($1,$2,'3201','Utilidades Retenidas','equity',3,'DOP')
+         ON CONFLICT(user_id,code) DO NOTHING`,
+        [utRetId, req.userId]
+      );
+      await pgClient.query(
+        `INSERT INTO account_balances(account_id,balance) VALUES($1,0) ON CONFLICT DO NOTHING`,
+        [utRetId]
+      );
+    }
+
+    // ── Asiento de Cierre ──
+    // Las cuentas de ingresos (clase 4) tienen saldo Crédito → se debitan para cerrar
+    // Las cuentas de costos/gastos (clase 5,6) tienen saldo Débito → se acreditan para cerrar
+    // La diferencia va a Utilidades Retenidas
+
+    const jeLines = [];
+
+    // Cerrar ingresos (debitar)
+    for (const row of r.rows.filter(x => x.class === 4 && parseFloat(x.balance) !== 0)) {
+      const bal = parseFloat(row.balance);
+      jeLines.push({ acct: row.id, d: Math.abs(bal), c: 0 });
+    }
+    // Cerrar costos y gastos (acreditar)
+    for (const row of r.rows.filter(x => (x.class === 5 || x.class === 6) && parseFloat(x.balance) !== 0)) {
+      const bal = parseFloat(row.balance);
+      jeLines.push({ acct: row.id, d: 0, c: Math.abs(bal) });
+    }
+    // Diferencia a Utilidades Retenidas
+    if (utilidad_neta > 0) {
+      jeLines.push({ acct: utRetId, d: 0, c: utilidad_neta });
+    } else if (utilidad_neta < 0) {
+      jeLines.push({ acct: utRetId, d: Math.abs(utilidad_neta), c: 0 });
+    }
+
+    if (jeLines.length > 0) {
+      await insertJournalEntry(pgClient, req.userId, closeDate,
+        `CIERRE DE PERÍODO — ${m}/${y}`,
+        'period_close', `${m}-${y}`,
+        jeLines
+      );
+    }
+
+    // Resetear saldos de cuentas de resultado a 0
+    for (const row of r.rows) {
+      await pgClient.query(
+        `UPDATE account_balances SET balance=0 WHERE account_id=$1`,
+        [row.id]
+      );
+    }
+
+    // Registrar cierre
+    const cierreId = `close_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await pgClient.query(
+      `INSERT INTO period_closings(id,user_id,month,year,closed_at,ingresos,costos,gastos,utilidad_neta)
+       VALUES($1,$2,$3,$4,NOW(),$5,$6,$7,$8)`,
+      [cierreId, req.userId, m, y, ingresos, costos, gastos, utilidad_neta]
+    );
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, month: m, year: y, ingresos, costos, gastos, utilidad_neta, cierreId });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    console.error('Cierre error:', e.message);
+    res.status(500).json({ error: e.message });
+  } finally {
+    pgClient.release();
+  }
+});
+
+// GET /api/cierre/historial — lista de cierres realizados
+app.get('/api/cierre/historial', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT * FROM period_closings WHERE user_id=$1 ORDER BY year DESC, month DESC`,
+      [req.userId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 1.3: CONCILIACIÓN BANCARIA ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/conciliacion — movimientos de cuentas banco/caja para un período
+app.get('/api/conciliacion', authMiddleware, async (req, res) => {
+  try {
+    const { month, year, account_code } = req.query;
+    if (!month || !year) return res.status(400).json({ error: 'month y year requeridos' });
+    const m  = parseInt(month); const y = parseInt(year);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to   = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    // Cuentas de banco disponibles
+    const bankAccts = await query(
+      `SELECT a.id, a.code, a.name, COALESCE(ab.balance,0) as balance
+       FROM accounts a LEFT JOIN account_balances ab ON ab.account_id=a.id
+       WHERE a.user_id=$1 AND a.class=1 AND (a.code ILIKE '%banco%' OR a.code IN ('1101','1.1.01','1102','1.1.02') OR a.name ILIKE '%banco%' OR a.name ILIKE '%caja%')
+       ORDER BY a.code`,
+      [req.userId]
+    );
+
+    // Filtrar por cuenta específica si se pide
+    const acctFilter = account_code
+      ? bankAccts.rows.filter(a => a.code === account_code)
+      : bankAccts.rows;
+
+    if (!acctFilter.length) {
+      return res.json({ accounts: bankAccts.rows, movements: [], summary: {} });
+    }
+
+    const acctIds = acctFilter.map(a => a.id);
+    const placeholders = acctIds.map((_,i) => `$${i+4}`).join(',');
+
+    // Movimientos del período para esas cuentas
+    const movs = await query(
+      `SELECT je.date, je.description, je.ref_type, je.ref_id,
+              jl.debit, jl.credit, a.code as account_code, a.name as account_name,
+              jl.auxiliary_name,
+              jl.id as line_id, je.id as entry_id
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id=jl.journal_entry_id
+       JOIN accounts a ON a.id=jl.account_id
+       WHERE je.user_id=$1 AND je.date>=$2 AND je.date<=$3
+         AND jl.account_id IN (${placeholders})
+       ORDER BY je.date ASC, je.created_at ASC`,
+      [req.userId, from, to, ...acctIds]
+    );
+
+    // Calcular saldo inicial (antes del período) para cada cuenta
+    const openingBalances = {};
+    for (const acct of acctFilter) {
+      const ob = await query(
+        `SELECT COALESCE(SUM(jl.debit - jl.credit), 0) as net
+         FROM journal_lines jl
+         JOIN journal_entries je ON je.id=jl.journal_entry_id
+         WHERE jl.account_id=$1 AND je.date < $2`,
+        [acct.id, from]
+      );
+      openingBalances[acct.id] = parseFloat(ob.rows[0]?.net || 0);
+    }
+
+    // Construir movimientos con saldo corrido
+    let runningBalance = Object.values(openingBalances).reduce((s,v)=>s+v, 0);
+    const movements = movs.rows.map(row => {
+      const debit  = parseFloat(row.debit  || 0);
+      const credit = parseFloat(row.credit || 0);
+      runningBalance += debit - credit;
+      return {
+        ...row,
+        debit, credit,
+        balance: Math.round(runningBalance * 100) / 100,
+        type: debit > 0 ? 'entrada' : 'salida',
+        amount: debit > 0 ? debit : credit
+      };
+    });
+
+    const totalEntradas  = movements.reduce((s,m) => s + m.debit, 0);
+    const totalSalidas   = movements.reduce((s,m) => s + m.credit, 0);
+    const saldoInicial   = Object.values(openingBalances).reduce((s,v)=>s+v, 0);
+    const saldoFinal     = saldoInicial + totalEntradas - totalSalidas;
+
+    res.json({
+      accounts: bankAccts.rows,
+      selected_accounts: acctFilter,
+      movements,
+      summary: {
+        period: `${from} al ${to}`,
+        saldo_inicial:  Math.round(saldoInicial  * 100) / 100,
+        total_entradas: Math.round(totalEntradas * 100) / 100,
+        total_salidas:  Math.round(totalSalidas  * 100) / 100,
+        saldo_final:    Math.round(saldoFinal    * 100) / 100,
+      }
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/conciliacion/mark — marcar movimiento como conciliado
+app.post('/api/conciliacion/mark', authMiddleware, async (req, res) => {
+  try {
+    const { line_id, conciliado, bank_reference } = req.body;
+    if (!line_id) return res.status(400).json({ error: 'line_id requerido' });
+    await query(
+      `UPDATE journal_lines SET conciliado=$1, bank_reference=$2
+       WHERE id=$3
+         AND journal_entry_id IN (SELECT id FROM journal_entries WHERE user_id=$4)`,
+      [conciliado !== false, bank_reference||null, line_id, req.userId]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 function toCSV(headers, rows) {
   const escape = (v) => {
     if (v == null) return '';
@@ -4169,6 +4561,28 @@ async function initDB() {
   // Actualizar status CHECK constraint para incluir 'issued' (además de 'pending','paid','cancelled')
   try { await query(`ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_status_check`); } catch(e) {}
   try { await query(`ALTER TABLE invoices ADD CONSTRAINT invoices_status_check CHECK (status IN ('draft','issued','pending','paid','partial','cancelled'))`); } catch(e) {}
+
+  // ── Fase 1.2: Cierre de Período ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS period_closings (
+      id           TEXT PRIMARY KEY,
+      user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      month        INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+      year         INTEGER NOT NULL,
+      closed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ingresos     NUMERIC(14,2) NOT NULL DEFAULT 0,
+      costos       NUMERIC(14,2) NOT NULL DEFAULT 0,
+      gastos       NUMERIC(14,2) NOT NULL DEFAULT 0,
+      utilidad_neta NUMERIC(14,2) NOT NULL DEFAULT 0,
+      notes        TEXT,
+      UNIQUE(user_id, month, year)
+    )`);
+  } catch(e) { console.warn('period_closings table:', e.message); }
+
+  // ── Fase 1.3: Conciliación Bancaria ──
+  try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS conciliado BOOLEAN DEFAULT FALSE`); } catch(e) {}
+  try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS bank_reference TEXT`); } catch(e) {}
+  try { await query(`CREATE INDEX IF NOT EXISTS idx_jl_conciliado ON journal_lines(conciliado) WHERE conciliado=FALSE`); } catch(e) {}
 
   // Make first registered user an admin
   try {
