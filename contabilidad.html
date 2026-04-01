@@ -149,8 +149,6 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 .btn-danger:hover { border-color:var(--accent2); }
 .btn-sm { padding:5px 10px; font-size:var(--fs-2xs); }
 .btn-full { width:100%; justify-content:center; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.4); border-top-color:#fff; border-radius:50%; animation:spin 0.7s linear infinite; flex-shrink:0; }
 
 /* ── PANEL / DRAWER ── */
 .panel { background:var(--surface); border:1px solid var(--border2); border-radius:var(--radius); padding:var(--space-md); margin-bottom:var(--space-md); }
@@ -205,6 +203,9 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   /* Hide some header items on small screens */
   .hdr-btn span { display:none; }
   .user-badge span { max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .header-actions { overflow-x:auto; max-width:100%; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  .header-actions::-webkit-scrollbar { display:none; }
+  .personal-link { display:none; }
   /* Page header stacks on mobile */
   .page-header { flex-direction:column; align-items:flex-start; }
   .page-header .btn { width:100%; justify-content:center; }
@@ -397,6 +398,10 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   </div>
   <div class="sidebar-section">
     <div class="sidebar-label">Facturación</div>
+    <div class="nav-item" id="nav-cotizaciones" onclick="showPage('cotizaciones',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      Cotizaciones
+    </div>
     <div class="nav-item" id="nav-facturas" onclick="showPage('facturas',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
       Facturas
@@ -405,16 +410,36 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       Nueva Factura
     </div>
+    <div class="nav-item" id="nav-recurrentes" onclick="showPage('recurrentes',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      Recurrentes
+    </div>
+    <div class="nav-item" id="nav-retenciones" onclick="showPage('retenciones',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Retenciones
+    </div>
   </div>
   <div class="sidebar-section">
     <div class="sidebar-label">Reportes</div>
+    <div class="nav-item" id="nav-alertas" onclick="showPage('alertas',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      Alertas
+    </div>
     <div class="nav-item" id="nav-reportes" onclick="showPage('reportes',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>
       Reportes
     </div>
+    <div class="nav-item" id="nav-dgii" onclick="showPage('dgii',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      DGII 606/607
+    </div>
+    <div class="nav-item" id="nav-cierre" onclick="showPage('cierre',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14l2 2 4-4"/></svg>
+      Cierre de Período
+    </div>
     <div class="nav-item" id="nav-conciliacion" onclick="showPage('conciliacion',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      📋 Conciliación
+      Conciliación
     </div>
   </div>
   <div class="sidebar-section" id="adminNav" style="display:none">
@@ -438,15 +463,53 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   <!-- DASHBOARD -->
   <div id="page-dashboard" class="page active">
     <div class="page-header">
-      <div class="page-title">Dashboard</div>
-      <div class="page-subtitle">Resumen financiero de tu negocio</div>
+      <div>
+        <div class="page-title">Dashboard</div>
+        <div class="page-subtitle" id="dashSubtitle">Resumen financiero de tu negocio</div>
+      </div>
+      <button class="btn btn-secondary" onclick="renderDashboard()" style="font-size:var(--fs-xs)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-9.09"/></svg>
+        Actualizar
+      </button>
     </div>
-    <div class="kpi-grid" id="dashKpis">
-      <div class="kpi-card green"><div class="kpi-label">Por Cobrar</div><div class="kpi-value" id="kpiCobrar">—</div><div class="kpi-sub">Pendiente de clientes</div></div>
-      <div class="kpi-card red"><div class="kpi-label">Por Pagar</div><div class="kpi-value" id="kpiPagar">—</div><div class="kpi-sub">Pendiente a proveedores</div></div>
-      <div class="kpi-card orange"><div class="kpi-label">Clientes</div><div class="kpi-value" id="kpiClientes">—</div><div class="kpi-sub">Registrados</div></div>
-      <div class="kpi-card blue"><div class="kpi-label">Proveedores</div><div class="kpi-value" id="kpiProveedores">—</div><div class="kpi-sub">Registrados</div></div>
+
+    <!-- Alertas banner -->
+    <div id="dashAlertsBanner" style="display:none;margin-bottom:var(--space-md)"></div>
+
+    <!-- KPIs mes actual -->
+    <div class="kpi-grid" id="dashKpis" style="margin-bottom:var(--space-md)">
+      <div class="kpi-card green"><div class="kpi-label">Ingresos Mes</div><div class="kpi-value" id="kpiIngresos">—</div><div class="kpi-sub" id="kpiIngSub">—</div></div>
+      <div class="kpi-card red"><div class="kpi-label">CMV + Gastos</div><div class="kpi-value" id="kpiCostos">—</div><div class="kpi-sub">Costo del mes</div></div>
+      <div class="kpi-card blue"><div class="kpi-label">Utilidad Mes</div><div class="kpi-value" id="kpiUtilidad">—</div><div class="kpi-sub" id="kpiUtilSub">—</div></div>
+      <div class="kpi-card orange"><div class="kpi-label">Por Cobrar</div><div class="kpi-value" id="kpiCobrar">—</div><div class="kpi-sub" id="kpiCobrarSub">Clientes</div></div>
     </div>
+
+    <!-- Gráfica ventas 6 meses -->
+    <div class="card" style="margin-bottom:var(--space-md)">
+      <div class="card-header">
+        <span class="card-title">📈 Ventas últimos 6 meses</span>
+        <div style="display:flex;gap:10px;font-size:9px;align-items:center">
+          <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--accent);border-radius:2px;display:inline-block"></span>Ventas</span>
+          <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--accent2);border-radius:2px;display:inline-block"></span>CMV</span>
+          <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--accent4);border-radius:2px;display:inline-block"></span>Margen</span>
+        </div>
+      </div>
+      <div style="padding:16px;height:220px;position:relative"><canvas id="chartVentas6m"></canvas></div>
+    </div>
+
+    <!-- Top productos y clientes -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-md);margin-bottom:var(--space-md)">
+      <div class="card">
+        <div class="card-header"><span class="card-title">🏆 Top Productos</span><span style="font-size:9px;color:var(--text-muted)">últimos 12 meses</span></div>
+        <div id="dashTopProducts" style="padding:8px 0"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">👥 Top Clientes</span><span style="font-size:9px;color:var(--text-muted)">últimos 12 meses</span></div>
+        <div id="dashTopClients" style="padding:8px 0"></div>
+      </div>
+    </div>
+
+    <!-- Cobros y pagos pendientes -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-md)">
       <div class="card">
         <div class="card-header"><span class="card-title">📥 Cobros Pendientes</span><button class="btn btn-sm btn-secondary" onclick="showPage('cobrar',el('nav-cobrar'))">Ver todos</button></div>
@@ -568,7 +631,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     </div>
     <!-- Filter bar -->
     <div style="display:flex;gap:8px;margin-bottom:var(--space-sm);flex-wrap:wrap">
-      <input class="form-input" id="prod-search" placeholder="🔍 Buscar producto..." oninput="debounceFilterProducts()" style="flex:1;min-width:160px;padding:7px 10px">
+      <input class="form-input" id="prod-search" placeholder="🔍 Buscar producto..." oninput="filterProducts()" style="flex:1;min-width:160px;padding:7px 10px">
       <select class="form-input form-select" id="prod-cat-filter" onchange="filterProducts()" style="width:140px;padding:7px 28px 7px 10px">
         <option value="">Todas las categorías</option>
       </select>
@@ -716,7 +779,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
         <option value="partial">Parcial</option>
         <option value="cancelled">Cancelada</option>
       </select>
-      <input class="form-input" id="inv-search" placeholder="🔍 Buscar..." oninput="debounceLoadInvoices()" style="flex:1;min-width:120px;padding:7px 10px">
+      <input class="form-input" id="inv-search" placeholder="🔍 Buscar..." oninput="loadInvoices()" style="flex:1;min-width:120px;padding:7px 10px">
     </div>
     <div class="card"><div class="card-body" id="invoicesList"></div></div>
   </div>
@@ -781,11 +844,6 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
                 <option value="card">Tarjeta</option>
               </select>
             </div>
-            <div class="form-group"><label class="form-label">Tipo de Ingreso</label>
-              <select class="form-input form-select" id="nf-income-type">
-                <option value="">Sin clasificar</option>
-              </select>
-            </div>
             <div class="form-grid form-grid-2" style="margin-top:10px">
               <div class="form-group"><label class="form-label">ITBIS %</label><input class="form-input" id="nf-tax" type="number" value="18" min="0" max="100" oninput="recalcInvoice()"></div>
               <div class="form-group"><label class="form-label">Descuento %</label><input class="form-input" id="nf-discount" type="number" value="0" min="0" max="100" oninput="recalcInvoice()"></div>
@@ -802,12 +860,268 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
             <div style="display:flex;justify-content:space-between;font-weight:800;font-size:var(--fs-md)"><span>TOTAL</span><span id="nf-total" style="font-family:monospace;color:var(--accent)">RD$ 0.00</span></div>
           </div>
         </div>
+        <!-- CMV Preview -->
+        <div id="nf-cmv-block" style="display:none;background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--accent2);border-radius:var(--radius-xs);padding:12px;margin-bottom:var(--space-sm)">
+          <div style="font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">📊 Rentabilidad Estimada</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">CMV (costo mercancía)</span><span id="nf-cmv-total" style="font-family:monospace;font-weight:700;color:var(--accent2)"></span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Margen Bruto</span><span id="nf-margen-bruto" style="font-family:monospace;font-weight:700"></span></div>
+          <div style="display:flex;justify-content:space-between;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">% Margen</span><span id="nf-margen-pct" style="font-weight:800;font-size:var(--fs-sm)"></span></div>
+          <div style="margin-top:8px;font-size:9px;color:var(--text-muted);background:var(--surface3);border-radius:4px;padding:5px 7px">💡 CMV y stock se actualizan automáticamente al emitir</div>
+        </div>
         <div class="form-group" style="margin-bottom:10px"><label class="form-label">Notas</label><input class="form-input" id="nf-notes" placeholder="Notas de la factura"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <button class="btn btn-secondary btn-full" onclick="saveInvoice('draft')">💾 Guardar borrador</button>
           <button class="btn btn-primary btn-full" onclick="saveInvoice('issued')">📤 Emitir factura</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- CIERRE DE PERÍODO -->
+  <div id="page-cierre" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Cierre de Período</div><div class="page-subtitle">Asiento de cierre mensual y reseteo de cuentas de resultado</div></div>
+    </div>
+    <!-- Selector período -->
+    <div class="card" style="margin-bottom:var(--space-md)">
+      <div class="card-header"><span class="card-title">📅 Seleccionar Período</span></div>
+      <div style="padding:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:flex-end">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Mes</label>
+            <select class="form-input form-select" id="cierre-month">
+              <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+              <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+              <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+              <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Año</label>
+            <input class="form-input" id="cierre-year" type="number" min="2020" max="2099" placeholder="2025">
+          </div>
+          <button class="btn btn-secondary" onclick="previewCierre()" style="white-space:nowrap">👁️ Vista Previa</button>
+        </div>
+      </div>
+    </div>
+    <div id="cierrePreview"></div>
+    <!-- Historial de cierres -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">📋 Historial de Cierres</span></div>
+      <div class="card-body" id="cierreHistorial"><div style="padding:20px;text-align:center;color:var(--text-muted);font-size:var(--fs-xs)">⏳ Cargando...</div></div>
+    </div>
+  </div>
+
+  <!-- CONCILIACIÓN BANCARIA -->
+  <div id="page-conciliacion" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Conciliación Bancaria</div><div class="page-subtitle">Verificar movimientos de banco y caja</div></div>
+    </div>
+    <!-- Filtros -->
+    <div class="card" style="margin-bottom:var(--space-md)">
+      <div class="card-header"><span class="card-title">⚙️ Configuración</span></div>
+      <div style="padding:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Mes</label>
+            <select class="form-input form-select" id="conc-month">
+              <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+              <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+              <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+              <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Año</label>
+            <input class="form-input" id="conc-year" type="number" min="2020" max="2099" placeholder="2025">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Cuenta</label>
+            <select class="form-input form-select" id="conc-account"><option value="">Todas las cuentas</option></select>
+          </div>
+          <button class="btn btn-primary" onclick="loadConciliacion()" style="white-space:nowrap">🔍 Generar</button>
+        </div>
+      </div>
+    </div>
+    <!-- Resumen -->
+    <div id="concResumen"></div>
+    <!-- Tabla movimientos -->
+    <div id="concMovimientos"></div>
+  </div>
+
+
+  <!-- COTIZACIONES -->
+  <div id="page-cotizaciones" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Cotizaciones</div><div class="page-subtitle">Presupuestos para clientes</div></div>
+      <button class="btn btn-primary" onclick="initNewQuote();showPage("nueva-cotizacion",el("nav-cotizaciones"))">+ Nueva Cotización</button>
+    </div>
+    <div class="kpi-grid" id="quoteKpis" style="margin-bottom:var(--space-md)"></div>
+    <div style="display:flex;gap:8px;margin-bottom:var(--space-sm);flex-wrap:wrap">
+      <select class="form-input form-select" id="quote-status-filter" onchange="loadQuotes()" style="width:140px;padding:7px 28px 7px 10px">
+        <option value="">Todas</option><option value="draft">Borrador</option>
+        <option value="sent">Enviada</option><option value="approved">Aprobada</option>
+        <option value="rejected">Rechazada</option><option value="converted">Convertida</option>
+      </select>
+      <input class="form-input" id="quote-search" placeholder="🔍 Buscar..." oninput="loadQuotes()" style="flex:1;min-width:120px;padding:7px 10px">
+    </div>
+    <div class="card"><div class="card-body" id="quotesList"></div></div>
+  </div>
+
+  <!-- NUEVA COTIZACIÓN -->
+  <div id="page-nueva-cotizacion" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Nueva Cotización</div></div>
+      <button class="btn btn-secondary" onclick="showPage("cotizaciones",el("nav-cotizaciones"))">← Volver</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 320px;gap:var(--space-md);align-items:flex-start" class="invoice-form-grid">
+      <div>
+        <div class="card" style="margin-bottom:var(--space-sm)">
+          <div class="card-header"><span class="card-title">📋 Datos</span></div>
+          <div style="padding:16px">
+            <div class="form-grid form-grid-2">
+              <div class="form-group"><label class="form-label">N° Cotización</label><input class="form-input" id="nq-number" placeholder="Auto"></div>
+              <div class="form-group"><label class="form-label">Válida hasta</label><input class="form-input" id="nq-valid" type="date"></div>
+            </div>
+            <div class="form-grid form-grid-2" style="margin-top:10px">
+              <div class="form-group"><label class="form-label">Fecha</label><input class="form-input" id="nq-date" type="date"></div>
+              <div class="form-group"><label class="form-label">Cond. de pago</label><input class="form-input" id="nq-payment-terms" placeholder="Ej: 30 días"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:var(--space-sm)">
+          <div class="card-header"><span class="card-title">👤 Cliente</span></div>
+          <div style="padding:16px">
+            <div class="form-grid form-grid-2">
+              <div class="form-group"><label class="form-label">Cliente</label>
+                <select class="form-input form-select" id="nq-client-id" onchange="onQuoteClientChange()"><option value="">Ocasional</option></select>
+              </div>
+              <div class="form-group"><label class="form-label">RNC</label><input class="form-input" id="nq-rnc" placeholder="000-0000000-0"></div>
+            </div>
+            <div class="form-group" style="margin-top:10px"><label class="form-label">Nombre</label><input class="form-input" id="nq-client-name" placeholder="Nombre del cliente"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:var(--space-sm)">
+          <div class="card-header"><span class="card-title">🛒 Líneas</span></div>
+          <div style="padding:16px"><div id="nq-lines"></div>
+            <button class="btn btn-secondary btn-full" onclick="addQuoteLine()" style="margin-top:8px">+ Agregar línea</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">📝 Términos</span></div>
+          <div style="padding:16px">
+            <div class="form-group" style="margin-bottom:10px"><label class="form-label">Entrega</label><input class="form-input" id="nq-delivery" placeholder="Ej: 5 días hábiles"></div>
+            <div class="form-group"><label class="form-label">Notas</label><textarea class="form-input" id="nq-notes" rows="2" style="resize:vertical"></textarea></div>
+          </div>
+        </div>
+      </div>
+      <div style="position:sticky;top:calc(var(--header-h) + 16px)">
+        <div class="card" style="margin-bottom:var(--space-sm)">
+          <div style="padding:16px">
+            <div class="form-grid form-grid-2">
+              <div class="form-group"><label class="form-label">ITBIS %</label><input class="form-input" id="nq-tax" type="number" value="18" min="0" max="100" oninput="recalcQuote()"></div>
+              <div class="form-group"><label class="form-label">Descuento %</label><input class="form-input" id="nq-discount" type="number" value="0" min="0" max="100" oninput="recalcQuote()"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:var(--space-sm)">
+          <div style="padding:16px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Subtotal</span><span id="nq-subtotal" style="font-family:monospace">RD$ 0.00</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Descuento</span><span id="nq-discount-amt" style="font-family:monospace;color:var(--accent2)">-RD$ 0.00</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">ITBIS</span><span id="nq-tax-amt" style="font-family:monospace">RD$ 0.00</span></div>
+            <div style="height:1px;background:var(--border);margin:10px 0"></div>
+            <div style="display:flex;justify-content:space-between;font-weight:800;font-size:var(--fs-md)"><span>TOTAL</span><span id="nq-total" style="font-family:monospace;color:var(--accent)">RD$ 0.00</span></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="btn btn-secondary btn-full" onclick="saveQuote("draft")">💾 Borrador</button>
+          <button class="btn btn-primary btn-full" onclick="saveQuote("sent")">📤 Enviar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECURRENTES -->
+  <div id="page-recurrentes" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Facturas Recurrentes</div><div class="page-subtitle">Facturación automática periódica</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="processAllDue()">⚡ Generar Vencidas</button>
+        <button class="btn btn-primary" onclick="openRecurringModal()">+ Nueva Plantilla</button>
+      </div>
+    </div>
+    <div id="recurrentesList"></div>
+  </div>
+
+  <!-- RETENCIONES -->
+  <div id="page-retenciones" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Retenciones</div><div class="page-subtitle">ISR e ITBIS — República Dominicana</div></div>
+      <button class="btn btn-primary" onclick="openRetencionModal()">+ Registrar Retención</button>
+    </div>
+    <div id="retencionKpis" class="kpi-grid" style="margin-bottom:var(--space-md)"></div>
+    <div style="display:flex;gap:8px;margin-bottom:var(--space-sm);flex-wrap:wrap;align-items:flex-end">
+      <div class="form-group" style="margin:0;flex:1;min-width:120px"><label class="form-label">Mes</label>
+        <select class="form-input form-select" id="ret-month-filter" onchange="loadRetenciones()">
+          <option value="">Todos</option>
+          <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+          <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+          <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0;width:90px"><label class="form-label">Año</label><input class="form-input" id="ret-year-filter" type="number" placeholder="2025" onchange="loadRetenciones()"></div>
+    </div>
+    <div class="card"><div class="card-body" id="retencionesList"></div></div>
+  </div>
+
+
+  <!-- DGII 606/607 -->
+  <div id="page-dgii" class="page">
+    <div class="page-header">
+      <div><div class="page-title">DGII 606 / 607</div><div class="page-subtitle">Declaración de ITBIS — República Dominicana</div></div>
+    </div>
+    <!-- Selector período -->
+    <div class="card" style="margin-bottom:var(--space-md)">
+      <div class="card-header"><span class="card-title">📅 Período</span></div>
+      <div style="padding:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:flex-end">
+          <div class="form-group" style="margin:0"><label class="form-label">Mes</label>
+            <select class="form-input form-select" id="dgii-month">
+              <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+              <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+              <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+              <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0"><label class="form-label">Año</label><input class="form-input" id="dgii-year" type="number" min="2020" max="2099" placeholder="2025"></div>
+          <button class="btn btn-primary" onclick="loadDGII()" style="white-space:nowrap">📊 Generar</button>
+        </div>
+      </div>
+    </div>
+    <!-- Resumen ITBIS -->
+    <div id="dgiiItbisResumen" style="margin-bottom:var(--space-md)"></div>
+    <!-- Tabs 606/607 -->
+    <div style="display:flex;gap:8px;margin-bottom:var(--space-sm)">
+      <button id="dgiiTab606" class="btn btn-primary" onclick="showDGIITab(606)" style="flex:1;justify-content:center">📋 606 — Compras</button>
+      <button id="dgiiTab607" class="btn btn-secondary" onclick="showDGIITab(607)" style="flex:1;justify-content:center">📋 607 — Ventas</button>
+    </div>
+    <div id="dgii606Content"></div>
+    <div id="dgii607Content" style="display:none"></div>
+  </div>
+
+
+  <!-- ALERTAS -->
+  <div id="page-alertas" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Alertas</div><div class="page-subtitle">Situaciones que requieren atención</div></div>
+      <button class="btn btn-secondary" onclick="renderAlertas()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-9.09"/></svg>
+        Actualizar
+      </button>
+    </div>
+    <div id="alertasContent">
+      <div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Cargando...</div></div>
     </div>
   </div>
 
@@ -907,12 +1221,6 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     <div class="modal-title"><span id="invDetailTitle">Factura</span> <button class="modal-close" onclick="closeModal('invoiceDetailModal')">✕</button></div>
     <div id="invoiceDetailContent"></div>
     <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap" id="invoiceDetailActions"></div>
-    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
-      <div style="font-size:var(--fs-xs);font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px">📒 Asientos Contables</div>
-      <div id="invoiceJournalEntries">
-        <div class="empty" style="padding:16px 0"><div class="empty-icon">⏳</div><div class="empty-title">Cargando asientos...</div></div>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -1293,38 +1601,6 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   </div>
 </div>
 
-<!-- CONCILIACIÓN BANCARIA -->
-<div id="page-conciliacion" class="page">
-  <div class="page-header">
-    <div><div class="page-title">📋 Conciliación Bancaria</div><div class="page-subtitle">Marcar asientos como conciliados</div></div>
-  </div>
-  <div class="card" style="margin-bottom:var(--space-md)">
-    <div class="card-header"><span class="card-title">Filtros</span></div>
-    <div style="padding:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-      <div class="form-group" style="margin:0;flex:1;min-width:120px">
-        <label class="form-label">Desde</label>
-        <input class="form-input" id="conc-from" type="date" onchange="loadConciliacion()">
-      </div>
-      <div class="form-group" style="margin:0;flex:1;min-width:120px">
-        <label class="form-label">Hasta</label>
-        <input class="form-input" id="conc-to" type="date" onchange="loadConciliacion()">
-      </div>
-      <div class="form-group" style="margin:0">
-        <label class="form-label">Solo sin conciliar</label>
-        <input type="checkbox" id="conc-unconciled" onchange="loadConciliacion()" style="width:18px;height:18px;accent-color:var(--orange)">
-      </div>
-      <button class="btn btn-primary" onclick="loadConciliacion()">🔍 Filtrar</button>
-    </div>
-  </div>
-  <div id="concBalanceAlert"></div>
-  <div class="card">
-    <div class="card-header"><span class="card-title">Asientos Contables</span><span id="concCount" style="font-size:var(--fs-2xs);color:var(--text-muted)"></span></div>
-    <div class="card-body" id="conciliacionList">
-      <div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin asientos</div><div class="empty-sub">Aplica un filtro de fechas</div></div>
-    </div>
-  </div>
-</div>
-
 <!-- ADMIN PAGE -->
   <div id="page-admin" class="page" style="position:fixed;top:var(--header-h);left:0;right:0;bottom:0;z-index:90;overflow-y:auto;padding:var(--space-md) var(--pad-x) 80px;background:var(--bg)">
     <div class="page-header">
@@ -1336,23 +1612,116 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
     </div>
   </div>
 
-<!-- MODAL: VER ASIENTO CONTABLE -->
-<div class="modal-backdrop" id="jeViewModal">
-  <div class="modal-box" style="max-width:580px">
-    <div class="modal-title"><span id="jeViewTitle">Asiento Contable</span> <button class="modal-close" onclick="closeModal('jeViewModal')">✕</button></div>
-    <div id="jeViewContent"></div>
+<!-- MODAL: REGISTRAR PAGO -->
+<div class="modal-backdrop" id="payModal">
+  <div class="modal-box" style="max-width:380px">
+    <div class="modal-title">💰 Registrar Pago <button class="modal-close" onclick="closeModal('payModal')">✕</button></div>
+    <div id="payModalInfo" style="font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:14px;background:var(--surface2);border-radius:var(--radius-xs);padding:9px 12px;text-align:center"></div>
+    <div id="payModalError" style="display:none;background:var(--accent2-dim);border:1px solid #ff4d6d40;border-radius:var(--radius-xs);padding:8px;color:var(--accent2);font-size:var(--fs-sm);font-weight:600;margin-bottom:12px"></div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Método de Cobro</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px" id="payMethodBtns">
+        <button onclick="setPayMethod('bank')" id="payMethod-bank" class="btn btn-secondary" style="justify-content:center;font-size:var(--fs-xs);padding:7px 4px">🏦 Banco</button>
+        <button onclick="setPayMethod('cash')" id="payMethod-cash" class="btn btn-secondary" style="justify-content:center;font-size:var(--fs-xs);padding:7px 4px">💵 Efectivo</button>
+        <button onclick="setPayMethod('card')" id="payMethod-card" class="btn btn-secondary" style="justify-content:center;font-size:var(--fs-xs);padding:7px 4px">💳 Tarjeta</button>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px"><label class="form-label">Monto a registrar (RD$)</label><input class="form-input" id="payAmount" type="number" inputmode="decimal" placeholder="0.00"></div>
+    <div class="form-group" style="margin-bottom:14px"><label class="form-label">Fecha del pago</label><input class="form-input" id="payDate" type="date"></div>
+    <div class="form-group" style="margin-bottom:14px"><label class="form-label">Referencia / Notas</label><input class="form-input" id="payNotes" placeholder="Ej: Transferencia #12345"></div>
+    <button class="btn btn-primary btn-full" onclick="submitPay()">✅ Confirmar Pago</button>
   </div>
 </div>
 
-<!-- MODAL: REGISTRAR PAGO -->
-<div class="modal-backdrop" id="payModal">
-  <div class="modal-box" style="max-width:360px">
-    <div class="modal-title">💰 Registrar Pago <button class="modal-close" onclick="closeModal('payModal')">✕</button></div>
-    <div id="payModalInfo" style="font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:14px;text-align:center"></div>
-    <div id="payModalError" style="display:none;background:var(--accent2-dim);border:1px solid #ff4d6d40;border-radius:var(--radius-xs);padding:8px;color:var(--accent2);font-size:var(--fs-sm);font-weight:600;margin-bottom:12px"></div>
-    <div class="form-group" style="margin-bottom:14px"><label class="form-label">Monto a registrar (RD$)</label><input class="form-input" id="payAmount" type="number" inputmode="decimal" placeholder="0.00"></div>
-    <div class="form-group" style="margin-bottom:14px"><label class="form-label">Fecha del pago</label><input class="form-input" id="payDate" type="date"></div>
-    <button class="btn btn-primary btn-full" onclick="submitPay()">Confirmar Pago</button>
+<!-- MODAL: NUEVA PLANTILLA RECURRENTE -->
+<div class="modal-backdrop" id="recurringModal">
+  <div class="modal-box" style="max-width:500px">
+    <div class="modal-title">🔄 Factura Recurrente <button class="modal-close" onclick="closeModal('recurringModal')">✕</button></div>
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Nombre de la plantilla *</label><input class="form-input" id="rec-name" placeholder="Ej: Alquiler mensual, Servicio internet..."></div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Cliente</label><input class="form-input" id="rec-client" placeholder="Nombre del cliente"></div>
+        <div class="form-group"><label class="form-label">Frecuencia *</label>
+          <select class="form-input form-select" id="rec-frequency">
+            <option value="weekly">Semanal</option>
+            <option value="biweekly">Quincenal</option>
+            <option value="monthly" selected>Mensual</option>
+            <option value="bimonthly">Bimestral</option>
+            <option value="quarterly">Trimestral</option>
+            <option value="yearly">Anual</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Descripción del servicio *</label><input class="form-input" id="rec-desc" placeholder="Ej: Servicio de mantenimiento mensual"></div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Monto (sin ITBIS) *</label><input class="form-input" id="rec-amount" type="number" step="0.01" placeholder="0.00" oninput="calcRecTotal()"></div>
+        <div class="form-group"><label class="form-label">ITBIS %</label><input class="form-input" id="rec-tax" type="number" value="0" min="0" max="100" oninput="calcRecTotal()"></div>
+      </div>
+      <div id="rec-total-preview" style="background:var(--surface2);border-radius:6px;padding:10px;font-size:var(--fs-xs);display:none">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-muted)">Total a facturar</span><span id="rec-total-val" style="font-weight:700;color:var(--accent)"></span></div>
+      </div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Primera fecha</label><input class="form-input" id="rec-start" type="date"></div>
+        <div class="form-group"><label class="form-label">Fecha fin (opcional)</label><input class="form-input" id="rec-end" type="date"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Método de cobro</label>
+        <select class="form-input form-select" id="rec-payment">
+          <option value="credit">Crédito (CxC)</option>
+          <option value="bank">Banco/Transferencia</option>
+          <option value="cash">Efectivo</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveRecurring()">✅ Crear Plantilla</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: REGISTRAR RETENCIÓN -->
+<div class="modal-backdrop" id="retencionModal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-title">📋 Registrar Retención <button class="modal-close" onclick="closeModal('retencionModal')">✕</button></div>
+    <div class="form-grid">
+      <!-- Tipo -->
+      <div class="form-group"><label class="form-label">Tipo de Retención *</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="retTipoBtns">
+          <button onclick="setRetTipo('isr')" id="retTipo-isr" class="btn btn-primary" style="justify-content:center">📋 ISR</button>
+          <button onclick="setRetTipo('itbis')" id="retTipo-itbis" class="btn btn-secondary" style="justify-content:center">🧾 ITBIS</button>
+        </div>
+      </div>
+      <div class="form-group" id="ret-subtipo-group"><label class="form-label">Subtipo ISR</label>
+        <select class="form-input form-select" id="ret-subtipo">
+          <option value="servicios">Servicios (10%)</option>
+          <option value="alquileres">Alquileres (10%)</option>
+          <option value="honorarios">Honorarios Profesionales (10%)</option>
+          <option value="otros">Otros (5%)</option>
+        </select>
+      </div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Entidad</label>
+          <select class="form-input form-select" id="ret-entity">
+            <option value="client">Cliente</option>
+            <option value="vendor">Proveedor</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Nombre</label>
+          <select class="form-input form-select" id="ret-entity-id"><option value="">Seleccionar...</option></select>
+        </div>
+      </div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Monto Base (RD$) *</label><input class="form-input" id="ret-base" type="number" step="0.01" placeholder="0.00" oninput="calcRetencion()"></div>
+        <div class="form-group"><label class="form-label">% Retención *</label><input class="form-input" id="ret-pct" type="number" step="0.01" placeholder="10" oninput="calcRetencion()"></div>
+      </div>
+      <div id="ret-calc-preview" style="display:none;background:var(--surface2);border:1px solid var(--accent2)30;border-radius:6px;padding:10px;font-size:var(--fs-xs)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--text-muted)">Monto retenido</span><span id="ret-amount-val" style="font-weight:700;color:var(--accent2)"></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-muted)">Monto neto a recibir</span><span id="ret-net-val" style="font-weight:700;color:var(--accent)"></span></div>
+      </div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label class="form-label">Fecha</label><input class="form-input" id="ret-date" type="date"></div>
+        <div class="form-group"><label class="form-label">NCF del comprobante</label><input class="form-input" id="ret-ncf" placeholder="B0100000001"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Notas</label><input class="form-input" id="ret-notes" placeholder="Referencia o descripción"></div>
+      <button class="btn btn-primary btn-full" onclick="saveRetencion()">✅ Registrar Retención</button>
+    </div>
   </div>
 </div>
 
@@ -1431,7 +1800,7 @@ async function doLogin() {
   const password = el('loginPassword').value;
   el('loginError').style.display = 'none';
   if (!username || !password) { el('loginError').textContent='Completa usuario y contraseña'; el('loginError').style.display='block'; return; }
-  const btn = el('loginBtn'); btn.innerHTML='<span class="spinner"></span> Verificando...'; btn.disabled=true;
+  const btn = el('loginBtn'); btn.textContent='Verificando...'; btn.disabled=true;
   try {
     const res = await fetch(SERVER_URL+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
     const d = await res.json();
@@ -1513,79 +1882,22 @@ const FAB_ACTIONS = {
   'activos':          ()=> openAssetModal(),
   'ingresos':         ()=> openIncomeModal(),
   'tipos-ingreso':    ()=> openIncomeTypeModal(),
+  'cotizaciones':     ()=> { initNewQuote(); showPage('nueva-cotizacion',el('nav-cotizaciones')); },
+  'recurrentes':      ()=> openRecurringModal(),
+  'retenciones':      ()=> openRetencionModal(),
+  'alertas':          null,
+  'dgii':             null,
+  'cierre':           null,
+  'conciliacion':     null,
+  'nueva-cotizacion': null,
   'admin':            null,
 };
 let _currentPage = 'dashboard';
 function fabAction() { const fn = FAB_ACTIONS[_currentPage]; if(fn) fn(); }
 
 // ─── NAV ──────────────────────────────────────────────────────────────────────
-
-async function loadConciliacion() {
-  const from = el('conc-from').value;
-  const to = el('conc-to').value;
-  const onlyUnconciled = el('conc-unconciled').checked;
-  const container = el('conciliacionList');
-  container.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Cargando...</div></div>';
-  el('concBalanceAlert').innerHTML = '';
-  try {
-    let url = '/api/journal?limit=200';
-    if (from) url += '&from=' + from;
-    if (to) url += '&to=' + to;
-    const entries = await apiFetch(url);
-    let filtered = entries.filter(e => {
-      if (onlyUnconciled && e.reconciled) return false;
-      return true;
-    });
-    if (!filtered.length) {
-      container.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin asientos</div><div class="empty-sub">No hay asientos en el periodo</div></div>';
-      return;
-    }
-    let totalDebit = 0, totalCredit = 0;
-    el('concCount').textContent = filtered.length + ' asientos';
-    container.innerHTML = filtered.map(e => {
-      totalDebit += Number(e.debit||0);
-      totalCredit += Number(e.credit||0);
-      return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:12px;margin-bottom:6px;display:flex;align-items:center;gap:10px'+(e.reconciled?';opacity:0.6':'')+'">'+
-        '<input type="checkbox" class="conc-check" data-id="'+e.id+'" '+(e.reconciled?'checked ':'')+'onchange="toggleConciliacion(\''+e.id+'\',this.checked)" style="width:18px;height:18px;flex-shrink:0">'+
-        '<div style="flex:1;min-width:0">'+
-          '<div style="font-weight:700;font-size:var(--fs-xs)">'+e.description+'</div>'+
-          '<div style="font-size:var(--fs-2xs);color:var(--text-muted)">'+(e.date||'')+'</div>'+
-        '</div>'+
-        '<div style="text-align:right;flex-shrink:0">'+
-          '<div style="color:var(--accent2);font-family:monospace;font-size:var(--fs-xs)">RD$ '+fmt(e.debit||0)+'</div>'+
-          '<div style="color:var(--accent);font-family:monospace;font-size:var(--fs-xs)">RD$ '+fmt(e.credit||0)+'</div>'+
-        '</div>'+
-        '<div style="flex-shrink:0">'+(e.reconciled?'<span style="color:var(--accent);font-size:var(--fs-2xs)">✅</span>':'<span style="color:var(--text-muted);font-size:var(--fs-2xs)">⏳</span>')+'</div>'+
-      '</div>';
-    }).join('');
-    const diff = Math.abs(totalDebit - totalCredit);
-    if (diff > 0.01) {
-      el('concBalanceAlert').innerHTML = '<div style="background:#ff444420;border:1px solid #ff4444;border-radius:8px;padding:10px 14px;font-size:var(--fs-xs);color:#ff4444;margin-bottom:12px">⚠️ Diferencia: RD$ '+fmt(diff)+'</div>';
-    }
-  } catch(e) {
-    container.innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">'+e.message+'</div></div>';
-  }
-}
-
-async function toggleConciliacion(id, checked) {
-  try {
-    await apiFetch('/api/journal/'+id, {method:'PUT', body: JSON.stringify({reconciled: checked})});
-    loadConciliacion();
-  } catch(e) { toast('Error: '+e.message,'error'); }
-}
-
 function showPage(id, btn) {
   _currentPage = id;
-  if (id === 'conciliacion') {
-    if (!el('conc-from').value) {
-      const now = new Date();
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      el('conc-from').value = firstDay;
-      el('conc-to').value = now.toISOString().split('T')[0];
-    }
-    loadConciliacion();
-  }
-
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
   const pageEl = el('page-'+id);
@@ -1611,11 +1923,15 @@ function showPage(id, btn) {
   if (id==='tipos-ingreso')   renderTiposIngreso();
   if (id==='facturas')        loadInvoices();
   if (id==='nueva-factura')   initNewInvoice();
+  if (id==='cotizaciones')    loadQuotes();
+  if (id==='recurrentes')     loadRecurrentes();
+  if (id==='retenciones')     loadRetenciones();
   if (id==='reportes')        { const now=new Date(); el('rep-month').value=now.getMonth()+1; }
-  if (id==='conciliacion')    loadConciliacion();
+  if (id==='alertas')         renderAlertas();
+  if (id==='dgii')            initDGIIPage();
+  if (id==='cierre')          initCierrePage();
+  if (id==='conciliacion')    initConciliacionPage();
   if (id==='admin')           renderAdmin();
-  // Hash routing
-  try { history.replaceState(null, '', '#' + id); } catch(e) {}
 }
 
 function setMobActive(id) { document.querySelectorAll('.mob-nav-btn').forEach(b=>b.classList.remove('active')); el(id).classList.add('active'); }
@@ -1702,11 +2018,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (currentUser?.token && !window.__sessionExpired) {
     showApp().catch(() => clearSession());
   }
-  // Hash routing: navigate to hash on load
-  const hash = location.hash?.replace('#', '');
-  if (hash && typeof showPage === 'function') {
-    setTimeout(() => showPage(hash), 100);
-  }
   // Backup click handler for login button
   const loginBtn = document.getElementById('loginBtn');
   if (loginBtn) loginBtn.addEventListener('click', function(e) {
@@ -1718,29 +2029,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
   ['prod-cost','prod-price','edit-prod-cost','edit-prod-price'].forEach(id=>{
     const el2=document.getElementById(id); if(el2) el2.addEventListener('input',calcMargin);
   });
-  // Autoguardado de borrador cada 30 segundos
-  setInterval(() => {
-    const activePage = document.querySelector('[id^="page-"]:not([style*="display: none"])');
-    const pageId = activePage?.id?.replace('page-','');
-    if (pageId === 'nueva-factura') {
-      const rows = window._invoiceRows || [];
-      if (rows.length > 0 || el('nf-client')?.value || el('nf-number')?.value) {
-        localStorage.setItem('invoiceDraft', JSON.stringify({
-          client: el('nf-client')?.value,
-          rnc: el('nf-rnc')?.value,
-          number: el('nf-number')?.value,
-          date: el('nf-date')?.value,
-          dueDate: el('nf-due-date')?.value,
-          paymentMethod: el('nf-payment-method')?.value,
-          rows: window._invoiceRows || [],
-          discount: el('nf-discount')?.value,
-          notes: el('nf-notes')?.value,
-          tax: el('nf-tax')?.value,
-          saved: new Date().toISOString()
-        }));
-      }
-    }
-  }, 30000);
 });
 
 async function saveProduct() {
@@ -1810,11 +2098,6 @@ async function deleteProduct(id) {
 }
 
 let _allProducts = [];
-// Debounce utility
-function debounce(fn, ms) { let t; return function(...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); }; }
-function debounceFilterProducts() { debounce(filterProducts, 300)(); }
-function debounceLoadInvoices() { debounce(loadInvoices, 300)(); }
-
 function filterProducts() {
   const search = (el('prod-search')?.value||'').toLowerCase();
   const cat    = el('prod-cat-filter')?.value||'';
@@ -2051,10 +2334,6 @@ async function renderMovimientosInv() {
       const qty     = isEntry?'+'+m.quantity:'-'+m.quantity;
       const color   = MOV_TYPE_COLORS[m.type]||'var(--text-muted)';
       const total   = isEntry ? m.quantity*m.unit_cost : m.quantity*m.unit_price;
-      // Journal entry link if exists
-      const jeLink = m.je_id || m.journal_entry_id
-        ? `<button class="btn btn-sm btn-secondary" onclick="viewMovementJournalEntry('${m.je_id||m.journal_entry_id}')" style="margin-top:6px;font-size:10px;padding:3px 8px">📒 Asiento #${m.je_id||m.journal_entry_id}</button>`
-        : '';
       return `<div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--radius-xs);padding:12px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
           <div style="flex:1;min-width:0">
@@ -2070,43 +2349,9 @@ async function renderMovimientosInv() {
           ${isEntry?`<span>Costo unit: <strong>RD$ ${fmt(m.unit_cost)}</strong></span>`:`<span>Precio unit: <strong>RD$ ${fmt(m.unit_price)}</strong></span>`}
           <span>Total: <strong style="color:${color}">RD$ ${fmt(total)}</strong></span>
         </div>
-        ${jeLink}
       </div>`;
     }).join('')+'</div>';
   } catch(e) { container.innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">'+e.message+'</div></div>'; }
-}
-
-// View journal entry from inventory movement
-async function viewMovementJournalEntry(jeId) {
-  el('jeViewTitle').textContent = `Asiento #${jeId}`;
-  el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⏳</div><div class="empty-title">Cargando...</div></div>';
-  openModal('jeViewModal');
-  apiFetch('/api/journal/' + jeId).then(entry => {
-    if (!entry) throw new Error('No encontrado');
-    const lines = entry.lines || [];
-    let debits = 0, credits = 0;
-    el('jeViewContent').innerHTML = `<div style="overflow-x:auto">
-      <table class="data-table"><thead><tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead><tbody>
-        ${lines.map(l => {
-          debits += Number(l.debit||0);
-          credits += Number(l.credit||0);
-          return `<tr>
-            <td class="num" style="font-weight:700">${entry.je_number||entry.id}</td>
-            <td style="font-size:var(--fs-2xs)">${entry.date||'—'}</td>
-            <td style="font-size:var(--fs-xs)">${entry.description||'—'}</td>
-            <td>${l.account_name||'—'}</td>
-            <td class="num" style="color:var(--accent2)">RD$ ${fmt(l.debit||0)}</td>
-            <td class="num" style="color:var(--accent)">RD$ ${fmt(l.credit||0)}</td>
-          </tr>`;
-        }).join('')}
-      </tbody></table></div>
-      <div class="balance-indicator ${Math.abs(debits-credits)<0.01?'ok':'mismatch'}" style="margin-top:8px">
-        Débito: RD$ ${fmt(debits)} | Crédito: RD$ ${fmt(credits)}
-        ${Math.abs(debits-credits)<0.01?' ✅':' ⚠️ Desc'}
-      </div>`;
-  }).catch(() => {
-    el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⚠️</div><div class="empty-title">Asiento no encontrado</div></div>';
-  });
 }
 
 async function renderStock() {
@@ -2305,43 +2550,11 @@ function renderCxc() {
       </div>
       <div style="font-size:var(--fs-2xs);color:var(--text-muted);margin-bottom:8px">📅 ${due}</div>
       <div style="display:flex;gap:6px">
-        ${pendFinal>0?`<button class="btn btn-sm btn-secondary" onclick="openPayModal('cxc','${r.id}',${pendFinal})" style="flex:1;justify-content:center">💰 Registrar Pago</button>`:''}
-        <button class="btn btn-sm btn-secondary" onclick="showCxcJournalEntry('${r.id}')" style="padding:5px 8px;font-size:11px">📒 Asiento</button>
+        ${pendFinal>0?`<button class="btn btn-sm btn-secondary" onclick="openPayModal('cxc','${r.id}',${pendFinal},'${c.name.replace(/'/g,'\`')}')" style="flex:1;justify-content:center">💰 Registrar Pago</button>`:''}
         <button onclick="deleteCxc('${r.id}')" style="background:var(--accent2-dim);border:1px solid var(--accent2)50;border-radius:6px;padding:5px 10px;color:var(--accent2);font-size:12px;cursor:pointer">🗑️</button>
       </div>
     </div>`;
   }).join('')+'</div>';
-}
-
-// Modal for viewing CXC journal entry
-function showCxcJournalEntry(receivableId) {
-  const rec = receivables.find(r => r.id === receivableId);
-  if (!rec) return;
-  el('jeViewTitle').textContent = `Asiento — CxC ${rec.description || ''}`;
-  el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⏳</div><div class="empty-title">Buscando asiento...</div></div>';
-  openModal('jeViewModal');
-  // Find journal entries by invoice_number or ref_type/ref_id
-  apiFetch('/api/journal?ref_type=receivable&ref_id=' + receivableId).then(entries => {
-    if (!entries || !entries.length) {
-      el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">📋</div><div class="empty-title">Sin asiento contable</div><div class="empty-sub">Esta CxC aún no tiene asiento generado</div></div>';
-      return;
-    }
-    let debits = 0, credits = 0;
-    el('jeViewContent').innerHTML = `<div style="overflow-x:auto">
-      <table class="data-table"><thead><tr><th>#</th><th>Fecha</th><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead><tbody>
-        ${entries.map(e => {
-          debits += Number(e.debit||0);
-          credits += Number(e.credit||0);
-          return `<tr><td class="num" style="font-weight:700">${e.je_number||e.id}</td><td style="font-size:var(--fs-2xs)">${e.date||'—'}</td><td>${e.account_name||'—'}</td><td class="num" style="color:var(--accent2)">RD$ ${fmt(e.debit||0)}</td><td class="num" style="color:var(--accent)">RD$ ${fmt(e.credit||0)}</td></tr>`;
-        }).join('')}
-      </tbody></table></div>
-      <div class="balance-indicator ${Math.abs(debits-credits)<0.01?'ok':'mismatch'}" style="margin-top:8px">
-        Débito: RD$ ${fmt(debits)} | Crédito: RD$ ${fmt(credits)}
-        ${Math.abs(debits-credits)<0.01?' ✅':' ⚠️ Desc'}
-      </div>`;
-  }).catch(() => {
-    el('jeViewContent').innerHTML = '<div class="empty" style="padding:20px 0"><div class="empty-icon">⚠️</div><div class="empty-title">Sin asiento</div><div class="empty-sub">No se encontraron asientos contables para esta CxC</div></div>';
-  });
 }
 
 // ─── CXP ──────────────────────────────────────────────────────────────────────
@@ -2382,7 +2595,7 @@ function renderCxp() {
       </div>
       <div style="font-size:var(--fs-2xs);color:var(--text-muted);margin-bottom:8px">📅 ${due}</div>
       <div style="display:flex;gap:6px">
-        ${pendFinal>0?`<button class="btn btn-sm btn-secondary" onclick="openPayModal('cxp','${p.id}',${pendFinal})" style="flex:1;justify-content:center">💰 Registrar Pago</button>`:''}
+        ${pendFinal>0?`<button class="btn btn-sm btn-secondary" onclick="openPayModal('cxp','${p.id}',${pendFinal},'${v.name.replace(/'/g,'\`')}')" style="flex:1;justify-content:center">💰 Registrar Pago</button>`:''}
         <button onclick="deleteCxp('${p.id}')" style="background:var(--accent2-dim);border:1px solid var(--accent2)50;border-radius:6px;padding:5px 10px;color:var(--accent2);font-size:12px;cursor:pointer">🗑️</button>
       </div>
     </div>`;
@@ -2390,27 +2603,262 @@ function renderCxp() {
 }
 
 // ─── PAYMENT MODAL ────────────────────────────────────────────────────────────
-function openPayModal(type, id, max) {
+let _payMethod = 'bank';
+function setPayMethod(m) {
+  _payMethod = m;
+  ['bank','cash','card'].forEach(k => {
+    const btn = el('payMethod-'+k);
+    if (!btn) return;
+    if (k === m) {
+      btn.style.background='var(--orange)'; btn.style.color='#000'; btn.style.borderColor='var(--orange)';
+    } else {
+      btn.style.background='var(--surface2)'; btn.style.color='var(--text-secondary)'; btn.style.borderColor='var(--border2)';
+    }
+  });
+}
+
+function openPayModal(type, id, max, clientName='') {
   _payType=type; _payId=id; _payMax=max;
+  _payMethod='bank';
   el('payAmount').value=''; el('payAmount').max=max;
   el('payDate').value=new Date().toISOString().split('T')[0];
-  el('payModalInfo').textContent='Máximo: RD$ '+fmt(max);
+  el('payNotes').value='';
+  el('payModalInfo').innerHTML=`${clientName?'<strong>'+clientName+'</strong><br>':''}Pendiente: <strong style="color:var(--accent)">RD$ ${fmt(max)}</strong>`;
   el('payModalError').style.display='none';
+  setPayMethod('bank');
   openModal('payModal');
 }
+
 async function submitPay() {
-  const amount=parseFloat(el('payAmount').value);
-  const payment_date=el('payDate').value||new Date().toISOString().split('T')[0];
-  const errEl=el('payModalError');
+  const amount       = parseFloat(el('payAmount').value);
+  const payment_date = el('payDate').value||new Date().toISOString().split('T')[0];
+  const notes        = el('payNotes').value.trim();
+  const errEl        = el('payModalError');
+  errEl.style.display='none';
   if (!amount||amount<=0) { errEl.textContent='Ingresa un monto válido'; errEl.style.display='block'; return; }
-  if (amount>_payMax) { errEl.textContent='El monto excede lo pendiente'; errEl.style.display='block'; return; }
+  if (amount > _payMax+0.01) { errEl.textContent=`El monto excede lo pendiente (RD$ ${fmt(_payMax)})`; errEl.style.display='block'; return; }
   try {
-    const endpoint = _payType==='cxc' ? `/api/receivables/${_payId}/payments` : `/api/payables/${_payId}/payments`;
-    await apiFetch(endpoint,{method:'POST',body:JSON.stringify({amount, payment_date})});
-    toast('✅ Pago registrado'); closeModal('payModal');
-    receivables=await apiFetch('/api/receivables'); payables=await apiFetch('/api/payables');
+    const endpoint = _payType==='cxc'
+      ? `/api/receivables/${_payId}/payments`
+      : `/api/payables/${_payId}/payments`;
+    const r = await apiFetch(endpoint, {
+      method:'POST',
+      body: JSON.stringify({ amount, payment_date, notes: notes||null, payment_method: _payMethod })
+    });
+    const pmEmojis = {bank:'🏦',cash:'💵',card:'💳'};
+    const statusTxt = r.new_status==='paid' ? '✅ SALDADO' : `📋 Parcial — Resta RD$ ${fmt(r.outstanding||0)}`;
+    toast(`${pmEmojis[_payMethod]||'💰'} Pago registrado · ${statusTxt}`);
+    closeModal('payModal');
+    receivables = await apiFetch('/api/receivables');
+    payables    = await apiFetch('/api/payables');
+    incomeTypes = await apiFetch('/api/income-types/with-totals');
     renderCxc(); renderCxp(); renderDashboard();
-  } catch(e) { errEl.textContent='Error: '+e.message; errEl.style.display='block'; }
+    if (_currentPage==='ingresos') renderIngresos();
+  } catch(e) {
+    let msg = e.message; try{msg=JSON.parse(msg).error||msg;}catch{}
+    errEl.textContent='Error: '+msg; errEl.style.display='block';
+  }
+}
+
+// ─── CIERRE DE PERÍODO ────────────────────────────────────────────────────────
+async function initCierrePage() {
+  const now = new Date();
+  el('cierre-month').value = now.getMonth()+1;
+  el('cierre-year').value  = now.getFullYear();
+  await loadCierreHistorial();
+}
+
+async function previewCierre() {
+  const month = el('cierre-month').value;
+  const year  = el('cierre-year').value;
+  if (!year) { toast('Ingresa el año','error'); return; }
+  const prev = el('cierrePreview');
+  prev.innerHTML='<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Calculando...</div></div>';
+  try {
+    const data = await apiFetch(`/api/cierre/preview?month=${month}&year=${year}`);
+    if (data.already_closed) {
+      prev.innerHTML=`<div class="card" style="margin-bottom:var(--space-md)"><div style="padding:20px;text-align:center"><div style="font-size:28px;margin-bottom:8px">✅</div><div style="font-weight:700;color:var(--accent)">El período ${month}/${year} ya fue cerrado</div></div></div>`;
+      return;
+    }
+    const mColor = data.utilidad_neta >= 0 ? 'var(--accent)' : 'var(--accent2)';
+    prev.innerHTML=`
+      <div class="card" style="margin-bottom:var(--space-md)">
+        <div class="card-header"><span class="card-title">👁️ Vista Previa — ${month}/${year}</span></div>
+        <div style="padding:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+            <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Ingresos</div>
+              <div style="font-family:monospace;font-weight:700;color:var(--accent);margin-top:4px">RD$ ${fmt(data.ingresos)}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">CMV</div>
+              <div style="font-family:monospace;font-weight:700;color:var(--accent2);margin-top:4px">RD$ ${fmt(data.costos)}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Gastos</div>
+              <div style="font-family:monospace;font-weight:700;color:var(--accent2);margin-top:4px">RD$ ${fmt(data.gastos)}</div>
+            </div>
+            <div style="background:var(--surface2);border:2px solid ${mColor}40;border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Utilidad Neta</div>
+              <div style="font-family:monospace;font-weight:800;color:${mColor};margin-top:4px">RD$ ${fmt(data.utilidad_neta)}</div>
+            </div>
+          </div>
+          <div style="background:var(--surface2);border-left:3px solid var(--orange);border-radius:var(--radius-xs);padding:12px;margin-bottom:14px;font-size:var(--fs-xs)">
+            <div style="font-weight:700;margin-bottom:6px">📋 El asiento de cierre hará:</div>
+            <div style="color:var(--text-secondary);line-height:1.8">
+              • Llevar la Utilidad Neta (RD$ ${fmt(data.utilidad_neta)}) a <strong>Utilidades Retenidas</strong><br>
+              • Resetear a <strong>0</strong> todas las cuentas de Ingresos, Costos y Gastos<br>
+              • Crear asiento de cierre en el Diario Contable<br>
+              • <strong>⚠️ Esta acción no se puede deshacer</strong>
+            </div>
+          </div>
+          ${data.advertencias.length > 0 ? `<div style="background:var(--accent3-dim);border:1px solid var(--accent3)40;border-radius:var(--radius-xs);padding:10px;margin-bottom:14px;font-size:var(--fs-xs);color:var(--accent3)">${data.advertencias.map(a=>'⚠️ '+a).join('<br>')}</div>` : ''}
+          <button class="btn btn-primary btn-full" onclick="ejecutarCierre(${month},${year})" style="background:var(--accent2)">
+            🔒 Ejecutar Cierre de Período ${month}/${year}
+          </button>
+        </div>
+      </div>`;
+  } catch(e) { prev.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+async function ejecutarCierre(month, year) {
+  if (!confirm(`¿Confirmas el cierre de período ${month}/${year}?\n\nEsta acción:\n• Lleva la utilidad a Utilidades Retenidas\n• Resetea saldos de Ingresos, Costos y Gastos\n• NO se puede deshacer`)) return;
+  try {
+    showLoading(true);
+    const r = await apiFetch('/api/cierre', { method:'POST', body: JSON.stringify({ month, year }) });
+    toast(`✅ Período ${month}/${year} cerrado — Utilidad: RD$ ${fmt(r.utilidad_neta)}`);
+    el('cierrePreview').innerHTML=`<div class="card" style="margin-bottom:var(--space-md)"><div style="padding:20px;text-align:center"><div style="font-size:32px;margin-bottom:8px">✅</div><div style="font-weight:700;color:var(--accent)">¡Período ${month}/${year} cerrado exitosamente!</div><div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:6px">Utilidad trasladada a Utilidades Retenidas: RD$ ${fmt(r.utilidad_neta)}</div></div></div>`;
+    accounts = await apiFetch('/api/accounts');
+    renderPlan();
+    await loadCierreHistorial();
+  } catch(e) {
+    let msg = e.message; try{msg=JSON.parse(msg).error||msg;}catch{}
+    toast('Error: '+msg,'error');
+  } finally { showLoading(false); }
+}
+
+async function loadCierreHistorial() {
+  const container = el('cierreHistorial');
+  try {
+    const data = await apiFetch('/api/cierre/historial');
+    if (!data.length) {
+      container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:var(--fs-xs)">Sin cierres realizados aún</div>';
+      return;
+    }
+    const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    container.innerHTML='<table class="data-table"><thead><tr><th>Período</th><th class="num">Ingresos</th><th class="num">CMV + Gastos</th><th class="num">Utilidad</th><th>Fecha Cierre</th></tr></thead><tbody>'+
+      data.map(c=>`<tr>
+        <td style="font-weight:700">${MESES[c.month]} ${c.year}</td>
+        <td class="num" style="color:var(--accent)">RD$ ${fmt(c.ingresos)}</td>
+        <td class="num" style="color:var(--accent2)">RD$ ${fmt(parseFloat(c.costos||0)+parseFloat(c.gastos||0))}</td>
+        <td class="num" style="color:${parseFloat(c.utilidad_neta)>=0?'var(--accent)':'var(--accent2)'};font-weight:700">RD$ ${fmt(c.utilidad_neta)}</td>
+        <td style="font-size:var(--fs-2xs);color:var(--text-muted)">${new Date(c.closed_at).toLocaleDateString('es-DO')}</td>
+      </tr>`).join('')+
+      '</tbody></table>';
+  } catch(e) { container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+// ─── CONCILIACIÓN BANCARIA ────────────────────────────────────────────────────
+async function initConciliacionPage() {
+  const now = new Date();
+  el('conc-month').value = now.getMonth()+1;
+  el('conc-year').value  = now.getFullYear();
+  // Cargar cuentas disponibles
+  try {
+    const data = await apiFetch('/api/conciliacion?month=1&year=2000');
+    const sel = el('conc-account');
+    sel.innerHTML = '<option value="">Todas las cuentas banco/caja</option>' +
+      (data.accounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${a.name}</option>`).join('');
+  } catch{}
+}
+
+async function loadConciliacion() {
+  const month   = el('conc-month').value;
+  const year    = el('conc-year').value;
+  const account = el('conc-account').value;
+  if (!year) { toast('Ingresa el año','error'); return; }
+  el('concResumen').innerHTML='<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Generando conciliación...</div></div>';
+  el('concMovimientos').innerHTML='';
+  try {
+    let url = `/api/conciliacion?month=${month}&year=${year}`;
+    if (account) url += `&account_code=${account}`;
+    const data = await apiFetch(url);
+    const s = data.summary;
+    const movs = data.movements || [];
+
+    // Resumen
+    el('concResumen').innerHTML=`
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:var(--space-md)">
+        <div class="kpi-card blue"><div class="kpi-label">Saldo Inicial</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(s.saldo_inicial)}</div><div class="kpi-sub">Inicio del período</div></div>
+        <div class="kpi-card green"><div class="kpi-label">Entradas</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(s.total_entradas)}</div><div class="kpi-sub">${movs.filter(m=>m.debit>0).length} movimientos</div></div>
+        <div class="kpi-card red"><div class="kpi-label">Salidas</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(s.total_salidas)}</div><div class="kpi-sub">${movs.filter(m=>m.credit>0).length} movimientos</div></div>
+        <div class="kpi-card ${parseFloat(s.saldo_final)>=0?'green':'red'}"><div class="kpi-label">Saldo Final</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(s.saldo_final)}</div><div class="kpi-sub">Libro contable</div></div>
+      </div>`;
+
+    if (!movs.length) {
+      el('concMovimientos').innerHTML='<div class="empty"><div class="empty-icon">🏦</div><div class="empty-title">Sin movimientos en este período</div><div class="empty-sub">Registra transacciones bancarias primero</div></div>';
+      return;
+    }
+
+    const REF_LABELS = { invoice:'Factura', receivable:'CxC', payable:'CxP', cmv:'CMV', period_close:'Cierre', manual:'Manual', receivable_payment:'Cobro' };
+    el('concMovimientos').innerHTML=`
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📋 Movimientos — ${s.period}</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:var(--fs-2xs);color:var(--text-muted)">${movs.length} líneas</span>
+            <button onclick="marcarTodosConciliados()" class="btn btn-sm btn-secondary">✅ Marcar todos</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table" id="concTable">
+            <thead><tr>
+              <th style="width:32px">✓</th>
+              <th>Fecha</th>
+              <th>Descripción</th>
+              <th>Cuenta</th>
+              <th>Ref.</th>
+              <th class="num">Entrada</th>
+              <th class="num">Salida</th>
+              <th class="num">Saldo</th>
+            </tr></thead>
+            <tbody>
+              ${movs.map((m,idx)=>`
+                <tr id="concRow-${idx}" style="${m.conciliado?'opacity:0.5':''}">
+                  <td><input type="checkbox" ${m.conciliado?'checked':''} onchange="toggleConciliado('${m.line_id}',this.checked,${idx})"
+                    style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer"></td>
+                  <td style="white-space:nowrap;font-size:var(--fs-xs)">${m.date||''}</td>
+                  <td>
+                    <div style="font-size:var(--fs-xs);font-weight:600">${m.description||''}</div>
+                    ${m.auxiliary_name?`<div style="font-size:9px;color:var(--text-muted)">${m.auxiliary_name}</div>`:''}
+                  </td>
+                  <td style="font-size:var(--fs-2xs);color:var(--text-muted)">${m.account_name||''}</td>
+                  <td><span style="font-size:9px;padding:2px 6px;border-radius:50px;background:var(--surface3);color:var(--text-muted)">${REF_LABELS[m.ref_type]||m.ref_type||'—'}</span></td>
+                  <td class="num" style="color:var(--accent);font-weight:700">${m.debit>0?'RD$ '+fmt(m.debit):'—'}</td>
+                  <td class="num" style="color:var(--accent2);font-weight:700">${m.credit>0?'RD$ '+fmt(m.credit):'—'}</td>
+                  <td class="num" style="font-weight:700;color:${m.balance>=0?'var(--text)':'var(--accent2)'}">RD$ ${fmt(m.balance)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  } catch(e) {
+    el('concResumen').innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">${e.message}</div></div>`;
+    el('concMovimientos').innerHTML='';
+  }
+}
+
+async function toggleConciliado(lineId, checked, rowIdx) {
+  try {
+    await apiFetch('/api/conciliacion/mark', { method:'POST', body: JSON.stringify({ line_id: lineId, conciliado: checked }) });
+    const row = el(`concRow-${rowIdx}`);
+    if (row) row.style.opacity = checked ? '0.5' : '1';
+  } catch(e) { toast('Error al actualizar: '+e.message,'error'); }
+}
+
+async function marcarTodosConciliados() {
+  const checkboxes = document.querySelectorAll('#concTable input[type=checkbox]');
+  for (const cb of checkboxes) { if (!cb.checked) cb.click(); }
 }
 
 // ─── DIARIO ───────────────────────────────────────────────────────────────────
@@ -2762,7 +3210,6 @@ async function loadReportes() {
   const month = el('rep-month').value;
   const yr    = new Date().getFullYear();
   el('reportesContent').innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Generando reportes...</div></div>';
-  // Destroy old charts
   Object.values(_reportCharts).forEach(c => { try { c.destroy(); } catch{} });
   _reportCharts = {};
   try {
@@ -2773,6 +3220,7 @@ async function loadReportes() {
     ]);
     const netCF  = Number(cf.net||0);
     const inc    = Number(is.revenues||is.income||0);
+    const costos = Number(is.costs||is.costos||0);
     const gastos = Number(is.expenses||is.gastos||0);
     const netIS  = Number(is.net_income||0);
     const balAssets = Number(bal.assets||0);
@@ -2781,25 +3229,50 @@ async function loadReportes() {
     const cashIn  = Number(cf.cash_in||cf.cashIn||0);
     const cashOut = Number(cf.cash_out||cf.cashOut||0);
 
+    // Margen Bruto = Ventas - CMV
+    const margenBruto    = inc - costos;
+    const margenBrutoPct = inc > 0 ? (margenBruto/inc*100).toFixed(1) : 0;
+    const margenNetoPct  = inc > 0 ? (netIS/inc*100).toFixed(1) : 0;
+
     el('reportesContent').innerHTML = `
-      <!-- KPI Row -->
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:var(--space-md)">
-        <div class="kpi-card green"><div class="kpi-label">Ingresos</div><div class="kpi-value">RD$ ${fmt(inc)}</div></div>
-        <div class="kpi-card red"><div class="kpi-label">Gastos</div><div class="kpi-value">RD$ ${fmt(gastos)}</div></div>
-        <div class="kpi-card ${netIS>=0?'green':'red'}"><div class="kpi-label">Utilidad Neta</div><div class="kpi-value">RD$ ${fmt(netIS)}</div></div>
-        <div class="kpi-card ${netCF>=0?'green':'red'}"><div class="kpi-label">Flujo de Caja</div><div class="kpi-value">RD$ ${fmt(netCF)}</div></div>
+      <!-- KPIs fila 1: Ventas y márgenes -->
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:10px">
+        <div class="kpi-card green"><div class="kpi-label">Ingresos / Ventas</div><div class="kpi-value" style="font-size:clamp(13px,3vw,18px)">RD$ ${fmt(inc)}</div><div class="kpi-sub">Facturado neto</div></div>
+        <div class="kpi-card red"><div class="kpi-label">CMV (Costo Mercancía)</div><div class="kpi-value" style="font-size:clamp(13px,3vw,18px)">RD$ ${fmt(costos)}</div><div class="kpi-sub">Costo de lo vendido</div></div>
+        <div class="kpi-card ${margenBruto>=0?'blue':'red'}"><div class="kpi-label">Margen Bruto</div><div class="kpi-value" style="font-size:clamp(13px,3vw,18px)">RD$ ${fmt(margenBruto)}</div><div class="kpi-sub">${margenBrutoPct}% sobre ventas</div></div>
+        <div class="kpi-card ${netIS>=0?'green':'red'}"><div class="kpi-label">Utilidad Neta</div><div class="kpi-value" style="font-size:clamp(13px,3vw,18px)">RD$ ${fmt(netIS)}</div><div class="kpi-sub">${margenNetoPct}% margen neto</div></div>
       </div>
 
-      <!-- Gráfica: Ingresos vs Gastos -->
+      <!-- Estado de Resultados simplificado -->
       <div class="card" style="margin-bottom:var(--space-md)">
-        <div class="card-header"><span class="card-title">📊 Ingresos vs Gastos</span></div>
+        <div class="card-header"><span class="card-title">📋 Estado de Resultados</span></div>
+        <div style="padding:16px">
+          <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:var(--fs-xs)"><span style="color:var(--text-secondary)">Ventas Netas</span><span style="font-family:monospace;font-weight:700;color:var(--accent)">RD$ ${fmt(inc)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:var(--fs-xs)"><span style="color:var(--text-secondary)">(−) CMV</span><span style="font-family:monospace;font-weight:700;color:var(--accent2)">RD$ ${fmt(costos)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:2px solid var(--border2);font-size:var(--fs-sm);font-weight:700"><span>= Utilidad Bruta</span><span style="font-family:monospace;color:${margenBruto>=0?'var(--accent4)':'var(--accent2)'}">RD$ ${fmt(margenBruto)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:var(--fs-xs)"><span style="color:var(--text-secondary)">(−) Gastos Operativos</span><span style="font-family:monospace;font-weight:700;color:var(--accent2)">RD$ ${fmt(gastos)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:var(--fs-base);font-weight:800"><span>= Utilidad Neta</span><span style="font-family:monospace;color:${netIS>=0?'var(--accent)':'var(--accent2)'}">RD$ ${fmt(netIS)}</span></div>
+          <!-- Barra de margen -->
+          <div style="margin-top:12px">
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-bottom:4px"><span>Margen Bruto ${margenBrutoPct}%</span><span>Margen Neto ${margenNetoPct}%</span></div>
+            <div style="height:8px;background:var(--surface3);border-radius:4px;overflow:hidden;position:relative">
+              <div style="position:absolute;height:100%;width:${Math.min(100,Math.max(0,parseFloat(margenBrutoPct)))}%;background:var(--accent4);border-radius:4px;opacity:0.5"></div>
+              <div style="position:absolute;height:100%;width:${Math.min(100,Math.max(0,parseFloat(margenNetoPct)))}%;background:${netIS>=0?'var(--accent)':'var(--accent2)'};border-radius:4px"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gráfica: Ventas vs CMV vs Utilidad -->
+      <div class="card" style="margin-bottom:var(--space-md)">
+        <div class="card-header"><span class="card-title">📊 Ventas · CMV · Utilidad</span></div>
         <div style="padding:16px;height:220px;position:relative"><canvas id="chartIngGas"></canvas></div>
       </div>
 
       <!-- Gráfica: Flujo de Caja -->
       <div class="card" style="margin-bottom:var(--space-md)">
-        <div class="card-header"><span class="card-title">💧 Flujo de Caja</span></div>
-        <div style="padding:16px;height:200px;position:relative"><canvas id="chartCashflow"></canvas></div>
+        <div class="card-header"><span class="card-title">💧 Flujo de Caja</span><span style="font-size:var(--fs-xs);color:var(--text-muted)">Entradas RD$ ${fmt(cashIn)} · Salidas RD$ ${fmt(cashOut)}</span></div>
+        <div style="padding:16px;height:180px;position:relative"><canvas id="chartCashflow"></canvas></div>
       </div>
 
       <!-- Balance General -->
@@ -2811,6 +3284,11 @@ async function loadReportes() {
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="width:12px;height:12px;border-radius:2px;background:#00e5a0;flex-shrink:0"></div><div><div style="font-size:var(--fs-2xs);color:var(--text-muted)">Activos</div><div style="font-family:monospace;font-weight:700;font-size:var(--fs-xs);color:var(--accent)">RD$ ${fmt(balAssets)}</div></div></div>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="width:12px;height:12px;border-radius:2px;background:#ff4d6d;flex-shrink:0"></div><div><div style="font-size:var(--fs-2xs);color:var(--text-muted)">Pasivos</div><div style="font-family:monospace;font-weight:700;font-size:var(--fs-xs);color:var(--accent2)">RD$ ${fmt(liabs)}</div></div></div>
             <div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:2px;background:#ff7c2a;flex-shrink:0"></div><div><div style="font-size:var(--fs-2xs);color:var(--text-muted)">Capital</div><div style="font-family:monospace;font-weight:700;font-size:var(--fs-xs);color:var(--orange)">RD$ ${fmt(equity)}</div></div></div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+              <div style="font-size:9px;color:${Math.abs(balAssets-(liabs+equity))<1?'var(--accent)':'var(--accent2)'};font-weight:700">
+                ${Math.abs(balAssets-(liabs+equity))<1?'✅ Balance cuadrado':'⚠️ Balance desbalanceado'}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2837,13 +3315,31 @@ async function loadReportes() {
         </div>
       </div>`;
 
-    // Render charts after DOM update
+    // Render charts
     setTimeout(() => {
       const chartOpts = { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{grid:{color:'#1f3330'},ticks:{color:'#3d6660'}}, y:{grid:{color:'#1f3330'},ticks:{color:'#3d6660',callback:v=>v.toLocaleString()}} } };
 
-      // Ingresos vs Gastos bar chart
+      // Ventas vs CMV vs Utilidad Bruta vs Neta
       const c1 = el('chartIngGas');
-      if (c1) _reportCharts.ingGas = new Chart(c1, { type:'bar', data:{ labels:['Ingresos','Gastos','Utilidad'], datasets:[{ data:[inc,gastos,netIS], backgroundColor:['rgba(0,229,160,0.7)','rgba(255,77,109,0.7)',netIS>=0?'rgba(0,229,160,0.5)':'rgba(255,77,109,0.5)'], borderColor:['#00e5a0','#ff4d6d',netIS>=0?'#00e5a0':'#ff4d6d'], borderWidth:2, borderRadius:6 }] }, options:{...chartOpts} });
+      if (c1) _reportCharts.ingGas = new Chart(c1, {
+        type:'bar',
+        data:{
+          labels:['Ventas','CMV','Util. Bruta','Gastos Op.','Util. Neta'],
+          datasets:[{
+            data:[inc, costos, margenBruto, gastos, netIS],
+            backgroundColor:[
+              'rgba(0,229,160,0.7)',
+              'rgba(255,77,109,0.7)',
+              'rgba(77,159,255,0.7)',
+              'rgba(255,190,61,0.7)',
+              netIS>=0?'rgba(0,229,160,0.9)':'rgba(255,77,109,0.9)'
+            ],
+            borderColor:['#00e5a0','#ff4d6d','#4d9fff','#ffbe3d',netIS>=0?'#00e5a0':'#ff4d6d'],
+            borderWidth:2, borderRadius:5
+          }]
+        },
+        options:{...chartOpts}
+      });
 
       // Cashflow donut
       const c2 = el('chartCashflow');
@@ -2865,7 +3361,7 @@ async function doChangePassword() {
   if (!current||!newPwd) { errEl.textContent='Completa todos los campos'; errEl.style.display='block'; return; }
   if (newPwd!==newPwd2)  { errEl.textContent='Las contraseñas no coinciden'; errEl.style.display='block'; return; }
   if (newPwd.length<6)   { errEl.textContent='Mínimo 6 caracteres'; errEl.style.display='block'; return; }
-  const btn=el('pwdSaveBtn'); btn.innerHTML='<span class="spinner"></span> Guardando...'; btn.disabled=true;
+  const btn=el('pwdSaveBtn'); btn.textContent='Guardando...'; btn.disabled=true;
   try {
     const res=await fetch(SERVER_URL+'/api/auth/change-password',{method:'POST',headers:authHeaders(),body:JSON.stringify({currentPassword:current,newPassword:newPwd})});
     const d=await res.json(); if(!res.ok) throw new Error(d.error||'Error');
@@ -3088,8 +3584,7 @@ async function initNewInvoice() {
   try { const r=await apiFetch('/api/invoices/next-number'); el('nf-number').value=r.invoice_number; } catch { el('nf-number').value=''; }
   // Client select
   el('nf-client-id').innerHTML='<option value="">Sin cliente / Ocasional</option>'+clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
-  // Income type select
-  el('nf-income-type').innerHTML='<option value="">Sin clasificar</option>'+incomeTypes.map(t=>`<option value="${t.id}">${t.icon} ${t.name}</option>`).join('');
+  // Income types are handled automatically by the server on invoice emit
   // Add first line
   addInvoiceLine();
   recalcInvoice();
@@ -3107,18 +3602,50 @@ function addInvoiceLine(productId=null) {
   const opts = '<option value="">Sin producto</option>'+products.map(p=>`<option value="${p.id}" ${p.id===productId?'selected':''}>${p.code} — ${p.name}</option>`).join('');
   const row = document.createElement('div');
   row.id = `nf-line-${i}`;
-  row.style.cssText='display:grid;grid-template-columns:1fr 70px 90px 60px 28px;gap:5px;margin-bottom:6px;align-items:center';
+  row.style.cssText='margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;';
   row.innerHTML=`
-    <div>
-      <select class="form-input form-select" id="nfl-prod-${i}" onchange="onLineProductChange(${i})" style="font-size:11px;padding:6px 24px 6px 8px;margin-bottom:4px">${opts}</select>
-      <input class="form-input" id="nfl-desc-${i}" placeholder="Descripción *" style="font-size:11px;padding:6px 8px" value="${prod?prod.name:''}">
+    <div style="display:grid;grid-template-columns:1fr auto;gap:6px;align-items:flex-start;margin-bottom:6px">
+      <select class="form-input form-select" id="nfl-prod-${i}" onchange="onLineProductChange(${i})" style="font-size:11px;padding:6px 24px 6px 8px">${opts}</select>
+      <button onclick="removeInvoiceLine(${i})" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:5px;color:var(--accent2);cursor:pointer;width:28px;height:32px;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
     </div>
-    <input class="form-input" id="nfl-qty-${i}" type="number" step="0.001" placeholder="Cant." value="1" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px">
-    <input class="form-input" id="nfl-price-${i}" type="number" step="0.01" placeholder="Precio" value="${prod?prod.sale_price:''}" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px">
-    <input class="form-input" id="nfl-disc-${i}" type="number" step="0.1" placeholder="Desc%" value="0" min="0" max="100" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px">
-    <button onclick="removeInvoiceLine(${i})" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:5px;color:var(--accent2);cursor:pointer;width:26px;height:26px;font-size:14px;display:flex;align-items:center;justify-content:center">✕</button>`;
+    <input class="form-input" id="nfl-desc-${i}" placeholder="Descripción *" style="font-size:11px;padding:6px 8px;margin-bottom:6px;width:100%" value="${prod?prod.name:''}">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:4px">
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Cantidad</label>
+        <input class="form-input" id="nfl-qty-${i}" type="number" step="0.001" placeholder="1" value="1" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px"></div>
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Precio Venta</label>
+        <input class="form-input" id="nfl-price-${i}" type="number" step="0.01" placeholder="0.00" value="${prod?prod.sale_price:''}" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px"></div>
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Desc%</label>
+        <input class="form-input" id="nfl-disc-${i}" type="number" step="0.1" placeholder="0" value="0" min="0" max="100" oninput="recalcInvoice()" style="font-size:11px;padding:6px 8px"></div>
+    </div>
+    <div id="nfl-cmv-${i}" style="display:none;font-size:9px;color:var(--text-muted);background:var(--surface3);border-radius:5px;padding:5px 8px;display:flex;justify-content:space-between;align-items:center">
+      <span>📦 Costo unitario: <strong id="nfl-cost-${i}" style="color:var(--accent3)"></strong></span>
+      <span>CMV línea: <strong id="nfl-linecmv-${i}" style="color:var(--accent2)"></strong></span>
+      <span>Stock: <strong id="nfl-stock-${i}" style="color:var(--accent)"></strong></span>
+    </div>`;
   el('nf-lines').appendChild(row);
-  if (prod) recalcInvoice();
+  if (prod) { recalcInvoice(); _updateLineCMV(i, prod); }
+}
+
+function _updateLineCMV(i, prod) {
+  if (!prod) return;
+  const cmvDiv = el(`nfl-cmv-${i}`);
+  if (!cmvDiv) return;
+  const qty  = parseFloat(el(`nfl-qty-${i}`)?.value)||1;
+  const cost = parseFloat(prod.cost_price||0);
+  const stock= parseFloat(prod.stock_current||0);
+  if (cost > 0) {
+    cmvDiv.style.display='flex';
+    const costEl = el(`nfl-cost-${i}`); if(costEl) costEl.textContent='RD$ '+fmt(cost);
+    const cmvEl  = el(`nfl-linecmv-${i}`); if(cmvEl) cmvEl.textContent='RD$ '+fmt(qty*cost);
+    const stkEl  = el(`nfl-stock-${i}`);
+    if(stkEl) {
+      const remaining = stock - qty;
+      stkEl.textContent = `${stock} → ${Math.max(0,remaining)}`;
+      stkEl.style.color = remaining < 0 ? 'var(--accent2)' : remaining === 0 ? 'var(--accent3)' : 'var(--accent)';
+    }
+  } else {
+    cmvDiv.style.display='none';
+  }
 }
 
 function onLineProductChange(i) {
@@ -3128,6 +3655,10 @@ function onLineProductChange(i) {
     el(`nfl-desc-${i}`).value  = prod.name;
     el(`nfl-price-${i}`).value = prod.sale_price;
     recalcInvoice();
+    _updateLineCMV(i, prod);
+  } else {
+    const cmvDiv = el(`nfl-cmv-${i}`);
+    if (cmvDiv) cmvDiv.style.display='none';
   }
 }
 
@@ -3163,10 +3694,48 @@ function recalcInvoice() {
   const taxable  = subtotal - discAmt;
   const taxAmt   = taxable * taxRate / 100;
   const total    = taxable + taxAmt;
+
+  // Calcular CMV estimado
+  let totalCMV = 0;
+  lines.forEach(l => {
+    if (!l.product_id) return;
+    const prod = products.find(p=>p.id===l.product_id);
+    if (prod && prod.cost_price > 0) totalCMV += l.quantity * parseFloat(prod.cost_price);
+  });
+  const margenBruto = subtotal - totalCMV;
+  const margenPct   = subtotal > 0 ? (margenBruto / subtotal * 100) : 0;
+
   el('nf-subtotal').textContent    = 'RD$ '+fmt(subtotal);
   el('nf-discount-amt').textContent= '-RD$ '+fmt(discAmt);
   el('nf-tax-amt').textContent     = 'RD$ '+fmt(taxAmt);
   el('nf-total').textContent       = 'RD$ '+fmt(total);
+
+  // Mostrar bloque CMV si hay datos
+  const cmvBlk = el('nf-cmv-block');
+  if (cmvBlk) {
+    if (totalCMV > 0) {
+      cmvBlk.style.display='block';
+      const cmvEl = el('nf-cmv-total'); if(cmvEl) cmvEl.textContent='RD$ '+fmt(totalCMV);
+      const mbEl  = el('nf-margen-bruto'); if(mbEl) { mbEl.textContent='RD$ '+fmt(margenBruto); mbEl.style.color=margenBruto>=0?'var(--accent)':'var(--accent2)'; }
+      const mpEl  = el('nf-margen-pct');  if(mpEl) { mpEl.textContent=margenPct.toFixed(1)+'%'; mpEl.style.color=margenPct>=0?'var(--accent)':'var(--accent2)'; }
+    } else {
+      cmvBlk.style.display='none';
+    }
+  }
+
+  // Actualizar CMV por línea
+  let li=0;
+  while(li < _nfLineCount+20) {
+    const row=el(`nf-line-${li}`);
+    if (row) {
+      const pid = el(`nfl-prod-${li}`)?.value;
+      if (pid) {
+        const prod = products.find(p=>p.id===pid);
+        if (prod) _updateLineCMV(li, prod);
+      }
+    }
+    li++;
+  }
 }
 
 let _currentInvoice = null;
@@ -3212,9 +3781,25 @@ async function viewInvoice(id) {
         </div>
         ${inv.notes ? `<div style="margin-top:16px;font-size:11px;color:#666"><strong>Notas:</strong> ${inv.notes}</div>` : ''}
       </div>`;
-    el('invoiceDetailContent').innerHTML = html;
-    openModal('invoiceDetailModal');
+    el('invoiceModalBody').innerHTML = html;
+    openModal('invoiceModal');
   } catch(e) { toast('Error cargando factura: '+e.message, 'error'); }
+}
+function printInvoice() {
+  if (!_currentInvoice) { toast('Abre la factura primero', 'error'); return; }
+  // Use the modal body HTML directly - it already has the formatted invoice
+  const modalContent = el('invoiceModalBody');
+  if (!modalContent || !modalContent.innerHTML) { toast('No hay contenido para imprimir', 'error'); return; }
+  const w = window.open('', 'PRINT', 'width=700,height=900');
+  if (!w) { toast('Desbloquea los popups para imprimir', 'error'); return; }
+  w.document.write('<html><head><title>Factura '+(_currentInvoice?.invoice_number||'')+'</title>');
+  w.document.write('<style>body{font-family:Helvetica,Arial,sans-serif;padding:20px;max-width:600px;margin:0 auto}table{width:100%;border-collapse:collapse}th,td{padding:6px 8px;border-bottom:1px solid #eee;text-align:left}th{background:#f0f0f0}</style>');
+  w.document.write('</head><body>');
+  w.document.write(modalContent.innerHTML);
+  w.document.write('</body></html>');
+  w.document.close();
+  w.focus();
+  setTimeout(() => { try { w.print(); w.close(); } catch(e) { toast('Error al imprimir: '+e.message, 'error'); } }, 300);
 }
 function downloadInvoicePdf() {
   if (!_currentInvoice) { toast('Abre la factura primero', 'error'); return; }
@@ -3277,32 +3862,46 @@ async function saveInvoice(status='draft') {
   const total   = taxable + taxAmt;
 
   const body = {
-    invoice_number: invNum,
-    client_name:    el('nf-client-name')?.value?.trim() || null,
-    client_rnc:     el('nf-rnc')?.value?.trim() || null,
-    client_address: el('nf-address')?.value?.trim() || null,
-    date:           el('nf-date')?.value || new Date().toISOString().split('T')[0],
-    due_date:       el('nf-due')?.value || null,
-    subtotal:       Math.round(subtotal*100)/100,
-    tax:            Math.round(taxAmt*100)/100,
-    total:          Math.round((total||0.01)*100)/100,
+    invoice_number:  invNum,
+    client_name:     el('nf-client-name')?.value?.trim() || null,
+    client_rnc:      el('nf-rnc')?.value?.trim() || null,
+    client_address:  el('nf-address')?.value?.trim() || null,
+    date:            el('nf-date')?.value || new Date().toISOString().split('T')[0],
+    due_date:        el('nf-due')?.value || null,
+    subtotal:        Math.round(subtotal*100)/100,
+    tax:             Math.round(taxAmt*100)/100,
+    total:           Math.round((total||0.01)*100)/100,
     discount_amount: Math.round(discAmt*100)/100,
-    discount_pct:   discPct,
-    notes:          el('nf-notes')?.value?.trim() || null,
-    payment_method: el('nf-payment-method')?.value || 'credit',
+    discount_pct:    discPct,
+    notes:           el('nf-notes')?.value?.trim() || null,
+    payment_method:  el('nf-payment-method')?.value || 'credit',
     status,
     lines: lines.map(l => ({
-      description: l.description,
-      quantity:    Number(l.quantity||1),
-      unit_price:  Number(l.unit_price||0),
-      discount_pct:Number(l.discount_pct||0)
+      product_id:   l.product_id || null,   // ← CRÍTICO para CMV automático
+      description:  l.description,
+      quantity:     Number(l.quantity||1),
+      unit_price:   Number(l.unit_price||0),
+      discount_pct: Number(l.discount_pct||0)
     }))
   };
   try {
     const r = await apiFetch('/api/invoices',{method:'POST',body:JSON.stringify(body)});
-    const label = status==='draft'?'💾 Borrador guardado':'✅ Factura EMITIDA';
-    const cxcNote = status==='issued' && body.payment_method==='credit' ? ' + CxC creada' : (status==='issued' && body.payment_method==='cash' ? ' + Asiento generado' : '');
-    toast(`${label} — No. ${r.invoice_number||''} — RD$ ${fmt(r.total||total)}${cxcNote}`);
+    if (status === 'draft') {
+      toast(`💾 Borrador guardado — No. ${r.invoice_number||''}`);
+    } else {
+      // Calcular CMV estimado para el toast
+      let cmvEst = 0;
+      lines.forEach(l => {
+        if (l.product_id) {
+          const p = products.find(x=>x.id===l.product_id);
+          if (p && p.cost_price > 0) cmvEst += Number(l.quantity||1) * parseFloat(p.cost_price);
+        }
+      });
+      const margen = subtotal > 0 ? ((subtotal - cmvEst) / subtotal * 100).toFixed(1) : null;
+      let msg = `✅ Factura ${r.invoice_number||invNum} — RD$ ${fmt(r.total||total)}`;
+      if (cmvEst > 0) msg += ` | CMV: RD$ ${fmt(cmvEst)} | Margen: ${margen}%`;
+      toast(msg);
+    }
     // PDF generation (optional, only on desktop)
     if (status === 'issued' && window.jspdf) {
       try {
@@ -3412,97 +4011,82 @@ async function showInvoiceDetail(id) {
   el('invoiceDetailActions').innerHTML='';
   openModal('invoiceDetailModal');
   try {
-      const inv = await apiFetch('/api/invoices/'+id);
-      el('invDetailTitle').textContent = `Factura ${inv.invoice_number}`;
+    const inv = await apiFetch('/api/invoices/'+id);
+    el('invDetailTitle').textContent = `Factura ${inv.invoice_number}`;
     const statusColor = INV_STATUS_COLOR[inv.status]||'var(--text-muted)';
+    const cmvAmt   = parseFloat(inv.cmv_amount||0);
+    const subTotal = parseFloat(inv.subtotal||0);
+    const margenBruto = subTotal - cmvAmt;
+    const margenPct   = subTotal > 0 ? (margenBruto/subTotal*100).toFixed(1) : 0;
+    const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Banco/Transferencia', card:'💳 Tarjeta', credit:'📋 Crédito (CxC)' };
+    const pmLabel  = pmLabels[inv.payment_method] || inv.payment_method || '—';
+
     el('invoiceDetailContent').innerHTML = `
       <div style="display:flex;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
         <div>
           <div style="font-size:var(--fs-xs);color:var(--text-muted)">Cliente</div>
           <div style="font-weight:700">${inv.client_name||'Sin cliente'}</div>
           ${inv.client_rnc?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">RNC: ${inv.client_rnc}</div>`:''}
-          ${inv.ncf?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">NCF: ${inv.ncf}</div>`:''}
+          <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:2px">${pmLabel}</div>
         </div>
         <div style="text-align:right">
           <span style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:50px;background:${statusColor}20;color:${statusColor}">${INV_STATUS_LABEL[inv.status]||inv.status}</span>
-          <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:4px">Fecha: ${inv.date||inv.issue_date||'N/A'}</div>
+          <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:4px">📅 ${inv.date||inv.issue_date||'N/A'}</div>
           ${inv.due_date?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">Vence: ${inv.due_date}</div>`:''}
         </div>
       </div>
+
       <div style="overflow-x:auto;margin-bottom:16px">
         <table class="data-table">
-          <thead><tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Desc%</th><th class="num">Subtotal</th></tr></thead>
+          <thead><tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead>
           <tbody>${(inv.items||[]).map(l=>`<tr>
-            <td>${l.description||''}${l.product_id?`<div style="font-size:9px;color:var(--text-muted)">Referencia</div>`:''}</td>
+            <td>
+              <div style="font-weight:600">${l.description||''}</div>
+              ${l.product_id?`<div style="font-size:9px;color:var(--text-muted)">📦 Producto vinculado</div>`:''}
+            </td>
             <td class="num">${l.qty||1}</td>
             <td class="num">RD$ ${fmt(l.price||0)}</td>
-            <td class="num">—</td>
             <td class="num" style="font-weight:600">RD$ ${fmt(l.total||0)}</td>
           </tr>`).join('')}</tbody>
         </table>
       </div>
-      <div style="margin-left:auto;max-width:260px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Subtotal</span><span>RD$ ${fmt(inv.subtotal)}</span></div>
-        ${inv.discount_amount>0?`<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Descuento (${inv.discount_pct}%)</span><span style="color:var(--accent2)">-RD$ ${fmt(inv.discount_amount)}</span></div>`:''}
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">ITBIS (${inv.tax_rate}%)</span><span>RD$ ${fmt(inv.tax_amount)}</span></div>
-        <div style="height:1px;background:var(--border);margin:8px 0"></div>
-        <div style="display:flex;justify-content:space-between;font-weight:800;font-size:var(--fs-md)"><span>TOTAL</span><span style="color:var(--accent)">RD$ ${fmt(inv.total)}</span></div>
-        ${inv.paid_amount>0?`<div style="display:flex;justify-content:space-between;margin-top:6px;font-size:var(--fs-xs);color:var(--accent)"><span>Pagado</span><span>RD$ ${fmt(inv.paid_amount)}</span></div>`:''}
-      </div>
-      ${inv.notes?`<div style="margin-top:12px;font-size:var(--fs-xs);color:var(--text-muted);background:var(--surface2);border-radius:6px;padding:8px">${inv.notes}</div>`:''}`;
 
-      el('invoiceDetailActions').innerHTML=`
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <!-- Totales venta -->
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:12px">
+          <div style="font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">💰 Totales</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Subtotal</span><span>RD$ ${fmt(inv.subtotal)}</span></div>
+          ${parseFloat(inv.discount_amount||0)>0?`<div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Descuento</span><span style="color:var(--accent2)">-RD$ ${fmt(inv.discount_amount)}</span></div>`:''}
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">ITBIS</span><span>RD$ ${fmt(inv.tax||inv.tax_amount||0)}</span></div>
+          <div style="height:1px;background:var(--border);margin:6px 0"></div>
+          <div style="display:flex;justify-content:space-between;font-weight:800;font-size:var(--fs-base)"><span>TOTAL</span><span style="color:var(--accent)">RD$ ${fmt(inv.total)}</span></div>
+          ${parseFloat(inv.paid_amount||0)>0?`<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:var(--fs-xs);color:var(--accent)"><span>✅ Pagado</span><span>RD$ ${fmt(inv.paid_amount)}</span></div>`:''}
+        </div>
+        <!-- Rentabilidad CMV -->
+        <div style="background:var(--surface2);border:1px solid ${cmvAmt>0?'var(--accent2)30':'var(--border)'};border-radius:var(--radius-xs);padding:12px">
+          <div style="font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">📊 Rentabilidad</div>
+          ${cmvAmt>0 ? `
+            <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">CMV registrado</span><span style="color:var(--accent2);font-weight:700">RD$ ${fmt(cmvAmt)}</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:var(--fs-xs)"><span style="color:var(--text-muted)">Margen Bruto</span><span style="color:${margenBruto>=0?'var(--accent)':'var(--accent2)'};font-weight:700">RD$ ${fmt(margenBruto)}</span></div>
+            <div style="height:1px;background:var(--border);margin:6px 0"></div>
+            <div style="display:flex;justify-content:space-between;font-weight:800;font-size:var(--fs-base)"><span>% Margen</span><span style="color:${margenPct>=0?'var(--accent)':'var(--accent2)'}">${margenPct}%</span></div>
+            <div style="margin-top:8px;height:6px;background:var(--surface3);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.min(100,Math.max(0,parseFloat(margenPct)))}%;background:${parseFloat(margenPct)>30?'var(--accent)':parseFloat(margenPct)>10?'var(--accent3)':'var(--accent2)'};border-radius:3px"></div>
+            </div>
+          ` : `<div style="color:var(--text-muted);font-size:var(--fs-xs);text-align:center;padding:10px 0">Sin productos con costo<br>registrado</div>`}
+        </div>
+      </div>
+      ${inv.notes?`<div style="font-size:var(--fs-xs);color:var(--text-muted);background:var(--surface2);border-radius:6px;padding:8px">📝 ${inv.notes}</div>`:''}`;
+
+    el('invoiceDetailActions').innerHTML=`
       <button onclick="printInvoice('${inv.id}')" class="btn btn-secondary">🖨️ Imprimir</button>
       ${inv.status==='draft'?`<button onclick="changeInvoiceStatus('${inv.id}','issued');closeModal('invoiceDetailModal')" class="btn btn-primary">📤 Emitir</button>`:''}
       ${(inv.status==='issued'||inv.status==='partial')?`<button onclick="changeInvoiceStatus('${inv.id}','paid');closeModal('invoiceDetailModal')" class="btn btn-primary">✅ Marcar pagada</button>`:''}
       ${inv.status==='issued'?`<button onclick="changeInvoiceStatus('${inv.id}','cancelled');closeModal('invoiceDetailModal')" class="btn btn-danger">❌ Cancelar</button>`:''}`;
-
-      // Load journal entries for this invoice
-      loadInvoiceJournalEntries(inv.id);
   } catch(e) { el('invoiceDetailContent').innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">'+e.message+'</div></div>'; }
 }
 
-async function loadInvoiceJournalEntries(invoiceId) {
-  const container = el('invoiceJournalEntries');
-  container.innerHTML = '<div class="empty" style="padding:16px 0"><div class="empty-icon">⏳</div><div class="empty-title">Cargando asientos...</div></div>';
-  try {
-    // TODO: endpoint pendiente — cuando el backend implemente /api/invoices/{id}/journal-entries
-    const entries = await apiFetch(`/api/invoices/${invoiceId}/journal-entries`).catch(() => null);
-    if (!entries || !entries.length) {
-      container.innerHTML = '<div class="empty" style="padding:16px 0"><div class="empty-icon">📋</div><div class="empty-title">Sin asientos contables</div><div class="empty-sub">Esta factura aún no tiene asientos generados</div></div>';
-      return;
-    }
-    let totalDebit = 0, totalCredit = 0;
-    container.innerHTML = `
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead><tr><th># Asiento</th><th>Fecha</th><th>Descripción</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead>
-          <tbody>
-            ${entries.map(e => {
-              totalDebit += Number(e.debit||0);
-              totalCredit += Number(e.credit||0);
-              return `<tr>
-                <td class="num" style="font-weight:700">${e.je_number||e.id||'—'}</td>
-                <td style="font-size:var(--fs-2xs)">${e.date||'—'}</td>
-                <td style="font-size:var(--fs-xs)">${e.description||'—'}</td>
-                <td class="num" style="color:var(--accent2)">RD$ ${fmt(e.debit||0)}</td>
-                <td class="num" style="color:var(--accent)">RD$ ${fmt(e.credit||0)}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div class="balance-indicator ${Math.abs(totalDebit-totalCredit)<0.01?'ok':'mismatch'}" style="margin-top:8px">
-        Totales: Débito RD$ ${fmt(totalDebit)} | Crédito RD$ ${fmt(totalCredit)}
-        ${Math.abs(totalDebit-totalCredit)<0.01?' ✅ Cuadrado':' ⚠️ Desc cuadrado'}
-      </div>`;
-  } catch(e) {
-    container.innerHTML = '<div class="empty" style="padding:16px 0"><div class="empty-icon">⚠️</div><div class="empty-title">Sin asientos</div><div class="empty-sub">No se pudieron cargar los asientos contables</div></div>';
-  }
-}
-
 async function changeInvoiceStatus(id, status) {
-  if (status === 'cancelled' && !confirm('¿Anular factura? Esto revertirá los asientos contables asociados.')) return;
   const labels = {issued:'📤 EMITIENDO...', paid:'✅ Marcando como pagada...', cancelled:'❌ Cancelando...', draft:'💾 Guardando...'};
   toast(labels[status] || 'Actualizando...');
   try {
@@ -3524,13 +4108,6 @@ async function changeInvoiceStatus(id, status) {
 async function deleteInvoice(id) {
   if (!confirm('¿Eliminar esta factura? Se cancelarán los movimientos relacionados.')) return;
   try {
-    // Check if invoice has payments
-    const cxc = await apiFetch('/api/receivables?invoice_id='+id).catch(() => ({rows:[]}));
-    const hasPayments = cxc.rows && cxc.rows.some(r => r.status === 'paid' && parseFloat(r.paid_amount) > 0);
-    if (hasPayments) {
-      toast('No puede eliminarse: la factura tiene pagos registrados. Anule primero.', 'error');
-      return;
-    }
     await apiFetch('/api/invoices/'+id,{method:'DELETE'});
     toast('✅ Factura eliminada');
     invoices = await apiFetch('/api/invoices?limit=20');
@@ -4075,7 +4652,7 @@ function closeWizard() {
 async function wizardSubmit() {
   if (!_wizardSelected) return;
   const btn = el('wiz-submit-btn');
-  if (btn) { btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Creando...'; }
+  if (btn) { btn.disabled=true; btn.textContent='⏳ Creando...'; }
   try {
     await apiFetch('/api/setup/wizard',{method:'POST',body:JSON.stringify({businessType:_wizardSelected})});
     await loadAllData();
@@ -4265,6 +4842,828 @@ function renderWizardStep(step) {
         ${step < steps.length ? `<button class="btn btn-primary" style="flex:1" onclick="renderWizardStep(${step+1})">${step===1?'Comenzar':'Siguiente'} →</button>` : `<button class="btn btn-primary btn-full" onclick="closeWizard()">¡Entendido! 🚀</button>`}
       </div>
     </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 2: COTIZACIONES, RECURRENTES, RETENCIONES ──────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── COTIZACIONES ─────────────────────────────────────────────────────────────
+const QUOTE_STATUS_LABEL = { draft:'Borrador', sent:'Enviada', approved:'✅ Aprobada', rejected:'❌ Rechazada', expired:'⏰ Vencida', converted:'🧾 Convertida' };
+const QUOTE_STATUS_COLOR = { draft:'var(--text-muted)', sent:'var(--accent4)', approved:'var(--accent)', rejected:'var(--accent2)', expired:'var(--accent3)', converted:'var(--orange)' };
+let _nqLineCount = 0;
+
+async function initNewQuote() {
+  _nqLineCount = 0;
+  el('nq-lines').innerHTML = '';
+  ['nq-number','nq-rnc','nq-client-name','nq-payment-terms','nq-delivery','nq-notes'].forEach(id => { const e=el(id); if(e) e.value=''; });
+  el('nq-tax').value = '18'; el('nq-discount').value = '0';
+  el('nq-date').value = new Date().toISOString().split('T')[0];
+  const validDate = new Date(); validDate.setDate(validDate.getDate()+30);
+  el('nq-valid').value = validDate.toISOString().split('T')[0];
+  el('nq-client-id').innerHTML = '<option value="">Ocasional</option>' + clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  try { const r = await apiFetch('/api/quotes/next-number'); el('nq-number').value = r.quote_number; } catch { el('nq-number').value=''; }
+  addQuoteLine();
+  recalcQuote();
+}
+
+function onQuoteClientChange() {
+  const cid = el('nq-client-id').value;
+  const c   = clients.find(x=>x.id===cid);
+  if (c) { el('nq-client-name').value=c.name; if(c.rnc) el('nq-rnc').value=c.rnc||''; }
+}
+
+function addQuoteLine(productId=null) {
+  const i = _nqLineCount++;
+  const prod = productId ? products.find(p=>p.id===productId) : null;
+  const opts = '<option value="">Sin producto</option>'+products.map(p=>`<option value="${p.id}" ${p.id===productId?'selected':''}>${p.code?p.code+' — ':''}${p.name}</option>`).join('');
+  const row = document.createElement('div');
+  row.id = `nq-line-${i}`;
+  row.style.cssText='margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px';
+  row.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:6px">
+      <select class="form-input form-select" id="nql-prod-${i}" onchange="onQuoteLineProductChange(${i})" style="font-size:11px;padding:6px 24px 6px 8px">${opts}</select>
+      <button onclick="removeQuoteLine(${i})" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:5px;color:var(--accent2);cursor:pointer;width:28px;height:32px;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
+    </div>
+    <input class="form-input" id="nql-desc-${i}" placeholder="Descripción *" style="font-size:11px;padding:6px 8px;margin-bottom:6px;width:100%" value="${prod?prod.name:''}">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Cantidad</label>
+        <input class="form-input" id="nql-qty-${i}" type="number" step="0.001" placeholder="1" value="1" oninput="recalcQuote()" style="font-size:11px;padding:6px 8px"></div>
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Precio</label>
+        <input class="form-input" id="nql-price-${i}" type="number" step="0.01" placeholder="0.00" value="${prod?prod.sale_price:''}" oninput="recalcQuote()" style="font-size:11px;padding:6px 8px"></div>
+      <div><label style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Desc%</label>
+        <input class="form-input" id="nql-disc-${i}" type="number" step="0.1" placeholder="0" value="0" min="0" max="100" oninput="recalcQuote()" style="font-size:11px;padding:6px 8px"></div>
+    </div>`;
+  el('nq-lines').appendChild(row);
+  if (prod) recalcQuote();
+}
+
+function onQuoteLineProductChange(i) {
+  const pid = el(`nql-prod-${i}`)?.value;
+  const prod = products.find(p=>p.id===pid);
+  if (prod) { el(`nql-desc-${i}`).value=prod.name; el(`nql-price-${i}`).value=prod.sale_price; recalcQuote(); }
+}
+
+function removeQuoteLine(i) { const r=el(`nq-line-${i}`); if(r) r.remove(); recalcQuote(); }
+
+function getQuoteLines() {
+  const lines=[]; let i=0;
+  while(i < _nqLineCount+20) {
+    const row=el(`nq-line-${i}`);
+    if (row) {
+      const pid=el(`nql-prod-${i}`)?.value||null, desc=el(`nql-desc-${i}`)?.value?.trim()||'';
+      const qty=parseFloat(el(`nql-qty-${i}`)?.value)||0, price=parseFloat(el(`nql-price-${i}`)?.value)||0, disc=parseFloat(el(`nql-disc-${i}`)?.value)||0;
+      if (desc||price) lines.push({product_id:pid, description:desc, quantity:qty||1, unit_price:price, discount_pct:disc});
+    }
+    i++;
+  }
+  return lines;
+}
+
+function recalcQuote() {
+  const lines=getQuoteLines(), taxRate=parseFloat(el('nq-tax')?.value)||0, discPct=parseFloat(el('nq-discount')?.value)||0;
+  let subtotal=0; lines.forEach(l=>{ subtotal += l.quantity*l.unit_price*(1-l.discount_pct/100); });
+  const discAmt=subtotal*discPct/100, taxable=subtotal-discAmt, taxAmt=taxable*taxRate/100, total=taxable+taxAmt;
+  const s=id=>{const e=el(id);if(e) return e;return {textContent:''}};
+  s('nq-subtotal').textContent='RD$ '+fmt(subtotal);
+  s('nq-discount-amt').textContent='-RD$ '+fmt(discAmt);
+  s('nq-tax-amt').textContent='RD$ '+fmt(taxAmt);
+  s('nq-total').textContent='RD$ '+fmt(total);
+}
+
+async function saveQuote(status='draft') {
+  const quoteNum = el('nq-number')?.value?.trim();
+  const lines    = getQuoteLines().filter(l=>l.description?.trim());
+  if (!lines.length) { toast('⚠️ Agrega al menos una línea','error'); return; }
+  const taxRate=parseFloat(el('nq-tax')?.value)||0, discPct=parseFloat(el('nq-discount')?.value)||0;
+  let subtotal=0; lines.forEach(l=>{ subtotal+=l.quantity*l.unit_price*(1-l.discount_pct/100); });
+  const discAmt=subtotal*discPct/100, taxAmt=(subtotal-discAmt)*taxRate/100, total=subtotal-discAmt+taxAmt;
+  try {
+    const r = await apiFetch('/api/quotes',{method:'POST',body:JSON.stringify({
+      quote_number: quoteNum, client_name: el('nq-client-name')?.value?.trim()||null,
+      client_rnc:   el('nq-rnc')?.value?.trim()||null,
+      date: el('nq-date')?.value, valid_until: el('nq-valid')?.value||null,
+      subtotal:Math.round(subtotal*100)/100, tax:Math.round(taxAmt*100)/100, total:Math.round(total*100)/100,
+      discount_amount:Math.round(discAmt*100)/100, discount_pct:discPct,
+      notes: el('nq-notes')?.value?.trim()||null,
+      payment_terms: el('nq-payment-terms')?.value?.trim()||null,
+      delivery_terms: el('nq-delivery')?.value?.trim()||null,
+      status, lines: lines.map(l=>({product_id:l.product_id||null,description:l.description,quantity:l.quantity,unit_price:l.unit_price,discount_pct:l.discount_pct}))
+    })});
+    toast(status==='sent'?`📤 Cotización ${r.quote_number||''} enviada`:`💾 Cotización ${r.quote_number||''} guardada`);
+    showPage('cotizaciones',el('nav-cotizaciones'));
+    loadQuotes();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function loadQuotes() {
+  const status = el('quote-status-filter')?.value||'';
+  const search = (el('quote-search')?.value||'').toLowerCase();
+  const container = el('quotesList');
+  if (!container) return;
+  container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-muted)">⏳ Cargando...</div>';
+  try {
+    let url='/api/quotes'; if(status) url+=`?status=${status}`;
+    const all = await apiFetch(url);
+    const filtered = search ? all.filter(q=>(q.quote_number||'').toLowerCase().includes(search)||(q.client_name||'').toLowerCase().includes(search)) : all;
+
+    // KPIs
+    const kEl=el('quoteKpis');
+    if (kEl) {
+      const totAll=all.length, totApproved=all.filter(q=>q.status==='approved').length;
+      const totConverted=all.filter(q=>q.status==='converted').length;
+      const convRate=totApproved>0?Math.round(totConverted/totAll*100):0;
+      kEl.innerHTML=`
+        <div class="kpi-card blue"><div class="kpi-label">Total</div><div class="kpi-value">${totAll}</div><div class="kpi-sub">Cotizaciones</div></div>
+        <div class="kpi-card green"><div class="kpi-label">Aprobadas</div><div class="kpi-value">${totApproved}</div><div class="kpi-sub">Por convertir</div></div>
+        <div class="kpi-card orange"><div class="kpi-label">Convertidas</div><div class="kpi-value">${totConverted}</div><div class="kpi-sub">En facturas</div></div>
+        <div class="kpi-card ${convRate>=50?'green':'red'}"><div class="kpi-label">Conversión</div><div class="kpi-value">${convRate}%</div><div class="kpi-sub">Éxito comercial</div></div>`;
+    }
+
+    if (!filtered.length) {
+      container.innerHTML='<div class="empty"><div class="empty-icon">📄</div><div class="empty-title">Sin cotizaciones</div><div class="empty-sub">Crea tu primera cotización</div></div>';
+      return;
+    }
+    container.innerHTML='<div style="padding:10px">'+filtered.map(q=>{
+      const color=QUOTE_STATUS_COLOR[q.status]||'var(--text-muted)';
+      const isApproved=q.status==='approved';
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--radius-xs);padding:14px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:8px">
+          <div>
+            <div style="font-family:monospace;font-weight:700">${q.quote_number||'—'}</div>
+            <div style="font-size:var(--fs-xs);color:var(--text-secondary);margin-top:2px">${q.client_name||'Sin cliente'}</div>
+            <div style="font-size:var(--fs-2xs);color:var(--text-muted)">📅 ${q.date||''} ${q.valid_until?'· Válida: '+q.valid_until:''}</div>
+          </div>
+          <div style="text-align:right">
+            <span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:50px;background:${color}20;color:${color}">${QUOTE_STATUS_LABEL[q.status]||q.status}</span>
+            <div style="font-family:monospace;font-weight:800;font-size:var(--fs-lg);color:var(--accent);margin-top:4px">RD$ ${fmt(q.total)}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button onclick="printQuote('${q.id}')" class="btn btn-sm btn-secondary">🖨️ Ver/Imprimir</button>
+          ${q.status==='draft'?`<button onclick="changeQuoteStatus('${q.id}','sent')" class="btn btn-sm btn-secondary">📤 Marcar Enviada</button>`:''}
+          ${q.status==='sent'?`<button onclick="changeQuoteStatus('${q.id}','approved')" class="btn btn-sm btn-primary">✅ Aprobar</button><button onclick="changeQuoteStatus('${q.id}','rejected')" class="btn btn-sm btn-danger">❌ Rechazar</button>`:''}
+          ${isApproved?`<button onclick="convertQuoteToInvoice('${q.id}')" class="btn btn-sm btn-primary" style="background:var(--orange)">🧾 → Factura</button>`:''}
+          ${q.status!=='converted'?`<button onclick="deleteQuote('${q.id}')" class="btn btn-sm btn-danger">🗑️</button>`:''}
+        </div>
+      </div>`;
+    }).join('')+'</div>';
+  } catch(e) { container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+async function changeQuoteStatus(id, status) {
+  try {
+    await apiFetch(`/api/quotes/${id}/status`,{method:'PUT',body:JSON.stringify({status})});
+    const labels={sent:'📤 Marcada como enviada', approved:'✅ Cotización aprobada', rejected:'❌ Cotización rechazada'};
+    toast(labels[status]||'✅ Estado actualizado');
+    loadQuotes();
+  } catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function convertQuoteToInvoice(id) {
+  if (!confirm('¿Convertir esta cotización en factura?\nSe creará como borrador para que puedas revisar antes de emitir.')) return;
+  try {
+    const r = await apiFetch(`/api/quotes/${id}/convert`,{method:'POST',body:JSON.stringify({payment_method:'credit'})});
+    toast(`✅ Factura ${r.invoice_number} creada como borrador`);
+    invoices = await apiFetch('/api/invoices?limit=20');
+    loadQuotes();
+    showPage('facturas',el('nav-facturas'));
+    loadInvoices();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function deleteQuote(id) {
+  if (!confirm('¿Eliminar esta cotización?')) return;
+  try { await apiFetch('/api/quotes/'+id,{method:'DELETE'}); toast('✅ Eliminada'); loadQuotes(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function printQuote(id) {
+  try {
+    const q = await apiFetch('/api/quotes/'+id);
+    const lineRows=(q.items||[]).map(l=>`
+      <tr><td>${l.description||''}</td><td style="text-align:right">${l.qty||1}</td>
+      <td style="text-align:right">RD$ ${fmt(l.price||0)}</td>
+      <td style="text-align:right;font-weight:600">RD$ ${fmt(l.total||0)}</td></tr>`).join('');
+    const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Cotización ${q.quote_number}</title>
+      <style>body{font-family:sans-serif;padding:30px;color:#111;max-width:720px;margin:0 auto}
+      .header{display:flex;justify-content:space-between;margin-bottom:24px}
+      .logo{font-size:22px;font-weight:900;color:#ff7c2a}
+      .badge{background:#ff7c2a;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700}
+      table{width:100%;border-collapse:collapse;margin-bottom:20px}
+      th{background:#f5f5f5;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase}
+      td{padding:8px 10px;border-bottom:1px solid #eee}
+      .totals{margin-left:auto;max-width:260px}.total-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}
+      .total-final{font-weight:800;font-size:16px;border-top:2px solid #111;padding-top:8px;margin-top:4px}
+      .footer{margin-top:30px;font-size:11px;color:#aaa;text-align:center}
+      .validity{background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px;font-size:12px;margin-bottom:16px}
+      @media print{body{padding:10px}}</style></head><body>
+      <div class="header"><div><div class="logo">mis<span>cuentas</span></div><div style="font-size:11px;color:#888;margin-top:4px">Sistema Contable</div></div>
+      <div style="text-align:right"><div style="font-size:20px;font-weight:800">COTIZACIÓN</div><div class="badge">${q.quote_number}</div></div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:12px">
+        <div><strong>Cliente:</strong> ${q.client_name||'N/A'}${q.client_rnc?'<br><strong>RNC:</strong> '+q.client_rnc:''}</div>
+        <div><strong>Fecha:</strong> ${q.date||'N/A'}</div>
+      </div>
+      ${q.valid_until?`<div class="validity">⏰ Esta cotización es válida hasta el <strong>${q.valid_until}</strong></div>`:''}
+      <table><thead><tr><th>Descripción</th><th style="text-align:right">Cant.</th><th style="text-align:right">Precio</th><th style="text-align:right">Subtotal</th></tr></thead>
+      <tbody>${lineRows}</tbody></table>
+      <div class="totals">
+        <div class="total-row"><span>Subtotal</span><span>RD$ ${fmt(q.subtotal)}</span></div>
+        ${parseFloat(q.discount_amount||0)>0?`<div class="total-row"><span>Descuento</span><span style="color:#e53">-RD$ ${fmt(q.discount_amount)}</span></div>`:''}
+        <div class="total-row"><span>ITBIS (${q.tax_rate||18}%)</span><span>RD$ ${fmt(q.tax)}</span></div>
+        <div class="total-row total-final"><span>TOTAL</span><span>RD$ ${fmt(q.total)}</span></div>
+      </div>
+      ${q.payment_terms?`<div style="margin-top:16px;font-size:12px"><strong>Condiciones de pago:</strong> ${q.payment_terms}</div>`:''}
+      ${q.delivery_terms?`<div style="font-size:12px"><strong>Entrega:</strong> ${q.delivery_terms}</div>`:''}
+      ${q.notes?`<div style="margin-top:12px;padding:10px;background:#f9f9f9;border-radius:6px;font-size:12px">${q.notes}</div>`:''}
+      <div class="footer">Generado por MisCuentas Contable · ${new Date().toLocaleDateString()}</div>
+      </body></html>`;
+    const w=window.open('','_blank'); if(!w){toast('⚠️ Permite ventanas emergentes','error');return;}
+    w.document.write(html); w.document.close(); setTimeout(()=>w.print(),500);
+  } catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+// ─── RECURRENTES ──────────────────────────────────────────────────────────────
+const FREQ_LABELS = { weekly:'Semanal', biweekly:'Quincenal', monthly:'Mensual', bimonthly:'Bimestral', quarterly:'Trimestral', yearly:'Anual' };
+
+function openRecurringModal() {
+  ['rec-name','rec-client','rec-desc','rec-amount'].forEach(id=>{const e=el(id);if(e)e.value='';});
+  el('rec-tax').value='0'; el('rec-frequency').value='monthly'; el('rec-payment').value='credit';
+  el('rec-start').value=new Date().toISOString().split('T')[0];
+  el('rec-end').value='';
+  el('rec-total-preview').style.display='none';
+  openModal('recurringModal');
+}
+
+function calcRecTotal() {
+  const amount=parseFloat(el('rec-amount')?.value)||0, tax=parseFloat(el('rec-tax')?.value)||0;
+  const total=amount*(1+tax/100);
+  const prev=el('rec-total-preview');
+  if (amount>0) { el('rec-total-val').textContent='RD$ '+fmt(total); prev.style.display='block'; }
+  else prev.style.display='none';
+}
+
+async function saveRecurring() {
+  const name=el('rec-name').value.trim(), desc=el('rec-desc').value.trim();
+  const amount=parseFloat(el('rec-amount').value)||0;
+  const taxRate=parseFloat(el('rec-tax').value)||0;
+  const freq=el('rec-frequency').value;
+  if (!name||!desc||!amount) { toast('Nombre, descripción y monto son requeridos','error'); return; }
+  const subtotal=amount, taxAmt=subtotal*taxRate/100, total=subtotal+taxAmt;
+  try {
+    await apiFetch('/api/recurring',{method:'POST',body:JSON.stringify({
+      name, client_name:el('rec-client').value.trim()||null,
+      subtotal:Math.round(subtotal*100)/100, tax:Math.round(taxAmt*100)/100, total:Math.round(total*100)/100,
+      frequency:freq, start_date:el('rec-start').value, end_date:el('rec-end').value||null,
+      payment_method:el('rec-payment').value,
+      items:[{description:desc, qty:1, price:subtotal, total:subtotal}]
+    })});
+    toast('✅ Plantilla creada'); closeModal('recurringModal'); loadRecurrentes();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function loadRecurrentes() {
+  const container=el('recurrentesList');
+  if (!container) return;
+  container.innerHTML='<div class="empty"><div class="empty-icon">⏳</div></div>';
+  try {
+    const list=await apiFetch('/api/recurring');
+    if (!list.length) {
+      container.innerHTML='<div class="empty"><div class="empty-icon">🔄</div><div class="empty-title">Sin plantillas recurrentes</div><div class="empty-sub">Crea una plantilla para facturas automáticas</div></div>'; return;
+    }
+    const today=new Date().toISOString().split('T')[0];
+    container.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">'+
+      list.map(t=>{
+        const isDue=t.next_date<=today && t.is_active;
+        const isExpired=t.end_date && t.end_date<today;
+        return `<div style="background:var(--surface2);border:1px solid ${isDue?'var(--orange)':isExpired?'var(--accent2)':'var(--border)'};border-radius:var(--radius-sm);padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+              <div style="font-weight:700">${t.name}</div>
+              ${t.client_name?`<div style="font-size:var(--fs-xs);color:var(--text-muted)">👤 ${t.client_name}</div>`:''}
+            </div>
+            <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:50px;background:${t.is_active?'var(--accent-dim)':'var(--surface3)'};color:${t.is_active?'var(--accent)':'var(--text-muted)'}">
+              ${t.is_active?'🟢 Activa':'⏸️ Pausada'}
+            </span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:var(--fs-xs)">
+            <span style="color:var(--text-muted)">${FREQ_LABELS[t.frequency]||t.frequency}</span>
+            <span style="font-family:monospace;font-weight:700;color:var(--accent)">RD$ ${fmt(t.total)}</span>
+          </div>
+          <div style="font-size:var(--fs-2xs);color:${isDue?'var(--orange)':'var(--text-muted)'};margin-bottom:10px">
+            ${isDue?'⚡ Vencida — ':'⏰ Próxima: '}${t.next_date}
+            ${t.end_date?` · Fin: ${t.end_date}`:''}
+            · ${t.generated_count||0} generada(s)
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${t.is_active?`<button onclick="generateRecurring('${t.id}')" class="btn btn-sm btn-primary" style="flex:1">🧾 Generar Ahora</button>`:''}
+            <button onclick="toggleRecurring('${t.id}',${!t.is_active})" class="btn btn-sm btn-secondary">${t.is_active?'⏸️ Pausar':'▶️ Activar'}</button>
+            <button onclick="deleteRecurring('${t.id}')" class="btn btn-sm btn-danger">🗑️</button>
+          </div>
+        </div>`;
+      }).join('')+'</div>';
+  } catch(e){ container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+async function generateRecurring(id) {
+  try {
+    const r=await apiFetch(`/api/recurring/${id}/generate`,{method:'POST'});
+    toast(`✅ Factura ${r.invoice_number} generada · Próxima: ${r.next_date}`);
+    invoices=await apiFetch('/api/invoices?limit=20');
+    loadRecurrentes();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function toggleRecurring(id, active) {
+  try { await apiFetch(`/api/recurring/${id}`,{method:'PUT',body:JSON.stringify({is_active:active})}); toast(active?'▶️ Activada':'⏸️ Pausada'); loadRecurrentes(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function deleteRecurring(id) {
+  if (!confirm('¿Eliminar esta plantilla recurrente?')) return;
+  try { await apiFetch('/api/recurring/'+id,{method:'DELETE'}); toast('✅ Eliminada'); loadRecurrentes(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+async function processAllDue() {
+  try {
+    const r=await apiFetch('/api/recurring/process-due',{method:'POST'});
+    if (r.processed>0) { toast(`⚡ ${r.processed} factura(s) generadas automáticamente`); invoices=await apiFetch('/api/invoices?limit=20'); loadRecurrentes(); }
+    else toast('ℹ️ No hay facturas vencidas pendientes');
+  } catch(e){ toast('Error: '+e.message,'error'); }
+}
+
+// ─── RETENCIONES ──────────────────────────────────────────────────────────────
+let _retTipo = 'isr';
+const ISR_RATES = { servicios:10, alquileres:10, honorarios:10, otros:5 };
+
+function setRetTipo(tipo) {
+  _retTipo = tipo;
+  ['isr','itbis'].forEach(k => {
+    const btn=el('retTipo-'+k);
+    if (!btn) return;
+    if (k===tipo) { btn.className='btn btn-primary'; btn.style.justifyContent='center'; }
+    else          { btn.className='btn btn-secondary'; btn.style.justifyContent='center'; }
+  });
+  const subGrp=el('ret-subtipo-group');
+  if (subGrp) subGrp.style.display = tipo==='isr' ? 'flex' : 'none';
+  // Auto-pct
+  if (tipo==='itbis') { el('ret-pct').value='30'; }
+  else { const sub=el('ret-subtipo')?.value||'servicios'; el('ret-pct').value=ISR_RATES[sub]||10; }
+  calcRetencion();
+}
+
+function openRetencionModal() {
+  ['ret-base','ret-ncf','ret-notes'].forEach(id=>{const e=el(id);if(e)e.value='';});
+  el('ret-date').value=new Date().toISOString().split('T')[0];
+  el('ret-entity').value='client';
+  el('ret-calc-preview').style.display='none';
+  // Populate entity select
+  const sel=el('ret-entity-id');
+  sel.innerHTML='<option value="">Seleccionar cliente...</option>'+clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  el('ret-entity').onchange = function() {
+    const isClient=this.value==='client';
+    sel.innerHTML=`<option value="">Seleccionar ${isClient?'cliente':'proveedor'}...</option>`+
+      (isClient?clients:vendors).map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+  };
+  // Subtipo change auto-pct
+  el('ret-subtipo').onchange = function() {
+    if (_retTipo==='isr') el('ret-pct').value=ISR_RATES[this.value]||10;
+    calcRetencion();
+  };
+  setRetTipo('isr');
+  openModal('retencionModal');
+}
+
+function calcRetencion() {
+  const base=parseFloat(el('ret-base')?.value)||0, pct=parseFloat(el('ret-pct')?.value)||0;
+  const prev=el('ret-calc-preview');
+  if (base>0&&pct>0) {
+    const ret=base*pct/100;
+    el('ret-amount-val').textContent='RD$ '+fmt(ret);
+    el('ret-net-val').textContent='RD$ '+fmt(base-ret);
+    prev.style.display='block';
+  } else { if(prev) prev.style.display='none'; }
+}
+
+async function saveRetencion() {
+  const base=parseFloat(el('ret-base')?.value)||0, pct=parseFloat(el('ret-pct')?.value)||0;
+  const entityType=el('ret-entity')?.value||'client';
+  const entityId=el('ret-entity-id')?.value||null;
+  if (!base||!pct) { toast('Monto base y % son requeridos','error'); return; }
+  try {
+    const body={ tipo:_retTipo, subtipo:_retTipo==='isr'?(el('ret-subtipo')?.value||'servicios'):null,
+      entity_type:entityType, base_amount:base, retention_pct:pct,
+      date:el('ret-date').value, ncf:el('ret-ncf')?.value?.trim()||null,
+      notes:el('ret-notes')?.value?.trim()||null };
+    if (entityType==='client') body.client_id=entityId;
+    else body.vendor_id=entityId;
+    const r=await apiFetch('/api/retenciones',{method:'POST',body:JSON.stringify(body)});
+    toast(`✅ Retención registrada — RD$ ${fmt(r.retention_amount)} retenido`);
+    closeModal('retencionModal');
+    loadRetenciones();
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+}
+
+async function loadRetenciones() {
+  const month=el('ret-month-filter')?.value||'';
+  const year=el('ret-year-filter')?.value||new Date().getFullYear();
+  const container=el('retencionesList');
+  if (!container) return;
+  container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-muted)">⏳ Cargando...</div>';
+  try {
+    // KPIs anuales
+    const resumen=await apiFetch(`/api/retenciones/resumen?year=${year}`);
+    const totalISR=resumen.annual.find(x=>x.tipo==='isr')?.ret_total||0;
+    const totalITBIS=resumen.annual.find(x=>x.tipo==='itbis')?.ret_total||0;
+    const kEl=el('retencionKpis');
+    if (kEl) kEl.innerHTML=`
+      <div class="kpi-card red"><div class="kpi-label">ISR Retenido ${year}</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(totalISR)}</div><div class="kpi-sub">Impuesto sobre renta</div></div>
+      <div class="kpi-card orange"><div class="kpi-label">ITBIS Retenido ${year}</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(totalITBIS)}</div><div class="kpi-sub">Impuesto transferencia</div></div>
+      <div class="kpi-card blue"><div class="kpi-label">Total Retenido</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(parseFloat(totalISR)+parseFloat(totalITBIS))}</div><div class="kpi-sub">Año ${year}</div></div>
+      <div class="kpi-card green"><div class="kpi-label">Registros</div><div class="kpi-value">${resumen.annual.reduce((s,x)=>s+parseInt(x.count||0),0)}</div><div class="kpi-sub">Total retenciones</div></div>`;
+
+    // Lista
+    let url=`/api/retenciones`;
+    const params=[];
+    if (month) params.push(`month=${month}`);
+    if (year)  params.push(`year=${year}`);
+    if (params.length) url+='?'+params.join('&');
+    const list=await apiFetch(url);
+    if (!list.length) {
+      container.innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin retenciones en este período</div></div>'; return;
+    }
+    const SUBTIPO_LABEL={servicios:'Servicios',alquileres:'Alquileres',honorarios:'Honorarios',otros:'Otros'};
+    container.innerHTML='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Entidad</th><th>NCF</th><th class="num">Base</th><th class="num">%</th><th class="num">Retenido</th><th>Estado</th><th></th></tr></thead><tbody>'+
+      list.map(r=>{
+        const isISR=r.tipo==='isr';
+        const color=isISR?'var(--accent2)':'var(--orange)';
+        return `<tr>
+          <td style="white-space:nowrap">${r.date||''}</td>
+          <td><span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:50px;background:${color}20;color:${color}">${r.tipo.toUpperCase()}${r.subtipo?' · '+SUBTIPO_LABEL[r.subtipo]:''}</span></td>
+          <td>${r.client_name||r.vendor_name||'—'}</td>
+          <td class="muted">${r.ncf||'—'}</td>
+          <td class="num">RD$ ${fmt(r.base_amount)}</td>
+          <td class="num">${r.retention_pct}%</td>
+          <td class="num" style="color:${color};font-weight:700">RD$ ${fmt(r.retention_amount)}</td>
+          <td><span class="badge badge-gray">${r.status}</span></td>
+          <td><button onclick="deleteRetencion('${r.id}')" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:5px;padding:3px 7px;color:var(--accent2);font-size:11px;cursor:pointer">🗑️</button></td>
+        </tr>`;
+      }).join('')+'</tbody></table></div>';
+  } catch(e){ container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+async function deleteRetencion(id) {
+  if (!confirm('¿Eliminar esta retención?')) return;
+  try { await apiFetch('/api/retenciones/'+id,{method:'DELETE'}); toast('✅ Eliminada'); loadRetenciones(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 3: DASHBOARD INTELIGENTE, ALERTAS, DGII ────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── DASHBOARD INTELIGENTE ────────────────────────────────────────────────────
+let _dashChart6m = null;
+
+async function renderDashboard() {
+  const MESES = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+  // Cargar alertas en paralelo con stats
+  const [statsResult, alertsResult] = await Promise.allSettled([
+    apiFetch('/api/dashboard/stats'),
+    apiFetch('/api/alerts'),
+  ]);
+
+  // ── Alertas banner ──
+  const alertsBanner = el('dashAlertsBanner');
+  if (alertsResult.status === 'fulfilled' && alertsResult.value.count > 0) {
+    const data  = alertsResult.value;
+    const dangers  = data.alerts.filter(a=>a.type==='danger');
+    const warnings = data.alerts.filter(a=>a.type==='warning');
+    alertsBanner.style.display = 'block';
+    alertsBanner.innerHTML = `
+      <div style="background:${data.has_danger?'var(--accent2-dim)':'var(--accent3-dim)'};border:1px solid ${data.has_danger?'var(--accent2)40':'var(--accent3)40'};border-radius:var(--radius-sm);padding:12px 16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:700;font-size:var(--fs-sm);color:${data.has_danger?'var(--accent2)':'var(--accent3)'}">${data.has_danger?'🚨':'⚠️'} ${data.count} alerta(s) activa(s)</div>
+          <button onclick="showPage('alertas',el('nav-alertas'))" class="btn btn-sm btn-secondary">Ver todas</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${data.alerts.slice(0,4).map(a=>`
+            <div style="background:var(--surface2);border-radius:6px;padding:5px 10px;font-size:var(--fs-xs);cursor:pointer;border:1px solid var(--border)" onclick="showPage('${a.action_page}',el('nav-${a.action_page}'))">
+              ${a.icon} ${a.title}
+            </div>`).join('')}
+          ${data.count>4?`<div style="font-size:var(--fs-xs);color:var(--text-muted);padding:5px 10px">+${data.count-4} más</div>`:''}
+        </div>
+      </div>`;
+  } else {
+    alertsBanner.style.display = 'none';
+  }
+
+  // ── Stats dashboard ──
+  if (statsResult.status !== 'fulfilled') {
+    // Fallback al dashboard básico
+    _renderBasicDashboard();
+    return;
+  }
+  const stats = statsResult.value;
+  const k = stats.kpis;
+  const varColor = k.vs_prev_pct > 0 ? 'var(--accent)' : k.vs_prev_pct < 0 ? 'var(--accent2)' : 'var(--text-muted)';
+  const varText  = k.vs_prev_pct !== null ? `${k.vs_prev_pct > 0 ? '▲' : '▼'} ${Math.abs(k.vs_prev_pct)}% vs mes anterior` : 'Primer mes';
+  const MESES_FULL = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  // KPIs
+  const pendCobrar = receivables.filter(r=>r.status==='pending'||r.status==='partial').reduce((s,r)=>s+Number(r.outstanding||0),0);
+  const kGrid = el('dashKpis');
+  if (kGrid) kGrid.innerHTML = `
+    <div class="kpi-card green"><div class="kpi-label">Ingresos ${MESES[stats.current_month.month]}</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(k.ingresos)}</div><div class="kpi-sub" style="color:${varColor}">${varText}</div></div>
+    <div class="kpi-card red"><div class="kpi-label">CMV + Gastos</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(k.cmv+k.gastos)}</div><div class="kpi-sub">Costo del mes</div></div>
+    <div class="kpi-card ${k.utilidad>=0?'blue':'red'}"><div class="kpi-label">Utilidad Neta</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(k.utilidad)}</div><div class="kpi-sub">${k.ingresos>0?((k.utilidad/k.ingresos)*100).toFixed(1)+'% margen':'—'}</div></div>
+    <div class="kpi-card orange"><div class="kpi-label">Por Cobrar</div><div class="kpi-value" style="font-size:clamp(12px,3vw,17px)">RD$ ${fmt(pendCobrar)}</div><div class="kpi-sub">${stats.overdue.cxc_count>0?`🚨 ${stats.overdue.cxc_count} vencida(s)`:'Al día ✅'}</div></div>`;
+
+  // ── Gráfica 6 meses ──
+  if (_dashChart6m) { try { _dashChart6m.destroy(); } catch{} }
+  const hist   = stats.sales_history || [];
+  const labels = hist.map(h => `${MESES[h.month]} ${h.year}`);
+  const ventas = hist.map(h => h.ventas);
+  const cmvArr = hist.map(h => h.cmv);
+  const margen = hist.map(h => h.margen);
+  const c = el('chartVentas6m');
+  if (c && hist.length > 0) {
+    _dashChart6m = new Chart(c, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label:'Ventas', data: ventas, backgroundColor:'rgba(0,229,160,0.7)', borderColor:'#00e5a0', borderWidth:2, borderRadius:4 },
+          { label:'CMV',    data: cmvArr, backgroundColor:'rgba(255,77,109,0.5)', borderColor:'#ff4d6d', borderWidth:2, borderRadius:4 },
+          { label:'Margen', data: margen, type:'line', borderColor:'#4d9fff', backgroundColor:'rgba(77,159,255,0.1)', borderWidth:2, fill:true, tension:0.4, pointRadius:3 },
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ display:false } },
+        scales:{
+          x:{ grid:{ color:'#1f3330' }, ticks:{ color:'#3d6660', font:{size:10} } },
+          y:{ grid:{ color:'#1f3330' }, ticks:{ color:'#3d6660', callback:v=>'$'+v.toLocaleString() } }
+        }
+      }
+    });
+  } else if (c) {
+    c.parentElement.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);font-size:var(--fs-xs)">Sin datos de ventas aún · Emite facturas para ver la gráfica</div>';
+  }
+
+  // ── Top Productos ──
+  const tp = el('dashTopProducts');
+  if (tp) {
+    const prods = stats.top_products || [];
+    if (!prods.length) {
+      tp.innerHTML = '<div style="padding:14px 16px;color:var(--text-muted);font-size:var(--fs-xs);text-align:center">Sin ventas registradas</div>';
+    } else {
+      const maxRev = Math.max(...prods.map(p=>p.revenue));
+      tp.innerHTML = prods.map((p,i) => `
+        <div style="padding:8px 16px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:9px;font-weight:800;width:18px;height:18px;border-radius:50%;background:${i===0?'var(--accent3)':i===1?'var(--text-muted)':i===2?'var(--orange)':'var(--surface3)'};color:${i<3?'#000':'var(--text-muted)'};display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>
+              <div><div style="font-size:var(--fs-xs);font-weight:700">${p.name}</div>
+              <div style="font-size:9px;color:var(--text-muted)">${p.qty_sold} und · Margen ${p.margin_pct}%</div></div>
+            </div>
+            <span style="font-family:monospace;font-size:var(--fs-xs);font-weight:700;color:var(--accent)">RD$ ${fmt(p.revenue)}</span>
+          </div>
+          <div style="height:4px;background:var(--surface3);border-radius:2px"><div style="height:4px;width:${maxRev>0?(p.revenue/maxRev*100).toFixed(0):0}%;background:var(--accent);border-radius:2px;transition:width .4s"></div></div>
+        </div>`).join('');
+    }
+  }
+
+  // ── Top Clientes ──
+  const tc = el('dashTopClients');
+  if (tc) {
+    const clts = stats.top_clients || [];
+    if (!clts.length) {
+      tc.innerHTML = '<div style="padding:14px 16px;color:var(--text-muted);font-size:var(--fs-xs);text-align:center">Sin facturas emitidas aún</div>';
+    } else {
+      const maxBill = Math.max(...clts.map(c=>c.total_billed));
+      tc.innerHTML = clts.map((c,i) => `
+        <div style="padding:8px 16px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:9px;font-weight:800;width:18px;height:18px;border-radius:50%;background:${i===0?'var(--accent3)':i===1?'var(--text-muted)':i===2?'var(--orange)':'var(--surface3)'};color:${i<3?'#000':'var(--text-muted)'};display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>
+              <div><div style="font-size:var(--fs-xs);font-weight:700">${c.name}</div>
+              <div style="font-size:9px;color:var(--text-muted)">${c.invoice_count} factura(s)${c.outstanding>0?` · <span style="color:var(--accent2)">RD$ ${fmt(c.outstanding)} pendiente</span>`:' ✅'}</div></div>
+            </div>
+            <span style="font-family:monospace;font-size:var(--fs-xs);font-weight:700;color:var(--accent)">RD$ ${fmt(c.total_billed)}</span>
+          </div>
+          <div style="height:4px;background:var(--surface3);border-radius:2px"><div style="height:4px;width:${maxBill>0?(c.total_billed/maxBill*100).toFixed(0):0}%;background:var(--orange);border-radius:2px;transition:width .4s"></div></div>
+        </div>`).join('');
+    }
+  }
+
+  // ── Cobros y Pagos pendientes ──
+  _renderPendingLists();
+}
+
+function _renderBasicDashboard() {
+  // Fallback sin stats
+  const pendCobrar = receivables.filter(r=>r.status==='pending'||r.status==='partial').reduce((s,r)=>s+Number(r.total_amount||0)-Number(r.paid_amount||0),0);
+  const pendPagar  = payables.filter(p=>p.status==='pending'||p.status==='partial').reduce((s,p)=>s+Number(p.total_amount||0)-Number(p.paid_amount||0),0);
+  const kGrid = el('dashKpis');
+  if (kGrid) kGrid.innerHTML = `
+    <div class="kpi-card green"><div class="kpi-label">Por Cobrar</div><div class="kpi-value">RD$ ${fmt(pendCobrar)}</div><div class="kpi-sub">Clientes pendientes</div></div>
+    <div class="kpi-card red"><div class="kpi-label">Por Pagar</div><div class="kpi-value">RD$ ${fmt(pendPagar)}</div><div class="kpi-sub">A proveedores</div></div>
+    <div class="kpi-card orange"><div class="kpi-label">Clientes</div><div class="kpi-value">${clients.length}</div><div class="kpi-sub">Registrados</div></div>
+    <div class="kpi-card blue"><div class="kpi-label">Proveedores</div><div class="kpi-value">${vendors.length}</div><div class="kpi-sub">Registrados</div></div>`;
+  _renderPendingLists();
+}
+
+function _renderPendingLists() {
+  const topCobros = receivables.filter(r=>r.status==='pending'||r.status==='partial').slice(0,4);
+  el('dashCobros').innerHTML = topCobros.length ? topCobros.map(r=>{
+    const c=clients.find(x=>x.id===r.client_id)||{name:r.client_name||'—'};
+    const pend=Number(r.outstanding||0)||Number(r.total_amount||0)-Number(r.paid_amount||0);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)"><div><div style="font-size:var(--fs-sm);font-weight:600">${c.name}</div><div style="font-size:var(--fs-2xs);color:var(--text-muted)">${r.description||''}</div></div><div style="font-family:var(--font-num);font-size:var(--fs-sm);font-weight:700;color:var(--accent)">RD$ ${fmt(pend)}</div></div>`;
+  }).join('') : '<div style="padding:20px 0;text-align:center;color:var(--text-muted);font-size:var(--fs-xs)">Sin cobros pendientes ✅</div>';
+
+  const topPagos = payables.filter(p=>p.status==='pending'||p.status==='partial').slice(0,4);
+  el('dashPagos').innerHTML = topPagos.length ? topPagos.map(p=>{
+    const v=vendors.find(x=>x.id===p.vendor_id)||{name:p.vendor_name||'—'};
+    const pend=Number(p.outstanding||0)||Number(p.total_amount||0)-Number(p.paid_amount||0);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)"><div><div style="font-size:var(--fs-sm);font-weight:600">${v.name}</div><div style="font-size:var(--fs-2xs);color:var(--text-muted)">${p.description||''}</div></div><div style="font-family:var(--font-num);font-size:var(--fs-sm);font-weight:700;color:var(--accent2)">RD$ ${fmt(pend)}</div></div>`;
+  }).join('') : '<div style="padding:20px 0;text-align:center;color:var(--text-muted);font-size:var(--fs-xs)">Sin pagos pendientes ✅</div>';
+}
+
+// ─── ALERTAS (página dedicada) ────────────────────────────────────────────────
+async function renderAlertas() {
+  const container = el('alertasContent');
+  if (!container) return;
+  container.innerHTML='<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Cargando alertas...</div></div>';
+  try {
+    const data = await apiFetch('/api/alerts');
+    if (!data.count) {
+      container.innerHTML='<div class="empty"><div class="empty-icon">✅</div><div class="empty-title">Todo al día</div><div class="empty-sub">No hay alertas activas en este momento</div></div>';
+      return;
+    }
+    const TYPE_STYLES = {
+      danger:  { bg:'var(--accent2-dim)', border:'var(--accent2)40', color:'var(--accent2)' },
+      warning: { bg:'var(--accent3-dim)', border:'var(--accent3)40', color:'var(--accent3)' },
+      info:    { bg:'var(--accent4-dim)', border:'var(--accent4)40', color:'var(--accent4)' },
+    };
+    const byCat = {};
+    data.alerts.forEach(a => { if(!byCat[a.category]) byCat[a.category]=[]; byCat[a.category].push(a); });
+    container.innerHTML = data.alerts.map(a => {
+      const s = TYPE_STYLES[a.type] || TYPE_STYLES.info;
+      return `<div style="background:${s.bg};border:1px solid ${s.border};border-left:3px solid ${s.color};border-radius:var(--radius-xs);padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:var(--fs-sm)">${a.icon} ${a.title}</div>
+          <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:2px">${a.detail}</div>
+        </div>
+        <button onclick="showPage('${a.action_page}',el('nav-${a.action_page}'))" class="btn btn-sm btn-secondary" style="flex-shrink:0;white-space:nowrap;font-size:10px">${a.action} →</button>
+      </div>`;
+    }).join('');
+  } catch(e) { container.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-sub">${e.message}</div></div>`; }
+}
+
+// ─── DGII 606 / 607 ──────────────────────────────────────────────────────────
+let _dgii606 = null, _dgii607 = null;
+let _dgiiCurrentTab = 606;
+
+async function initDGIIPage() {
+  const now = new Date();
+  el('dgii-month').value = now.getMonth()+1;
+  el('dgii-year').value  = now.getFullYear();
+}
+
+function showDGIITab(tab) {
+  _dgiiCurrentTab = tab;
+  el('dgiiTab606').className = tab===606 ? 'btn btn-primary' : 'btn btn-secondary';
+  el('dgiiTab607').className = tab===607 ? 'btn btn-primary' : 'btn btn-secondary';
+  el('dgii606Content').style.display = tab===606 ? 'block' : 'none';
+  el('dgii607Content').style.display = tab===607 ? 'block' : 'none';
+}
+
+async function loadDGII() {
+  const month = el('dgii-month').value;
+  const year  = el('dgii-year').value;
+  if (!year) { toast('Ingresa el año','error'); return; }
+  const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  el('dgiiItbisResumen').innerHTML='<div class="empty"><div class="empty-icon">⏳</div></div>';
+  el('dgii606Content').innerHTML='<div class="empty"><div class="empty-icon">⏳</div></div>';
+  el('dgii607Content').innerHTML='<div class="empty"><div class="empty-icon">⏳</div></div>';
+
+  try {
+    const [itbis, r606, r607] = await Promise.all([
+      apiFetch(`/api/dgii/itbis?month=${month}&year=${year}`),
+      apiFetch(`/api/dgii/606?month=${month}&year=${year}`),
+      apiFetch(`/api/dgii/607?month=${month}&year=${year}`),
+    ]);
+    _dgii606 = r606; _dgii607 = r607;
+
+    // Resumen ITBIS
+    const saldoColor = parseFloat(itbis.saldo_a_pagar)>0 ? 'var(--accent2)' : 'var(--accent)';
+    el('dgiiItbisResumen').innerHTML=`
+      <div class="card" style="margin-bottom:var(--space-md)">
+        <div class="card-header"><span class="card-title">🧾 Resumen IT-1 — ${MESES[month]} ${year}</span></div>
+        <div style="padding:16px">
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">
+            <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">ITBIS Cobrado (Ventas)</div>
+              <div style="font-family:monospace;font-weight:700;color:var(--accent);margin-top:4px;font-size:var(--fs-sm)">RD$ ${fmt(itbis.itbis_cobrado)}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">ITBIS Pagado (Compras)</div>
+              <div style="font-family:monospace;font-weight:700;color:var(--accent2);margin-top:4px;font-size:var(--fs-sm)">RD$ ${fmt(itbis.itbis_pagado)}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">ITBIS Retenido por Clientes</div>
+              <div style="font-family:monospace;font-weight:700;color:var(--accent3);margin-top:4px;font-size:var(--fs-sm)">RD$ ${fmt(itbis.itbis_retenido)}</div>
+            </div>
+            <div style="background:var(--surface2);border:2px solid ${saldoColor}40;border-radius:var(--radius-xs);padding:12px;text-align:center">
+              <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">${parseFloat(itbis.saldo_a_pagar)>0?'💸 Saldo a Pagar':'💰 Saldo a Favor'}</div>
+              <div style="font-family:monospace;font-weight:800;color:${saldoColor};margin-top:4px;font-size:var(--fs-md)">RD$ ${fmt(parseFloat(itbis.saldo_a_pagar)||parseFloat(itbis.saldo_a_favor))}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="exportDGII(606)" class="btn btn-secondary btn-full">📥 Exportar 606 CSV</button>
+            <button onclick="exportDGII(607)" class="btn btn-secondary btn-full">📥 Exportar 607 CSV</button>
+          </div>
+        </div>
+      </div>`;
+
+    // Tabla 606
+    el('dgii606Content').innerHTML = renderDGIITable(r606, 606);
+    // Tabla 607
+    el('dgii607Content').innerHTML = renderDGIITable(r607, 607);
+    showDGIITab(_dgiiCurrentTab);
+
+  } catch(e) {
+    el('dgiiItbisResumen').innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${e.message}</div></div>`;
+  }
+}
+
+function renderDGIITable(data, tipo) {
+  if (!data.rows?.length) return `<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin registros para ${tipo}</div><div class="empty-sub">No hay ${tipo===606?'compras':'ventas'} en este período</div></div>`;
+  const t = data.totales;
+  if (tipo === 606) {
+    return `<div class="card">
+      <div class="card-header"><span class="card-title">📋 Formato 606 — Compras (${data.rows.length} registros)</span></div>
+      <div style="overflow-x:auto"><table class="data-table">
+        <thead><tr><th>Proveedor</th><th>RNC/Cédula</th><th>Fecha</th><th>NCF</th><th class="num">Monto</th><th class="num">ITBIS</th><th class="num">ISR Ret.</th></tr></thead>
+        <tbody>${data.rows.map(r=>`<tr>
+          <td style="font-weight:600">${r.proveedor}</td>
+          <td class="muted">${r.rnc_cedula||'—'}</td>
+          <td class="muted">${r.fecha_comprobante||'—'}</td>
+          <td class="muted">${r.ncf_comprobante||'—'}</td>
+          <td class="num">RD$ ${fmt(r.monto_facturado)}</td>
+          <td class="num">${parseFloat(r.itbis_facturado)>0?'RD$ '+fmt(r.itbis_facturado):'—'}</td>
+          <td class="num">${parseFloat(r.isr_retenido)>0?'RD$ '+fmt(r.isr_retenido):'—'}</td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr style="background:var(--surface2);font-weight:700">
+          <td colspan="4">TOTALES — ${t.cantidad_registros} registros</td>
+          <td class="num">RD$ ${fmt(t.total_monto)}</td>
+          <td class="num">RD$ ${fmt(t.total_itbis)}</td>
+          <td class="num">RD$ ${fmt(t.total_ret_isr)}</td>
+        </tr></tfoot>
+      </table></div></div>`;
+  }
+  return `<div class="card">
+    <div class="card-header"><span class="card-title">📋 Formato 607 — Ventas (${data.rows.length} registros)</span></div>
+    <div style="overflow-x:auto"><table class="data-table">
+      <thead><tr><th>Cliente</th><th>RNC/Cédula</th><th>Fecha</th><th>NCF</th><th class="num">Monto</th><th class="num">ITBIS</th><th class="num">ITBIS Ret.</th></tr></thead>
+      <tbody>${data.rows.map(r=>`<tr>
+        <td style="font-weight:600">${r.nombre_cliente}</td>
+        <td class="muted">${r.rnc_cedula||'—'}</td>
+        <td class="muted">${r.fecha_comprobante||'—'}</td>
+        <td class="muted">${r.ncf||'—'}</td>
+        <td class="num">RD$ ${fmt(r.monto_facturado)}</td>
+        <td class="num">${parseFloat(r.itbis_facturado)>0?'RD$ '+fmt(r.itbis_facturado):'—'}</td>
+        <td class="num">${parseFloat(r.itbis_retenido_cliente)>0?'RD$ '+fmt(r.itbis_retenido_cliente):'—'}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="background:var(--surface2);font-weight:700">
+        <td colspan="4">TOTALES — ${t.cantidad_registros} registros</td>
+        <td class="num">RD$ ${fmt(t.total_monto)}</td>
+        <td class="num">RD$ ${fmt(t.total_itbis)}</td>
+        <td class="num">RD$ ${fmt(t.total_ret_itbis)}</td>
+      </tr></tfoot>
+    </table></div></div>`;
+}
+
+function exportDGII(tipo) {
+  const data = tipo===606 ? _dgii606 : _dgii607;
+  if (!data?.rows?.length) { toast('Sin datos para exportar','error'); return; }
+  let csv = '';
+  if (tipo === 606) {
+    csv = 'RNC/Cedula Proveedor,Tipo Bienes,NCF,Fecha,Monto Facturado,ITBIS Facturado,ITBIS Retenido,ISR Retenido\n';
+    csv += data.rows.map(r=>`${r.rnc_cedula||''},${r.tipo_bienes||''},${r.ncf_comprobante||''},${r.fecha_comprobante||''},${r.monto_facturado},${r.itbis_facturado},${r.itbis_retenido},${r.isr_retenido}`).join('\n');
+  } else {
+    csv = 'RNC/Cedula Cliente,NCF,Fecha Comprobante,Monto Facturado,ITBIS Facturado,ITBIS Retenido\n';
+    csv += data.rows.map(r=>`${r.rnc_cedula||''},${r.ncf||''},${r.fecha_comprobante||''},${r.monto_facturado},${r.itbis_facturado},${r.itbis_retenido_cliente}`).join('\n');
+  }
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href=url; a.download=`DGII_${tipo}_${data.period?.replace('/','_')}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast(`✅ DGII ${tipo} exportado`);
 }
 
 </script>

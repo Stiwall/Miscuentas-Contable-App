@@ -4668,6 +4668,469 @@ app.get('/api/retenciones/resumen', authMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 3.1: DASHBOARD INTELIGENTE ─────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/dashboard/stats — datos completos para dashboard inteligente
+app.get('/api/dashboard/stats', authMiddleware, async (req, res) => {
+  try {
+    const today = new Date();
+    const yr    = today.getFullYear();
+    const mo    = today.getMonth() + 1; // 1-12
+
+    // ── Ventas últimos 6 meses ──
+    const salesHistory = await query(
+      `SELECT
+         EXTRACT(YEAR  FROM je.date)::int as year,
+         EXTRACT(MONTH FROM je.date)::int as month,
+         SUM(jl.credit) as ventas,
+         SUM(CASE WHEN a.class=5 THEN jl.debit ELSE 0 END) as cmv
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id=jl.journal_entry_id
+       JOIN accounts a ON a.id=jl.account_id
+       WHERE je.user_id=$1
+         AND a.class IN (4,5)
+         AND je.date >= (CURRENT_DATE - INTERVAL '6 months')
+       GROUP BY year, month
+       ORDER BY year, month`,
+      [req.userId]
+    );
+
+    // ── Top 5 productos más vendidos (por cantidad) ──
+    const topProducts = await query(
+      `SELECT p.name, p.code, p.sale_price, p.cost_price,
+              COALESCE(SUM(ii.qty), 0) as qty_sold,
+              COALESCE(SUM(ii.total), 0) as revenue,
+              COALESCE(SUM(ii.qty * p.cost_price), 0) as cost_total
+       FROM products p
+       JOIN invoice_items ii ON ii.product_id = p.id
+       JOIN invoices inv ON inv.id = ii.invoice_id
+       WHERE p.user_id=$1
+         AND inv.status IN ('issued','paid','partial')
+         AND inv.date >= (CURRENT_DATE - INTERVAL '12 months')
+       GROUP BY p.id, p.name, p.code, p.sale_price, p.cost_price
+       ORDER BY revenue DESC
+       LIMIT 5`,
+      [req.userId]
+    );
+
+    // ── Top 5 clientes por facturación ──
+    const topClients = await query(
+      `SELECT
+         COALESCE(inv.client_name, 'Sin nombre') as name,
+         COUNT(inv.id) as invoice_count,
+         SUM(inv.total) as total_billed,
+         SUM(inv.paid_amount) as total_paid,
+         SUM(inv.total - inv.paid_amount) as outstanding
+       FROM invoices inv
+       WHERE inv.user_id=$1
+         AND inv.status IN ('issued','paid','partial')
+         AND inv.date >= (CURRENT_DATE - INTERVAL '12 months')
+       GROUP BY inv.client_name
+       ORDER BY total_billed DESC
+       LIMIT 5`,
+      [req.userId]
+    );
+
+    // ── KPIs del mes actual ──
+    const monthFrom = `${yr}-${String(mo).padStart(2,'0')}-01`;
+    const monthTo   = `${yr}-${String(mo).padStart(2,'0')}-${new Date(yr,mo,0).getDate()}`;
+
+    const monthSales = await query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN a.class=4 THEN jl.credit-jl.debit ELSE 0 END),0) as ingresos,
+         COALESCE(SUM(CASE WHEN a.class=5 THEN jl.debit-jl.credit ELSE 0 END),0) as cmv,
+         COALESCE(SUM(CASE WHEN a.class=6 THEN jl.debit-jl.credit ELSE 0 END),0) as gastos
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id=jl.journal_entry_id
+       JOIN accounts a ON a.id=jl.account_id
+       WHERE je.user_id=$1 AND je.date>=$2 AND je.date<=$3 AND a.class IN (4,5,6)`,
+      [req.userId, monthFrom, monthTo]
+    );
+
+    // ── Comparación mes anterior ──
+    const prevMo    = mo === 1 ? 12 : mo - 1;
+    const prevYr    = mo === 1 ? yr - 1 : yr;
+    const prevFrom  = `${prevYr}-${String(prevMo).padStart(2,'0')}-01`;
+    const prevTo    = `${prevYr}-${String(prevMo).padStart(2,'0')}-${new Date(prevYr,prevMo,0).getDate()}`;
+
+    const prevSales = await query(
+      `SELECT COALESCE(SUM(CASE WHEN a.class=4 THEN jl.credit-jl.debit ELSE 0 END),0) as ingresos
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id=jl.journal_entry_id
+       JOIN accounts a ON a.id=jl.account_id
+       WHERE je.user_id=$1 AND je.date>=$2 AND je.date<=$3 AND a.class=4`,
+      [req.userId, prevFrom, prevTo]
+    );
+
+    // ── Facturas pendientes vencidas ──
+    const overdueInvoices = await query(
+      `SELECT COUNT(*) as count, COALESCE(SUM(total-paid_amount),0) as total
+       FROM invoices
+       WHERE user_id=$1 AND status IN ('issued','partial')
+         AND due_date < CURRENT_DATE`,
+      [req.userId]
+    );
+
+    // ── CxC vencidas ──
+    const overdueCxC = await query(
+      `SELECT COUNT(*) as count,
+              COALESCE(SUM(total_amount-paid_amount),0) as total
+       FROM receivables
+       WHERE user_id=$1 AND status IN ('pending','partial')
+         AND due_date < CURRENT_DATE`,
+      [req.userId]
+    );
+
+    const ms = monthSales.rows[0];
+    const ps = prevSales.rows[0];
+    const ingAct  = parseFloat(ms.ingresos||0);
+    const ingPrev = parseFloat(ps.ingresos||0);
+    const varPct  = ingPrev > 0 ? Math.round((ingAct-ingPrev)/ingPrev*100) : null;
+
+    res.json({
+      current_month: { year: yr, month: mo },
+      kpis: {
+        ingresos:     ingAct,
+        cmv:          parseFloat(ms.cmv||0),
+        gastos:       parseFloat(ms.gastos||0),
+        utilidad:     ingAct - parseFloat(ms.cmv||0) - parseFloat(ms.gastos||0),
+        vs_prev_pct:  varPct,
+      },
+      sales_history: salesHistory.rows.map(r => ({
+        year: r.year, month: r.month,
+        ventas: parseFloat(r.ventas||0),
+        cmv:    parseFloat(r.cmv||0),
+        margen: parseFloat(r.ventas||0) - parseFloat(r.cmv||0),
+      })),
+      top_products: topProducts.rows.map(r => ({
+        name:      r.name, code: r.code,
+        qty_sold:  parseFloat(r.qty_sold||0),
+        revenue:   parseFloat(r.revenue||0),
+        margin:    parseFloat(r.revenue||0) - parseFloat(r.cost_total||0),
+        margin_pct: parseFloat(r.revenue||0) > 0
+          ? Math.round((parseFloat(r.revenue||0)-parseFloat(r.cost_total||0))/parseFloat(r.revenue||0)*100)
+          : 0,
+      })),
+      top_clients: topClients.rows.map(r => ({
+        name:          r.name,
+        invoice_count: parseInt(r.invoice_count||0),
+        total_billed:  parseFloat(r.total_billed||0),
+        total_paid:    parseFloat(r.total_paid||0),
+        outstanding:   parseFloat(r.outstanding||0),
+      })),
+      overdue: {
+        invoices_count: parseInt(overdueInvoices.rows[0]?.count||0),
+        invoices_total: parseFloat(overdueInvoices.rows[0]?.total||0),
+        cxc_count:      parseInt(overdueCxC.rows[0]?.count||0),
+        cxc_total:      parseFloat(overdueCxC.rows[0]?.total||0),
+      }
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 3.2: ALERTAS INTELIGENTES ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/alerts — retorna todas las alertas activas
+app.get('/api/alerts', authMiddleware, async (req, res) => {
+  try {
+    const alerts = [];
+    const today  = new Date().toISOString().split('T')[0];
+    const in7    = new Date(Date.now() + 7*24*60*60*1000).toISOString().split('T')[0];
+    const in30   = new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0];
+
+    // 1. Stock bajo o agotado
+    const stockAlerts = await query(
+      `SELECT id, name, code, stock_current, stock_minimum, unit
+       FROM products
+       WHERE user_id=$1 AND stock_current <= stock_minimum AND stock_minimum > 0
+       ORDER BY (stock_current/NULLIF(stock_minimum,0)) ASC
+       LIMIT 10`,
+      [req.userId]
+    );
+    stockAlerts.rows.forEach(p => {
+      const isOut = parseFloat(p.stock_current) <= 0;
+      alerts.push({
+        type:     isOut ? 'danger' : 'warning',
+        category: 'stock',
+        icon:     isOut ? '🚨' : '⚡',
+        title:    isOut ? `${p.name} — AGOTADO` : `${p.name} — Stock bajo`,
+        detail:   `Stock: ${p.stock_current} ${p.unit||''} (mín: ${p.stock_minimum})`,
+        action:   'Registrar entrada',
+        action_page: 'movimientos-inv',
+        product_id: p.id,
+      });
+    });
+
+    // 2. Facturas vencidas
+    const overdueInv = await query(
+      `SELECT id, invoice_number, client_name, total, paid_amount, due_date
+       FROM invoices
+       WHERE user_id=$1 AND status IN ('issued','partial')
+         AND due_date < $2
+       ORDER BY due_date ASC LIMIT 10`,
+      [req.userId, today]
+    );
+    overdueInv.rows.forEach(inv => {
+      const pend = parseFloat(inv.total||0) - parseFloat(inv.paid_amount||0);
+      alerts.push({
+        type: 'danger', category: 'invoice_overdue',
+        icon: '🧾', title: `Factura ${inv.invoice_number} vencida`,
+        detail: `${inv.client_name||'Sin cliente'} — RD$ ${fmt(pend)} pendiente · Venció: ${inv.due_date}`,
+        action: 'Ver facturas', action_page: 'facturas',
+      });
+    });
+
+    // 3. Facturas por vencer en 7 días
+    const soonInv = await query(
+      `SELECT id, invoice_number, client_name, total, paid_amount, due_date
+       FROM invoices
+       WHERE user_id=$1 AND status IN ('issued','partial')
+         AND due_date >= $2 AND due_date <= $3
+       ORDER BY due_date ASC LIMIT 5`,
+      [req.userId, today, in7]
+    );
+    soonInv.rows.forEach(inv => {
+      const pend = parseFloat(inv.total||0) - parseFloat(inv.paid_amount||0);
+      const dias = Math.ceil((new Date(inv.due_date)-new Date(today))/(1000*60*60*24));
+      alerts.push({
+        type: 'warning', category: 'invoice_soon',
+        icon: '⏰', title: `Factura ${inv.invoice_number} vence en ${dias} día(s)`,
+        detail: `${inv.client_name||'Sin cliente'} — RD$ ${fmt(pend)}`,
+        action: 'Ver facturas', action_page: 'facturas',
+      });
+    });
+
+    // 4. CxC vencidas
+    const overdueCxC = await query(
+      `SELECT r.id, c.name as client_name,
+              r.total_amount-r.paid_amount as outstanding, r.due_date
+       FROM receivables r LEFT JOIN clients c ON c.id=r.client_id
+       WHERE r.user_id=$1 AND r.status IN ('pending','partial')
+         AND r.due_date < $2
+       ORDER BY r.due_date ASC LIMIT 5`,
+      [req.userId, today]
+    );
+    overdueCxC.rows.forEach(r => {
+      alerts.push({
+        type: 'danger', category: 'cxc_overdue',
+        icon: '💰', title: `CxC vencida — ${r.client_name||'Cliente'}`,
+        detail: `RD$ ${fmt(r.outstanding)} pendiente · Venció: ${r.due_date}`,
+        action: 'Ver CxC', action_page: 'cobrar',
+      });
+    });
+
+    // 5. CxP por vencer en 7 días
+    const soonCxP = await query(
+      `SELECT p.id, v.name as vendor_name,
+              p.total_amount-p.paid_amount as outstanding, p.due_date
+       FROM payables p LEFT JOIN vendors v ON v.id=p.vendor_id
+       WHERE p.user_id=$1 AND p.status IN ('pending','partial')
+         AND p.due_date >= $2 AND p.due_date <= $3
+       ORDER BY p.due_date ASC LIMIT 5`,
+      [req.userId, today, in7]
+    );
+    soonCxP.rows.forEach(p => {
+      const dias = Math.ceil((new Date(p.due_date)-new Date(today))/(1000*60*60*24));
+      alerts.push({
+        type: 'warning', category: 'cxp_soon',
+        icon: '💳', title: `Pago a ${p.vendor_name||'Proveedor'} vence en ${dias} día(s)`,
+        detail: `RD$ ${fmt(p.outstanding)} por pagar`,
+        action: 'Ver CxP', action_page: 'pagar',
+      });
+    });
+
+    // 6. Cotizaciones aprobadas sin convertir
+    const pendingQuotes = await query(
+      `SELECT id, quote_number, client_name, total, valid_until
+       FROM quotes
+       WHERE user_id=$1 AND status='approved'
+       ORDER BY valid_until ASC NULLS LAST LIMIT 5`,
+      [req.userId]
+    ).catch(()=>({rows:[]}));
+    pendingQuotes.rows.forEach(q => {
+      const isExpiring = q.valid_until && q.valid_until <= in7;
+      alerts.push({
+        type: isExpiring ? 'warning' : 'info',
+        category: 'quote_approved',
+        icon: '📄', title: `Cotización ${q.quote_number} aprobada sin convertir`,
+        detail: `${q.client_name||''} — RD$ ${fmt(q.total)}${isExpiring?' · ⚠️ Vence pronto':''}`,
+        action: 'Convertir a Factura', action_page: 'cotizaciones',
+      });
+    });
+
+    // 7. Facturas recurrentes vencidas
+    const dueRecurring = await query(
+      `SELECT id, name, next_date, total
+       FROM recurring_invoices
+       WHERE user_id=$1 AND is_active=TRUE AND next_date<=$2
+         AND (end_date IS NULL OR end_date>=$2)
+       LIMIT 5`,
+      [req.userId, today]
+    ).catch(()=>({rows:[]}));
+    dueRecurring.rows.forEach(r => {
+      alerts.push({
+        type: 'warning', category: 'recurring_due',
+        icon: '🔄', title: `Factura recurrente vencida: ${r.name}`,
+        detail: `RD$ ${fmt(r.total)} · Fecha: ${r.next_date}`,
+        action: 'Generar ahora', action_page: 'recurrentes',
+      });
+    });
+
+    // Ordenar: danger primero, luego warning, luego info
+    const priority = { danger:0, warning:1, info:2 };
+    alerts.sort((a,b) => (priority[a.type]||2) - (priority[b.type]||2));
+
+    res.json({ alerts, count: alerts.length, has_danger: alerts.some(a=>a.type==='danger') });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 3.3: DGII 606 / 607 ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/dgii/606 — Compras (para tu declaración de ITBIS)
+// Formato: mes/año de compras a proveedores con ITBIS
+app.get('/api/dgii/606', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return res.status(400).json({ error: 'month y year requeridos' });
+    const m = parseInt(month), y = parseInt(year);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    // Cuentas por pagar del período como base de compras
+    const rows = await query(
+      `SELECT
+         p.id,
+         v.name                        as proveedor,
+         COALESCE(v.rnc,'')            as rnc_cedula,
+         COALESCE(v.vendor_type,'vendor') as tipo_bienes,
+         TO_CHAR(p.created_at,'YYYYMMDD') as fecha_comprobante,
+         ''                            as ncf_comprobante,
+         p.total_amount                as monto_facturado,
+         0                             as itbis_facturado,
+         COALESCE(ret.retention_amount,0) as itbis_retenido,
+         COALESCE(ret.retention_amount,0) as isr_retenido
+       FROM payables p
+       JOIN vendors v ON v.id=p.vendor_id
+       LEFT JOIN retenciones ret ON ret.invoice_id=p.id AND ret.user_id=p.user_id
+       WHERE p.user_id=$1
+         AND p.created_at::date>=$2 AND p.created_at::date<=$3
+       ORDER BY p.created_at ASC`,
+      [req.userId, from, to]
+    );
+
+    // Totales
+    const totales = {
+      cantidad_registros: rows.rows.length,
+      total_monto:        rows.rows.reduce((s,r)=>s+parseFloat(r.monto_facturado||0),0),
+      total_itbis:        rows.rows.reduce((s,r)=>s+parseFloat(r.itbis_facturado||0),0),
+      total_ret_itbis:    rows.rows.reduce((s,r)=>s+parseFloat(r.itbis_retenido||0),0),
+      total_ret_isr:      rows.rows.reduce((s,r)=>s+parseFloat(r.isr_retenido||0),0),
+    };
+
+    res.json({ period: `${m}/${y}`, from, to, rows: rows.rows, totales });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/dgii/607 — Ventas (para tu declaración de ITBIS)
+app.get('/api/dgii/607', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return res.status(400).json({ error: 'month y year requeridos' });
+    const m = parseInt(month), y = parseInt(year);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    const rows = await query(
+      `SELECT
+         inv.id,
+         COALESCE(inv.client_name,'Consumidor Final')  as nombre_cliente,
+         COALESCE(inv.client_rnc,'')                   as rnc_cedula,
+         TO_CHAR(inv.date,'YYYYMMDD')                  as fecha_comprobante,
+         COALESCE(inv.invoice_number,'')               as ncf,
+         inv.subtotal                                  as monto_facturado,
+         inv.tax                                       as itbis_facturado,
+         inv.total                                     as total,
+         COALESCE(ret.retention_amount,0)              as itbis_retenido_cliente
+       FROM invoices inv
+       LEFT JOIN retenciones ret
+         ON ret.invoice_id=inv.id AND ret.tipo='itbis' AND ret.user_id=inv.user_id
+       WHERE inv.user_id=$1
+         AND inv.date>=$2 AND inv.date<=$3
+         AND inv.status IN ('issued','paid','partial')
+       ORDER BY inv.date ASC`,
+      [req.userId, from, to]
+    );
+
+    const totales = {
+      cantidad_registros: rows.rows.length,
+      total_monto:        rows.rows.reduce((s,r)=>s+parseFloat(r.monto_facturado||0),0),
+      total_itbis:        rows.rows.reduce((s,r)=>s+parseFloat(r.itbis_facturado||0),0),
+      total_ret_itbis:    rows.rows.reduce((s,r)=>s+parseFloat(r.itbis_retenido_cliente||0),0),
+    };
+
+    res.json({ period: `${m}/${y}`, from, to, rows: rows.rows, totales });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/dgii/itbis — resumen ITBIS para declaración IT-1
+app.get('/api/dgii/itbis', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return res.status(400).json({ error: 'month y year requeridos' });
+    const m = parseInt(month), y = parseInt(year);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    // ITBIS cobrado en ventas
+    const cobrado = await query(
+      `SELECT COALESCE(SUM(tax),0) as total
+       FROM invoices
+       WHERE user_id=$1 AND date>=$2 AND date<=$3
+         AND status IN ('issued','paid','partial')`,
+      [req.userId, from, to]
+    );
+
+    // ITBIS pagado en compras (estimado de CxP)
+    const pagado = await query(
+      `SELECT COALESCE(SUM(total_amount*0.18),0) as total
+       FROM payables
+       WHERE user_id=$1 AND created_at::date>=$2 AND created_at::date<=$3`,
+      [req.userId, from, to]
+    );
+
+    // ITBIS retenido por clientes
+    const retenido = await query(
+      `SELECT COALESCE(SUM(retention_amount),0) as total
+       FROM retenciones
+       WHERE user_id=$1 AND tipo='itbis' AND date>=$2 AND date<=$3`,
+      [req.userId, from, to]
+    );
+
+    const itbisCobrado = parseFloat(cobrado.rows[0]?.total||0);
+    const itbisPagado  = parseFloat(pagado.rows[0]?.total||0);
+    const itbisRet     = parseFloat(retenido.rows[0]?.total||0);
+    const saldo        = itbisCobrado - itbisPagado - itbisRet;
+
+    res.json({
+      period: `${m}/${y}`,
+      itbis_cobrado:  itbisCobrado,
+      itbis_pagado:   itbisPagado,
+      itbis_retenido: itbisRet,
+      saldo_a_pagar:  Math.max(0, saldo),
+      saldo_a_favor:  Math.max(0, -saldo),
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Registro del webhook (llamar una vez desde Railway shell o al startup)
 app.post('/setup-webhook', async (req, res) => {
   const secret = req.headers['x-setup-secret'] || req.query.secret;
