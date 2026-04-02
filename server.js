@@ -1854,20 +1854,14 @@ async function processCMVForInvoice(pgClient, userId, invoiceId, invoiceNumber, 
       [newStock, item.product_id, userId]
     );
 
-    // Registrar salida en inventory_movements si el producto también existe en inventory_products
-    const invProdR = await q(
-      `SELECT id FROM inventory_products WHERE user_id=$1 AND code=(SELECT code FROM products WHERE id=$2 AND user_id=$1)`,
-      [userId, item.product_id]
+    // Registrar salida en inventory_movements con el product_id de la tabla products
+    const movId = `mov_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await q(
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
+       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8,'sale')`,
+      [movId, userId, item.product_id, qty, costPrice,
+       `FAC-${invoiceNumber}`, `CMV automático Factura ${invoiceNumber}`, invoiceDate]
     );
-    if (invProdR.rows[0]) {
-      const movId = `mov_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-      await q(
-        `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
-         VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8)`,
-        [movId, userId, invProdR.rows[0].id, qty, costPrice,
-         `FAC-${invoiceNumber}`, `CMV automático Factura ${invoiceNumber}`, invoiceDate]
-      );
-    }
 
     cmvDetails.push({ product: prod.name, qty, cost: costPrice, cmv: lineCMV, stockBefore: stockActual, stockAfter: newStock });
   }
@@ -2506,125 +2500,309 @@ app.delete('/api/income-records/:id', authMiddleware, async (req, res) => {
 });
 
 // ─── INVENTORY ───────────────────────────────────────────────────────────────
-// GET /api/inventory/stock
+// GET /api/inventory/stock — usa tabla products (unificada)
 app.get('/api/inventory/stock', authMiddleware, async (req, res) => {
   try {
-    const r = await query(`
-      SELECT p.id, p.code, p.name, p.category, p.unit,
-             COALESCE(p.cost_price,0) as cost_price, COALESCE(p.sell_price,0) as sell_price,
-             COALESCE(p.min_stock,0) as min_stock,
-             COALESCE(SUM(CASE WHEN m.type='entry' THEN m.quantity WHEN m.type IN ('exit','adjustment') THEN -m.quantity ELSE 0 END),0) as stock
-      FROM inventory_products p
-      LEFT JOIN inventory_movements m ON m.product_id = p.id AND m.user_id = p.user_id
-      WHERE p.user_id=$1
-      GROUP BY p.id
-      ORDER BY p.name`, [req.userId]);
-    res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// GET /api/inventory/products
-app.get('/api/inventory/products', authMiddleware, async (req, res) => {
-  try {
-    const r = await query(`SELECT * FROM inventory_products WHERE user_id=$1 ORDER BY name`, [req.userId]);
-    res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// POST /api/inventory/products
-app.post('/api/inventory/products', authMiddleware, async (req, res) => {
-  try {
-    const { code, name, category, unit, cost_price, sell_price, min_stock } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name required' });
-    const id = `prod_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    await query(
-      `INSERT INTO inventory_products(id,user_id,code,name,category,unit,cost_price,sell_price,min_stock)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [id, req.userId, code||null, name, category||'General', unit||'unidad', cost_price||0, sell_price||0, min_stock||0]
+    const r = await query(
+      `SELECT p.id, p.code, p.name, p.category, p.unit,
+              COALESCE(p.cost_price,0)   as cost_price,
+              COALESCE(p.sale_price,0)   as sale_price,
+              COALESCE(p.stock_minimum,0) as stock_minimum,
+              COALESCE(p.stock_current,0) as stock_current,
+              COALESCE(p.stock_current,0) as inventory_value_qty,
+              COALESCE(p.stock_current,0) * COALESCE(p.cost_price,0) as inventory_value,
+              CASE
+                WHEN COALESCE(p.stock_current,0) <= 0 THEN 'out'
+                WHEN COALESCE(p.stock_current,0) <= COALESCE(p.stock_minimum,0) THEN 'low'
+                ELSE 'ok'
+              END as stock_status
+       FROM products p
+       WHERE p.user_id=$1
+       ORDER BY p.name`,
+      [req.userId]
     );
-    res.json({ ok: true, id });
+    const prods = r.rows;
+    const total_value     = prods.reduce((s,p) => s + parseFloat(p.inventory_value||0), 0);
+    const low_stock       = prods.filter(p => p.stock_status === 'low').length;
+    const out_of_stock    = prods.filter(p => p.stock_status === 'out').length;
+    res.json({
+      products: prods,
+      total_products: prods.length,
+      total_value, low_stock, out_of_stock,
+    });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// DELETE /api/inventory/products/:id
-app.delete('/api/inventory/products/:id', authMiddleware, async (req, res) => {
-  try {
-    await query(`DELETE FROM inventory_products WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
-    res.json({ ok: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// GET /api/inventory/movements
+// GET /api/inventory/movements — lee de inventory_movements unida a products
 app.get('/api/inventory/movements', authMiddleware, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 80;
-    const r = await query(`
-      SELECT m.*, p.name as product_name
-      FROM inventory_movements m
-      JOIN inventory_products p ON p.id = m.product_id
-      WHERE m.user_id=$1
-      ORDER BY m.created_at DESC
-      LIMIT $2`, [req.userId, limit]);
+    // Intentar con products primero, luego con inventory_products como fallback
+    const r = await query(
+      `SELECT m.*,
+              COALESCE(p.name, ip.name, 'Desconocido') as product_name,
+              COALESCE(p.code, ip.code, '')             as product_code,
+              COALESCE(p.unit, ip.unit, 'unidad')       as unit,
+              v.name as vendor_name,
+              c.name as client_name
+       FROM inventory_movements m
+       LEFT JOIN products p          ON p.id = m.product_id AND p.user_id = m.user_id
+       LEFT JOIN inventory_products ip ON ip.id = m.product_id AND ip.user_id = m.user_id
+       LEFT JOIN vendors v            ON v.id = m.vendor_id
+       LEFT JOIN clients c            ON c.id = m.client_id
+       WHERE m.user_id=$1
+       ORDER BY m.mov_date DESC, m.created_at DESC
+       LIMIT $2`,
+      [req.userId, limit]
+    );
     res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/inventory/entry
+// POST /api/inventory/entry — entrada de mercancía, actualiza stock en products
 app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
   try {
-    const { product_id, quantity, unit_cost, reference, notes, mov_date } = req.body;
-    if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
-    const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    await query(
-      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
-       VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8)`,
-      [id, req.userId, product_id, quantity, unit_cost||null, reference||null, notes||null, mov_date||null]
+    await pgClient.query('BEGIN');
+    const { product_id, quantity, unit_cost, reference, notes, mov_date, vendor_id } = req.body;
+    if (!product_id || !quantity || parseFloat(quantity) <= 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'Selecciona un producto y una cantidad válida' });
+    }
+    const qty  = parseFloat(quantity);
+    const cost = parseFloat(unit_cost) || 0;
+
+    // Verificar que el producto existe en tabla products
+    const prodR = await pgClient.query(
+      `SELECT id, stock_current, cost_price FROM products WHERE id=$1 AND user_id=$2`,
+      [product_id, req.userId]
     );
-    res.json({ ok: true, id });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    if (!prodR.rows[0]) {
+      // Intentar con inventory_products (retrocompatibilidad)
+      const ipR = await pgClient.query(
+        `SELECT id FROM inventory_products WHERE id=$1 AND user_id=$2`,
+        [product_id, req.userId]
+      );
+      if (!ipR.rows[0]) {
+        await pgClient.query('ROLLBACK');
+        return res.status(404).json({ error: 'Producto no encontrado' });
+      }
+      // Producto legacy en inventory_products — solo insertar movimiento
+      const movId = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await pgClient.query(
+        `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,vendor_id)
+         VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8,$9)`,
+        [movId, req.userId, product_id, qty, cost||null, reference||null, notes||null, mov_date||null, vendor_id||null]
+      );
+      await pgClient.query('COMMIT');
+      return res.json({ ok: true, id: movId });
+    }
+
+    const prod = prodR.rows[0];
+    const stockActual = parseFloat(prod.stock_current || 0);
+    const costoAnterior = parseFloat(prod.cost_price || 0);
+
+    // Costo promedio ponderado (si hay stock y costo previo)
+    let nuevoCosto = cost;
+    if (cost > 0 && stockActual > 0 && costoAnterior > 0) {
+      nuevoCosto = ((stockActual * costoAnterior) + (qty * cost)) / (stockActual + qty);
+    } else if (cost > 0) {
+      nuevoCosto = cost;
+    } else {
+      nuevoCosto = costoAnterior;
+    }
+
+    // Actualizar stock y costo promedio en products
+    await pgClient.query(
+      `UPDATE products SET
+         stock_current = COALESCE(stock_current,0) + $1,
+         cost_price    = CASE WHEN $2 > 0 THEN $2 ELSE cost_price END
+       WHERE id=$3 AND user_id=$4`,
+      [qty, Math.round(nuevoCosto * 100) / 100, product_id, req.userId]
+    );
+
+    // Registrar movimiento
+    const movId = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await pgClient.query(
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,vendor_id)
+       VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8,$9)`,
+      [movId, req.userId, product_id, qty, cost||null, reference||null, notes||null, mov_date||null, vendor_id||null]
+    );
+
+    // Asiento contable si hay cuentas configuradas
+    const invAcctR = await pgClient.query(
+      `SELECT id, code FROM accounts WHERE user_id=$1 AND code IN ('1103','1.1.03','1301','1.3.01') LIMIT 1`,
+      [req.userId]
+    );
+    const cxpAcctR = await pgClient.query(
+      `SELECT id FROM accounts WHERE user_id=$1 AND code IN ('2101','2.1.01') LIMIT 1`,
+      [req.userId]
+    );
+    if (invAcctR.rows[0] && cxpAcctR.rows[0] && cost > 0) {
+      const totalCosto = Math.round(qty * cost * 100) / 100;
+      await insertJournalEntry(pgClient, req.userId, mov_date||new Date().toISOString().split('T')[0],
+        `Entrada inventario — ${reference||'Compra de mercancía'}`,
+        'inventory_entry', movId,
+        [
+          { acct: invAcctR.rows[0].id, d: totalCosto, c: 0 },
+          { acct: cxpAcctR.rows[0].id, d: 0, c: totalCosto },
+        ]
+      );
+    }
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, id: movId, new_stock: stockActual + qty, new_cost: Math.round(nuevoCosto*100)/100 });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    console.error('inventory entry error:', e.message);
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
 });
 
-// POST /api/inventory/exit
+// POST /api/inventory/exit — salida manual de inventario
 app.post('/api/inventory/exit', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
   try {
-    const { product_id, quantity, unit_price, reference, notes, mov_date } = req.body;
-    if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
-    const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    await query(
-      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
-       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8)`,
-      [id, req.userId, product_id, quantity, unit_price||null, reference||null, notes||null, mov_date||null]
+    await pgClient.query('BEGIN');
+    const { product_id, quantity, unit_price, reason, reference, notes, mov_date, client_id } = req.body;
+    if (!product_id || !quantity || parseFloat(quantity) <= 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'Selecciona un producto y una cantidad válida' });
+    }
+    const qty = parseFloat(quantity);
+
+    // Verificar stock
+    const prodR = await pgClient.query(
+      `SELECT id, stock_current, cost_price, name FROM products WHERE id=$1 AND user_id=$2`,
+      [product_id, req.userId]
     );
-    res.json({ ok: true, id });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+
+    if (!prodR.rows[0]) {
+      // Fallback inventory_products
+      const movId = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await pgClient.query(
+        `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,client_id,reason)
+         VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8,$9,$10)`,
+        [movId, req.userId, product_id, qty, unit_price||null, reference||null, notes||null, mov_date||null, client_id||null, reason||'sale']
+      );
+      await pgClient.query('COMMIT');
+      return res.json({ ok: true, id: movId });
+    }
+
+    const prod = prodR.rows[0];
+    const stockActual = parseFloat(prod.stock_current || 0);
+    if (stockActual < qty) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: `Stock insuficiente. Disponible: ${stockActual}` });
+    }
+
+    // Reducir stock
+    await pgClient.query(
+      `UPDATE products SET stock_current = stock_current - $1 WHERE id=$2 AND user_id=$3`,
+      [qty, product_id, req.userId]
+    );
+
+    const movId = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await pgClient.query(
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,unit_price,reference,notes,mov_date,client_id,reason)
+       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [movId, req.userId, product_id, qty, prod.cost_price||null, unit_price||null, reference||null, notes||null, mov_date||null, client_id||null, reason||'sale']
+    );
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, id: movId, new_stock: stockActual - qty });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
 });
 
-// POST /api/inventory/adjustment
+// POST /api/inventory/adjustment — ajuste de inventario (conteo físico)
 app.post('/api/inventory/adjustment', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
   try {
+    await pgClient.query('BEGIN');
     const { product_id, new_quantity, notes, mov_date } = req.body;
-    if (!product_id || new_quantity == null) return res.status(400).json({ error: 'product_id and new_quantity required' });
-    const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    await query(
+    if (!product_id || new_quantity == null || parseFloat(new_quantity) < 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'product_id y new_quantity requeridos' });
+    }
+    const newQty = parseFloat(new_quantity);
+
+    const prodR = await pgClient.query(
+      `SELECT id, stock_current, cost_price FROM products WHERE id=$1 AND user_id=$2`,
+      [product_id, req.userId]
+    );
+
+    let stockActual = 0;
+    if (prodR.rows[0]) {
+      stockActual = parseFloat(prodR.rows[0].stock_current || 0);
+      await pgClient.query(
+        `UPDATE products SET stock_current=$1 WHERE id=$2 AND user_id=$3`,
+        [newQty, product_id, req.userId]
+      );
+    } else {
+      // Fallback inventory_products
+      const ipR = await pgClient.query(
+        `SELECT id FROM inventory_products WHERE id=$1 AND user_id=$2`, [product_id, req.userId]
+      );
+      if (!ipR.rows[0]) { await pgClient.query('ROLLBACK'); return res.status(404).json({ error: 'Producto no encontrado' }); }
+    }
+
+    const diff = newQty - stockActual;
+    const movId = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await pgClient.query(
       `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,notes,mov_date)
        VALUES($1,$2,$3,'adjustment',$4,$5,$6)`,
-      [id, req.userId, product_id, new_quantity, notes||'Ajuste de inventario', mov_date||null]
+      [movId, req.userId, product_id, newQty, notes||`Ajuste inventario: ${stockActual} → ${newQty} (${diff>=0?'+':''}${diff})`, mov_date||null]
     );
-    res.json({ ok: true, id });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, id: movId, previous: stockActual, new: newQty, diff });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
 });
 
-// GET /api/inventory/kardex/:productId
+// GET /api/inventory/kardex/:productId — busca en products O inventory_products
 app.get('/api/inventory/kardex/:productId', authMiddleware, async (req, res) => {
   try {
-    const r = await query(`
-      SELECT m.*, p.name as product_name
-      FROM inventory_movements m
-      JOIN inventory_products p ON p.id = m.product_id
-      WHERE m.product_id=$1 AND m.user_id=$2
-      ORDER BY m.mov_date ASC, m.created_at ASC`,
-      [req.params.productId, req.userId]);
-    res.json(r.rows);
+    // Buscar info del producto (intentar en products primero)
+    let productName = 'Producto';
+    const pR = await query(
+      `SELECT name, unit FROM products WHERE id=$1 AND user_id=$2`, [req.params.productId, req.userId]
+    );
+    if (pR.rows[0]) productName = pR.rows[0].name;
+    else {
+      const ipR = await query(
+        `SELECT name FROM inventory_products WHERE id=$1 AND user_id=$2`, [req.params.productId, req.userId]
+      );
+      if (ipR.rows[0]) productName = ipR.rows[0].name;
+    }
+
+    const r = await query(
+      `SELECT m.*, $3 as product_name
+       FROM inventory_movements m
+       WHERE m.product_id=$1 AND m.user_id=$2
+       ORDER BY m.mov_date ASC, m.created_at ASC`,
+      [req.params.productId, req.userId, productName]
+    );
+
+    // Calcular saldo corrido
+    let balance = 0;
+    const rows = r.rows.map(row => {
+      const qty = parseFloat(row.quantity || 0);
+      if (row.type === 'entry') balance += qty;
+      else if (row.type === 'exit') balance -= qty;
+      else if (row.type === 'adjustment') balance = qty; // ajuste = nuevo saldo absoluto
+      return {
+        ...row,
+        balance: Math.round(balance * 1000) / 1000,
+        unit_cost: parseFloat(row.unit_cost || 0),
+      };
+    });
+    res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -4160,9 +4338,10 @@ app.get('/api/export/journal', authMiddleware, async (req, res) => {
   try {
     const r = await query(
       `SELECT je.date, je.description as entry_desc, je.ref_type, je.ref_id,
-              jl.account_code, jl.account_name, jl.debit, jl.credit, jl.memo
+              a.code as account_code, a.name as account_name, jl.debit, jl.credit
        FROM journal_entries je
        JOIN journal_lines jl ON jl.journal_entry_id = je.id
+       JOIN accounts a ON a.id = jl.account_id
        WHERE je.user_id=$1
        ORDER BY je.date DESC, je.created_at DESC`,
       [req.userId]
@@ -4174,7 +4353,7 @@ app.get('/api/export/journal', authMiddleware, async (req, res) => {
       credit: Number(row.credit || 0).toFixed(2)
     }));
     res.set(csvHeaders('diario_contable.csv'));
-    res.send(toCSV(['date', 'entry_desc', 'ref_type', 'ref_id', 'account_code', 'account_name', 'debit', 'credit', 'memo'], rows));
+    res.send(toCSV(['date', 'entry_desc', 'ref_type', 'ref_id', 'account_code', 'account_name', 'debit', 'credit'], rows));
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -4209,10 +4388,13 @@ app.get('/api/export/transactions', authMiddleware, async (req, res) => {
 app.get('/api/quotes', authMiddleware, async (req, res) => {
   try {
     const { status } = req.query;
-    let sql = `SELECT * FROM quotes WHERE user_id=$1`;
+    let sql = `SELECT q.*, c.name as client_display
+               FROM quotes q
+               LEFT JOIN clients c ON c.id = q.client_id
+               WHERE q.user_id=$1`;
     const params = [req.userId];
-    if (status) { sql += ` AND status=$2`; params.push(status); }
-    sql += ` ORDER BY date DESC, created_at DESC LIMIT 100`;
+    if (status) { sql += ` AND q.status=$2`; params.push(status); }
+    sql += ` ORDER BY q.date DESC, q.created_at DESC LIMIT 100`;
     const r = await query(sql, params);
     res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -4237,39 +4419,43 @@ app.post('/api/quotes', authMiddleware, async (req, res) => {
   try {
     await pgClient.query('BEGIN');
     const {
-      quote_number, client_name, client_rnc, client_address,
-      date, valid_until, subtotal, tax, total,
+      quote_number, client_id, client_name, client_rnc, client_address,
+      date, valid_until, subtotal, tax, total: bodyTotal,
       discount_amount, discount_pct, notes, items, lines,
-      payment_terms, delivery_terms
+      payment_terms, delivery_terms, status = 'draft'
     } = req.body;
-    if (!total) { await pgClient.query('ROLLBACK'); return res.status(400).json({ error: 'total requerido' }); }
+
+    if (!bodyTotal && bodyTotal !== 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'total requerido' });
+    }
 
     const id = `cot_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     const quoteDate = date || new Date().toISOString().split('T')[0];
 
     await pgClient.query(
-      `INSERT INTO quotes(id,user_id,quote_number,client_name,client_rnc,client_address,
+      `INSERT INTO quotes(id,user_id,quote_number,client_id,client_name,client_rnc,client_address,
          date,valid_until,subtotal,tax,total,discount_amount,discount_pct,
          notes,payment_terms,delivery_terms,status)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'draft')`,
-      [id, req.userId, quote_number, client_name||null, client_rnc||null, client_address||null,
-       quoteDate, valid_until||null, subtotal||0, tax||0, total,
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+      [id, req.userId, quote_number, client_id||null, client_name||null, client_rnc||null, client_address||null,
+       quoteDate, valid_until||null, subtotal||0, tax||0, bodyTotal,
        discount_amount||0, discount_pct||0, notes||null,
-       payment_terms||null, delivery_terms||null]
+       payment_terms||null, delivery_terms||null, status]
     );
 
-    // Insertar ítems
+    // Insertar ítems (usar variable local para no colisionar con bodyTotal)
     const rawItems = lines || items || [];
     for (const item of rawItems) {
-      const itemId = `qi_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-      const qty    = parseFloat(item.quantity || item.qty || 1);
-      const price  = parseFloat(item.unit_price || item.price || 0);
-      const disc   = parseFloat(item.discount_pct || 0);
-      const total  = Math.round(qty * price * (1 - disc/100) * 100) / 100;
+      const itemId    = `qi_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      const qty       = parseFloat(item.quantity || item.qty || 1);
+      const price     = parseFloat(item.unit_price || item.price || 0);
+      const disc      = parseFloat(item.discount_pct || 0);
+      const lineTotal = Math.round(qty * price * (1 - disc/100) * 100) / 100;
       await pgClient.query(
         `INSERT INTO quote_items(id,quote_id,description,qty,price,total,discount_pct,product_id)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [itemId, id, item.description||'', qty, price, total, disc, item.product_id||null]
+        [itemId, id, item.description||'', qty, price, lineTotal, disc, item.product_id||null]
       );
     }
 
@@ -4277,18 +4463,17 @@ app.post('/api/quotes', authMiddleware, async (req, res) => {
     res.json({ ok: true, id, quote_number });
   } catch(e) {
     await pgClient.query('ROLLBACK');
+    console.error('quotes POST error:', e.message);
     res.status(500).json({ error: e.message });
   } finally { pgClient.release(); }
 });
 
-// GET /api/quotes/:id
+// GET /api/quotes/:id — FIX: rowid no existe en PostgreSQL, usar created_at
 app.get('/api/quotes/:id', authMiddleware, async (req, res) => {
   try {
     const q = await query(`SELECT * FROM quotes WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
     if (!q.rows[0]) return res.status(404).json({ error: 'No encontrada' });
-    const items = await query(`SELECT * FROM quote_items WHERE quote_id=$1 ORDER BY rowid`, [req.params.id]).catch(
-      () => query(`SELECT * FROM quote_items WHERE quote_id=$1`, [req.params.id])
-    );
+    const items = await query(`SELECT * FROM quote_items WHERE quote_id=$1 ORDER BY created_at ASC`, [req.params.id]);
     res.json({ ...q.rows[0], items: items.rows });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -4318,27 +4503,23 @@ app.post('/api/quotes/:id/convert', authMiddleware, async (req, res) => {
   const pgClient = await pool.connect();
   try {
     await pgClient.query('BEGIN');
-    const q = await pgClient.query(
-      `SELECT q.*, array_agg(row_to_json(qi)) as items_json
-       FROM quotes q
-       LEFT JOIN quote_items qi ON qi.quote_id=q.id
-       WHERE q.id=$1 AND q.user_id=$2
-       GROUP BY q.id`,
-      [req.params.id, req.userId]
+    const qR = await pgClient.query(
+      `SELECT * FROM quotes WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]
     );
-    if (!q.rows[0]) { await pgClient.query('ROLLBACK'); return res.status(404).json({ error: 'Cotización no encontrada' }); }
-    const quote = q.rows[0];
+    if (!qR.rows[0]) { await pgClient.query('ROLLBACK'); return res.status(404).json({ error: 'Cotización no encontrada' }); }
+    const quote = qR.rows[0];
     if (quote.status === 'converted') { await pgClient.query('ROLLBACK'); return res.status(409).json({ error: 'Ya fue convertida en factura' }); }
+
+    // Obtener ítems de la cotización
+    const itemsR = await pgClient.query(`SELECT * FROM quote_items WHERE quote_id=$1 ORDER BY created_at ASC`, [req.params.id]);
 
     // Obtener siguiente número de factura
     const cntR = await pgClient.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
     const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
     const invNum  = String(nextNum).padStart(6, '0');
-
-    // Extraer datos del body (puede sobreescribir payment_method)
     const { payment_method = 'credit', due_date } = req.body;
 
-    // Crear factura como borrador (status draft)
+    // Crear factura borrador
     const invId  = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     const invDate = new Date().toISOString().split('T')[0];
     await pgClient.query(
@@ -4347,14 +4528,16 @@ app.post('/api/quotes/:id/convert', authMiddleware, async (req, res) => {
          payment_method,quote_id)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft',$12,$13,$14,$15,$16)`,
       [invId, req.userId, invNum, quote.client_name, quote.client_rnc, quote.client_address,
-       quote.subtotal, quote.tax, quote.total, quote.discount_amount, quote.discount_pct,
+       quote.subtotal, quote.tax, quote.total, quote.discount_amount||0, quote.discount_pct||0,
        invDate, due_date||null, quote.notes, payment_method, req.params.id]
     );
-    await pgClient.query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, nextNum]);
+    await pgClient.query(
+      `INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`,
+      [req.userId, nextNum]
+    );
 
     // Copiar ítems
-    const items = (quote.items_json || []).filter(Boolean);
-    for (const item of items) {
+    for (const item of itemsR.rows) {
       const iId = `item_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
       await pgClient.query(
         `INSERT INTO invoice_items(id,invoice_id,description,qty,price,total,discount_pct,product_id)
@@ -4370,6 +4553,7 @@ app.post('/api/quotes/:id/convert', authMiddleware, async (req, res) => {
     res.json({ ok: true, invoice_id: invId, invoice_number: invNum });
   } catch(e) {
     await pgClient.query('ROLLBACK');
+    console.error('convert quote error:', e.message);
     res.status(500).json({ error: e.message });
   } finally { pgClient.release(); }
 });
@@ -5856,10 +6040,14 @@ async function initDB() {
     `CREATE TABLE IF NOT EXISTS inventory_movements (
       id          TEXT PRIMARY KEY,
       user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      product_id  TEXT NOT NULL REFERENCES inventory_products(id) ON DELETE CASCADE,
+      product_id  TEXT NOT NULL,
       type        TEXT NOT NULL CHECK (type IN ('entry','exit','adjustment')),
-      quantity    NUMERIC(12,2) NOT NULL,
-      unit_cost   NUMERIC(12,2),
+      quantity    NUMERIC(12,3) NOT NULL,
+      unit_cost   NUMERIC(12,4),
+      unit_price  NUMERIC(12,4),
+      vendor_id   TEXT,
+      client_id   TEXT,
+      reason      TEXT,
       reference   TEXT,
       notes       TEXT,
       mov_date    DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -5922,9 +6110,19 @@ async function initDB() {
   try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS product_id TEXT`); } catch(e) {}
   try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
   try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS cmv_amount NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
-  // Actualizar status CHECK constraint para incluir 'issued' (además de 'pending','paid','cancelled')
+  // Actualizar status CHECK constraint para incluir 'issued'
   try { await query(`ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_status_check`); } catch(e) {}
   try { await query(`ALTER TABLE invoices ADD CONSTRAINT invoices_status_check CHECK (status IN ('draft','issued','pending','paid','partial','cancelled'))`); } catch(e) {}
+
+  // ── inventory_movements: eliminar FK a inventory_products, agregar columnas ──
+  try { await query(`ALTER TABLE inventory_movements DROP CONSTRAINT IF EXISTS inventory_movements_product_id_fkey`); } catch(e) {}
+  try { await query(`ALTER TABLE inventory_movements ALTER COLUMN quantity TYPE NUMERIC(12,3)`); } catch(e) {}
+  try { await query(`ALTER TABLE inventory_movements ALTER COLUMN unit_cost TYPE NUMERIC(12,4)`); } catch(e) {}
+  try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12,4)`); } catch(e) {}
+  try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS vendor_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS client_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
+  try { await query(`CREATE INDEX IF NOT EXISTS idx_inv_mov_product ON inventory_movements(product_id, user_id)`); } catch(e) {}
 
   // ── Fase 1.2: Cierre de Período ──
   try {
@@ -5954,6 +6152,7 @@ async function initDB() {
       id               TEXT PRIMARY KEY,
       user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       quote_number     TEXT NOT NULL,
+      client_id        TEXT,
       client_name      TEXT,
       client_rnc       TEXT,
       client_address   TEXT,
@@ -5983,9 +6182,14 @@ async function initDB() {
       price        NUMERIC(12,2) NOT NULL DEFAULT 0,
       total        NUMERIC(12,2) NOT NULL DEFAULT 0,
       discount_pct NUMERIC(5,2)  DEFAULT 0,
-      product_id   TEXT
+      product_id   TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
   } catch(e) { console.warn('quote_items table:', e.message); }
+
+  // Migraciones de quotes
+  try { await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS client_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`); } catch(e) {}
 
   // Columna quote_id en invoices
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS quote_id TEXT`); } catch(e) {}
