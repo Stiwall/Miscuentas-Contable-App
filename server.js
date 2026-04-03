@@ -2077,8 +2077,8 @@ async function processCMVForInvoice(pgClient, userId, invoiceId, invoiceNumber, 
     if (invProdR.rows[0]) {
       const movId = `mov_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
       await q(
-        `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
-         VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8)`,
+        `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
+         VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8,$9)`,
         [movId, userId, invProdR.rows[0].id, qty, costPrice,
          `FAC-${invoiceNumber}`, `CMV automático Factura ${invoiceNumber}`, invoiceDate]
       );
@@ -2787,13 +2787,13 @@ app.get('/api/inventory/movements', authMiddleware, async (req, res) => {
 // POST /api/inventory/entry
 app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
   try {
-    const { product_id, quantity, unit_cost, reference, notes, mov_date } = req.body;
+    const { product_id, quantity, unit_cost, reference, notes, mov_date, reason } = req.body;
     if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
     const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await query(
-      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
-       VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8)`,
-      [id, req.userId, product_id, quantity, unit_cost||null, reference||null, notes||null, mov_date||null]
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
+       VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8,$9)`,
+      [id, req.userId, product_id, quantity, unit_cost||null, reference||null, notes||null, mov_date||null, reason||'compra']
     );
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -2802,13 +2802,13 @@ app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
 // POST /api/inventory/exit
 app.post('/api/inventory/exit', authMiddleware, async (req, res) => {
   try {
-    const { product_id, quantity, unit_price, reference, notes, mov_date } = req.body;
+    const { product_id, quantity, unit_price, reference, notes, mov_date, reason } = req.body;
     if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
     const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await query(
-      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
-       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8)`,
-      [id, req.userId, product_id, quantity, unit_price||null, reference||null, notes||null, mov_date||null]
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
+       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8,$9)`,
+      [id, req.userId, product_id, quantity, unit_price||null, reference||null, notes||null, mov_date||null, reason||'venta']
     );
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
