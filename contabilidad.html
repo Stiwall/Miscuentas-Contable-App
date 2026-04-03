@@ -264,6 +264,9 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
           <a href="#" onclick="showForgotPassword()" style="font-size:var(--fs-xs);color:var(--text-muted);text-decoration:none">¿Olvidaste tu contraseña?</a>
         </div>
         <button class="btn btn-primary btn-full" id="loginBtn" onclick="doLogin()" style="margin-top:4px">Entrar</button>
+        <div style="text-align:center;margin-top:10px">
+          <a href="#" onclick="showResendVerify()" style="font-size:var(--fs-xs);color:var(--text-muted);text-decoration:none">¿No recibiste el email de verificación?</a>
+        </div>
       </div>
 
       <!-- Register pane -->
@@ -1298,6 +1301,21 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
       <input class="form-input" id="forgotEmail" type="email" placeholder="tucorreo@email.com" onkeydown="if(event.key==='Enter')doForgotPassword()">
     </div>
     <button class="btn btn-primary btn-full" id="forgotBtn" onclick="doForgotPassword()">Enviar enlace</button>
+  </div>
+</div>
+
+<!-- RESEND VERIFICATION MODAL -->
+<div class="modal-backdrop" id="resendVerifyModal">
+  <div class="modal-box" style="max-width:380px">
+    <div class="modal-title">📧 Reenviar verificación <button class="modal-close" onclick="closeModal('resendVerifyModal')">✕</button></div>
+    <p style="font-size:var(--fs-sm);color:var(--text-muted);margin-bottom:16px">Ingresa el correo que usaste al registrarte y te enviaremos otro enlace de verificación.</p>
+    <div id="resendVerifyError" style="display:none;background:var(--accent2-dim);border:1px solid #ff4d6d40;border-radius:var(--radius-xs);padding:8px;color:var(--accent2);font-size:var(--fs-sm);font-weight:600;margin-bottom:12px"></div>
+    <div id="resendVerifyOk" style="display:none;background:var(--accent-dim);border:1px solid var(--accent)40;border-radius:var(--radius-xs);padding:8px;color:var(--accent);font-size:var(--fs-sm);font-weight:600;margin-bottom:12px"></div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">Correo electrónico</label>
+      <input class="form-input" id="resendVerifyEmail" type="email" placeholder="tucorreo@email.com" onkeydown="if(event.key==='Enter')doResendByEmail()">
+    </div>
+    <button class="btn btn-primary btn-full" id="resendVerifyBtn" onclick="doResendByEmail()">Enviar enlace</button>
   </div>
 </div>
 
@@ -4776,6 +4794,25 @@ function showForgotPassword() {
   el('forgotError').style.display='none';
   el('forgotOk').style.display='none';
   openModal('forgotModal');
+}
+function showResendVerify() {
+  el('resendVerifyEmail').value='';
+  el('resendVerifyError').style.display='none';
+  el('resendVerifyOk').style.display='none';
+  openModal('resendVerifyModal');
+}
+async function doResendByEmail() {
+  const email = el('resendVerifyEmail').value.trim();
+  el('resendVerifyError').style.display='none'; el('resendVerifyOk').style.display='none';
+  if (!email) { el('resendVerifyError').textContent='Ingresa tu correo'; el('resendVerifyError').style.display='block'; return; }
+  const btn = el('resendVerifyBtn'); btn.textContent='Enviando...'; btn.disabled=true;
+  try {
+    const res = await fetch(SERVER_URL+'/api/auth/resend-verification-by-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});
+    const d = await res.json();
+    el('resendVerifyOk').textContent = d.message || '✅ Revisa tu correo electrónico.';
+    el('resendVerifyOk').style.display='block';
+  } catch(e) { el('resendVerifyError').textContent=e.message; el('resendVerifyError').style.display='block'; }
+  finally { btn.textContent='Enviar enlace'; btn.disabled=false; }
 }
 async function doForgotPassword() {
   const email = el('forgotEmail').value.trim();
