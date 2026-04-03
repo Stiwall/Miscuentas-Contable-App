@@ -983,7 +983,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   <div id="page-cotizaciones" class="page">
     <div class="page-header">
       <div><div class="page-title">Cotizaciones</div><div class="page-subtitle">Presupuestos para clientes</div></div>
-      <button class="btn btn-primary" onclick="initNewQuote();showPage('nueva-cotizacion',el('nav-cotizaciones'))">+ Nueva Cotización</button>
+      <button class="btn btn-primary" onclick="initNewQuote();showPage("nueva-cotizacion",el("nav-cotizaciones"))">+ Nueva Cotización</button>
     </div>
     <div class="kpi-grid" id="quoteKpis" style="margin-bottom:var(--space-md)"></div>
     <div style="display:flex;gap:8px;margin-bottom:var(--space-sm);flex-wrap:wrap">
@@ -1001,7 +1001,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   <div id="page-nueva-cotizacion" class="page">
     <div class="page-header">
       <div><div class="page-title">Nueva Cotización</div></div>
-      <button class="btn btn-secondary" onclick="showPage('cotizaciones',el('nav-cotizaciones'))">← Volver</button>
+      <button class="btn btn-secondary" onclick="showPage("cotizaciones",el("nav-cotizaciones"))">← Volver</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 320px;gap:var(--space-md);align-items:flex-start" class="invoice-form-grid">
       <div>
@@ -4628,12 +4628,12 @@ function renderActivos() {
             <!-- Acciones -->
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               ${remaining>0&&!alreadyDep
-                ? `<button onclick="depreciarActivo('${a.id}','${a.name.replace(/'/g,'\\'')}') " style="flex:1;background:var(--orange-dim);border:1px solid var(--orange)30;border-radius:6px;padding:6px 8px;color:var(--orange);font-size:10px;font-weight:700;cursor:pointer;min-width:80px">📉 Depreciar Mes</button>`
+                ? `<button onclick="depreciarActivo('${a.id}','${a.name.replace(/'/g,"\\'")}') " style="flex:1;background:var(--orange-dim);border:1px solid var(--orange)30;border-radius:6px;padding:6px 8px;color:var(--orange);font-size:10px;font-weight:700;cursor:pointer;min-width:80px">📉 Depreciar Mes</button>`
                 : alreadyDep
                   ? `<span style="flex:1;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text-muted);font-size:10px;text-align:center">✅ Ya depreciado este mes</span>`
                   : `<span style="flex:1;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--accent2);font-size:10px;text-align:center">⚠️ Totalmente depreciado</span>`
               }
-              <button onclick="showDepHistory('${a.id}','${a.name.replace(/'/g,'\\'')}') " style="background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-secondary);font-size:11px;cursor:pointer">📋</button>
+              <button onclick="showDepHistory('${a.id}','${a.name.replace(/'/g,"\\'")}') " style="background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-secondary);font-size:11px;cursor:pointer">📋</button>
               <button onclick="openEditAssetModal('${a.id}')" style="background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-secondary);font-size:11px;cursor:pointer">✏️</button>
               <button onclick="deleteAsset('${a.id}')" style="background:var(--accent2-dim);border:1px solid var(--accent2)30;border-radius:6px;padding:6px 10px;color:var(--accent2);font-size:11px;cursor:pointer">🗑️</button>
             </div>
@@ -4720,7 +4720,7 @@ function renderDepreciacion() {
               <div style="font-size:var(--fs-2xs);color:var(--text-muted)">A depreciar</div>
               <div style="font-family:monospace;font-weight:700;color:var(--orange)">RD$ ${fmt(Math.min(depAmt,bv-rv))}</div>
             </div>
-            <button onclick="depreciarActivo('${a.id}','${a.name.replace(/'/g,'\\'')}') " style="background:var(--orange);border:none;border-radius:6px;padding:6px 10px;color:#000;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">Depreciar</button>
+            <button onclick="depreciarActivo('${a.id}','${a.name.replace(/'/g,"\\'")}') " style="background:var(--orange);border:none;border-radius:6px;padding:6px 10px;color:#000;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">Depreciar</button>
           </div>`;
         }).join('') : '<div style="padding:14px;text-align:center;color:var(--text-muted);font-size:var(--fs-xs)">✅ Todos los activos están al día</div>'}
       </div>
