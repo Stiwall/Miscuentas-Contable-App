@@ -2813,9 +2813,13 @@ app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
     if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
     const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     // Ensure product exists in inventory_products (upsert from products table)
-    const prodRow = await query('SELECT code,name,category,unit,cost_price,sell_price,min_stock FROM products WHERE id=$1 AND user_id=$2', [product_id, req.userId]);
+    const prodRow = await query('SELECT code,name,category,unit,cost_price,sale_price,min_stock FROM products WHERE id=$1 AND user_id=$2', [product_id, req.userId]);
     if (!prodRow.rows[0]) return res.status(404).json({ error: 'Producto no encontrado' });
     const p = prodRow.rows[0];
+    // Ensure column sell_price exists (migration for older tables)
+    try { await query(`DO $$BEGIN ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS sell_price NUMERIC(12,2) DEFAULT 0; END$$`); } catch(e) {}
+    try { await query(`DO $$BEGIN ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS reason TEXT; END$$`); } catch(e) {}
+    try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
     await query(
       `INSERT INTO inventory_products(id,user_id,code,name,category,unit,cost_price,sell_price,min_stock)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
@@ -2824,7 +2828,7 @@ app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
          name=COALESCE(EXCLUDED.name,inventory_products.name),
          cost_price=COALESCE(EXCLUDED.cost_price,inventory_products.cost_price),
          sell_price=COALESCE(EXCLUDED.sell_price,inventory_products.sell_price)`,
-      [product_id, req.userId, p.code, p.name, p.category||'General', p.unit||'unidad', unit_cost||p.cost_price||0, p.sell_price||0, p.min_stock||0]
+      [product_id, req.userId, p.code, p.name, p.category||'General', p.unit||'unidad', unit_cost||p.cost_price||0, p.sale_price||0, p.min_stock||0]
     );
     await query(
       `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
