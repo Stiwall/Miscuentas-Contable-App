@@ -1947,7 +1947,12 @@ app.delete('/api/admin/users/:id', adminMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/', (_, res) => res.sendFile(__dirname + '/contabilidad.html'));
+app.get('/', (_, res) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.sendFile(__dirname + '/contabilidad.html');
+});
 app.get('/health', (_, res) => res.json({ status: 'healthy', groq: !!GROQ_API_KEY, gemini: !!GEMINI_API_KEY }));
 
 // ─── PRODUCTS (catalog, separate from inventory) ───────────────────────────────
