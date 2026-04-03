@@ -2035,7 +2035,7 @@ async function doRegister() {
     saveSession(d.userId, d.token, username, d.isAdmin, {
       plan: d.plan, trial_ends_at: d.trial_ends_at, trial_active: true, email, nombre,
     });
-    if (d.email_verification_sent) toast('✅ Cuenta creada. Revisa tu correo para verificar tu email.');
+    toast('✅ Cuenta creada. ¡Bienvenido!');
     else toast('✅ Cuenta creada correctamente.');
     showApp();
   } catch(e) { showErr('loginError', e.message); }

@@ -1613,7 +1613,7 @@ app.post('/api/auth/register', async (req, res) => {
          plan=COALESCE(users.plan,'trial'),
          trial_ends_at=COALESCE(users.trial_ends_at,EXCLUDED.trial_ends_at),
          subscription_status=COALESCE(users.subscription_status,'trial')`,
-      [userId, isFirstUser, email?email.toLowerCase():null, nombre||null, trialEnds, email?false:true]
+      [userId, isFirstUser, email?email.toLowerCase():null, nombre||null, trialEnds, true]
     );
     if (isFirstUser) {
       await query(`UPDATE users SET plan='admin',subscription_status='active',email_verified=true WHERE id=$1`, [userId]);
@@ -1622,18 +1622,8 @@ app.post('/api/auth/register', async (req, res) => {
     await createSystemAccounts(userId);
     await query(`INSERT INTO user_credentials(user_id,username,password_hash) VALUES($1,$2,$3)`, [userId, username.toLowerCase(), hash]);
 
-    let emailSent = false;
-    if (email && !isFirstUser) {
-      const verifyTok = crypto.randomBytes(32).toString('hex');
-      await query(`INSERT INTO email_tokens(id,user_id,token,type,expires_at) VALUES($1,$2,$3,'verify',NOW()+INTERVAL '24 hours')`, [`etk_${Date.now()}`, userId, verifyTok]);
-      const appUrl = APP_URL || `https://${req.headers.host}`;
-      const r1 = await sendEmail({ to: email, subject: '✅ Verifica tu correo — MisCuentas Contable', html: emailVerificationHTML(nombre, `${appUrl}/verify-email?token=${verifyTok}`) });
-      emailSent = r1.ok;
-      await sendEmail({ to: email, subject: '🎉 ¡Bienvenido a MisCuentas Contable!', html: emailWelcomeHTML(nombre, `Prueba gratis ${TRIAL_DAYS} días`) });
-    }
-
     const token = generateToken(userId);
-    res.json({ ok:true, token, userId, isAdmin:isFirstUser, plan:isFirstUser?'admin':'trial', trial_ends_at:isFirstUser?null:trialEnds, email_verification_sent:emailSent });
+    res.json({ ok:true, token, userId, isAdmin:isFirstUser, plan:isFirstUser?'admin':'trial', trial_ends_at:isFirstUser?null:trialEnds });
   } catch(e) { console.error('Register error:', e.message); res.status(500).json({ error: e.message }); }
 });
 
