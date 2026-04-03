@@ -2809,13 +2809,27 @@ app.get('/api/inventory/movements', authMiddleware, async (req, res) => {
 // POST /api/inventory/entry
 app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
   try {
-    const { product_id, quantity, unit_cost, reference, notes, mov_date } = req.body;
+    const { product_id, quantity, unit_cost, reference, notes, mov_date, reason } = req.body;
     if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
     const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    // Ensure product exists in inventory_products (upsert from products table)
+    const prodRow = await query('SELECT code,name,category,unit,cost_price,sell_price,min_stock FROM products WHERE id=$1 AND user_id=$2', [product_id, req.userId]);
+    if (!prodRow.rows[0]) return res.status(404).json({ error: 'Producto no encontrado' });
+    const p = prodRow.rows[0];
     await query(
-      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
-       VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8)`,
-      [id, req.userId, product_id, quantity, unit_cost||null, reference||null, notes||null, mov_date||null]
+      `INSERT INTO inventory_products(id,user_id,code,name,category,unit,cost_price,sell_price,min_stock)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (id) DO UPDATE SET
+         code=COALESCE(EXCLUDED.code,inventory_products.code),
+         name=COALESCE(EXCLUDED.name,inventory_products.name),
+         cost_price=COALESCE(EXCLUDED.cost_price,inventory_products.cost_price),
+         sell_price=COALESCE(EXCLUDED.sell_price,inventory_products.sell_price)`,
+      [product_id, req.userId, p.code, p.name, p.category||'General', p.unit||'unidad', unit_cost||p.cost_price||0, p.sell_price||0, p.min_stock||0]
+    );
+    await query(
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
+       VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8,$9,$10)`,
+      [id, req.userId, product_id, quantity, unit_cost||null, reference||null, notes||null, mov_date||null, reason||'compra']
     );
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -2824,13 +2838,13 @@ app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
 // POST /api/inventory/exit
 app.post('/api/inventory/exit', authMiddleware, async (req, res) => {
   try {
-    const { product_id, quantity, unit_price, reference, notes, mov_date } = req.body;
+    const { product_id, quantity, unit_price, reference, notes, mov_date, reason } = req.body;
     if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
     const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await query(
-      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
-       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8)`,
-      [id, req.userId, product_id, quantity, unit_price||null, reference||null, notes||null, mov_date||null]
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
+       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8,$9,$10)`,
+      [id, req.userId, product_id, quantity, unit_price||null, reference||null, notes||null, mov_date||null, reason||'venta']
     );
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
