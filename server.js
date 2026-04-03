@@ -71,7 +71,7 @@ async function sendEmail({ to, subject, html }) {
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${RESEND_API_KEY}`},
-      body: JSON.stringify({ from:'MisCuentas <noreply@resend.dev>', to:[to], subject, html }),
+      body: JSON.stringify({ from:'MisCuentas <noreply@miscuentasrd.com>', to:[to], subject, html }),
       signal: AbortSignal.timeout(10000),
     });
     const d = await r.json();
@@ -1758,10 +1758,8 @@ app.get('/verify-email', async (req, res) => {
   const appUrl = APP_URL || `https://${req.headers.host}`;
   if (!token) return res.redirect(appUrl);
   try {
-    //asegurar tabla existe
-    try { await query(`CREATE TABLE IF NOT EXISTS email_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, token TEXT UNIQUE NOT NULL, type TEXT NOT NULL CHECK (type IN ('verify','reset')), used BOOLEAN NOT NULL DEFAULT FALSE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); } catch(e) {}
     const tokRow = await query(`SELECT user_id FROM email_tokens WHERE token=$1 AND type='verify' AND expires_at>NOW() AND used=FALSE`, [token]);
-    if (!tokRow.rows[0]) return res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:20px}</style></head><body><div style="text-align:center"><h2 style="color:#ff4d6d">⚠️ Enlace inválido o expirado</h2><p style="color:#8aada8;margin:16px 0">Solicita uno nuevo desde la app.</p><a href="${appUrl}" style="color:#ff7c2a">← Ir a MisCuentas</a></div></body></html>`);
+    if (!tokRow.rows[0]) return res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}</style></head><body><div><h2 style="color:#ff4d6d">⚠️ Enlace inválido o expirado</h2><a href="${appUrl}" style="color:#ff7c2a">← Ir a MisCuentas</a></div></body></html>`);
     await query('UPDATE users SET email_verified=TRUE WHERE id=$1', [tokRow.rows[0].user_id]);
     await query('UPDATE email_tokens SET used=TRUE WHERE token=$1', [token]);
     return res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=${appUrl}"><style>body{font-family:sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}</style></head><body><div><h2 style="color:#00e5a0">✅ ¡Correo verificado!</h2><p>Redirigiendo...</p><a href="${appUrl}" style="color:#ff7c2a">← Ir a MisCuentas</a></div></body></html>`);
@@ -1789,26 +1787,6 @@ app.post('/api/auth/resend-verification', authMiddleware, async (req, res) => {
     const appUrl = APP_URL || `https://${req.headers.host}`;
     await sendEmail({ to:u.email, subject:'✅ Verifica tu correo — MisCuentas Contable', html:emailVerificationHTML(u.nombre, `${appUrl}/verify-email?token=${verifyTok}`) });
     res.json({ ok:true });
-  } catch(e) { res.status(500).json({ error:e.message }); }
-});
-
-// POST /api/auth/resend-verification-by-email — público, sin auth
-app.post('/api/auth/resend-verification-by-email', async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error:'Correo inválido' });
-    const userRow = await query('SELECT id,email,nombre,email_verified FROM users WHERE email=$1', [email.toLowerCase()]);
-    if (!userRow.rows[0]) return res.json({ ok:true, message:'Si el correo existe, se envió un enlace' }); // no revelar si existe
-    const u = userRow.rows[0];
-    if (u.email_verified) return res.json({ ok:true, message:'Este correo ya está verificado' });
-    //确保 email_tokens table exists
-    try { await query(`CREATE TABLE IF NOT EXISTS email_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, token TEXT UNIQUE NOT NULL, type TEXT NOT NULL CHECK (type IN ('verify','reset')), used BOOLEAN NOT NULL DEFAULT FALSE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); } catch(e) {}
-    const verifyTok = crypto.randomBytes(32).toString('hex');
-    await query(`DELETE FROM email_tokens WHERE user_id=$1 AND type='verify'`, [u.id]);
-    await query(`INSERT INTO email_tokens(id,user_id,token,type,expires_at) VALUES($1,$2,$3,'verify',NOW()+INTERVAL '24 hours')`, [`etk_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`, u.id, verifyTok]);
-    const appUrl = APP_URL || `https://${req.headers.host}`;
-    const result = await sendEmail({ to:u.email, subject:'✅ Verifica tu correo — MisCuentas Contable', html:emailVerificationHTML(u.nombre, `${appUrl}/verify-email?token=${verifyTok}`) });
-    res.json({ ok:true, sent: result.ok });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
@@ -2746,10 +2724,6 @@ app.delete('/api/income-records/:id', authMiddleware, async (req, res) => {
 // GET /api/inventory/stock
 app.get('/api/inventory/stock', authMiddleware, async (req, res) => {
   try {
-    // Ensure columns exist (migration for older tables)
-    try { await query(`ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS sell_price NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
-    try { await query(`ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
-    try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
     const r = await query(`
       SELECT p.id, p.code, p.name, p.category, p.unit,
              COALESCE(p.cost_price,0) as cost_price, COALESCE(p.sell_price,0) as sell_price,
@@ -2813,32 +2787,13 @@ app.get('/api/inventory/movements', authMiddleware, async (req, res) => {
 // POST /api/inventory/entry
 app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
   try {
-    const { product_id, quantity, unit_cost, reference, notes, mov_date, reason } = req.body;
+    const { product_id, quantity, unit_cost, reference, notes, mov_date } = req.body;
     if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
     const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-    // Ensure product exists in inventory_products (upsert from products table)
-    const prodRow = await query('SELECT code,name,category,unit,cost_price,sale_price,stock_minimum FROM products WHERE id=$1 AND user_id=$2', [product_id, req.userId]);
-    if (!prodRow.rows[0]) return res.status(404).json({ error: 'Producto no encontrado' });
-    const p = prodRow.rows[0];
-    // Ensure columns exist (migration for older tables) — run separately
-    try { await query(`ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS sell_price NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
-    try { await query(`ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
-    try { await query(`ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
-    try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
     await query(
-      `INSERT INTO inventory_products(id,user_id,code,name,category,unit,cost_price,sell_price,min_stock)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (id) DO UPDATE SET
-         code=COALESCE(EXCLUDED.code,inventory_products.code),
-         name=COALESCE(EXCLUDED.name,inventory_products.name),
-         cost_price=COALESCE(EXCLUDED.cost_price,inventory_products.cost_price),
-         sell_price=COALESCE(EXCLUDED.sell_price,inventory_products.sell_price)`,
-      [product_id, req.userId, p.code, p.name, p.category||'General', p.unit||'unidad', unit_cost||p.cost_price||0, p.sale_price||0, p.stock_minimum||0]
-    );
-    await query(
-      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
-       VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8,$9,$10)`,
-      [id, req.userId, product_id, quantity, unit_cost||null, reference||null, notes||null, mov_date||null, reason||'compra']
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
+       VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8)`,
+      [id, req.userId, product_id, quantity, unit_cost||null, reference||null, notes||null, mov_date||null]
     );
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -2847,13 +2802,13 @@ app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
 // POST /api/inventory/exit
 app.post('/api/inventory/exit', authMiddleware, async (req, res) => {
   try {
-    const { product_id, quantity, unit_price, reference, notes, mov_date, reason } = req.body;
+    const { product_id, quantity, unit_price, reference, notes, mov_date } = req.body;
     if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
     const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await query(
-      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
-       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8,$9,$10)`,
-      [id, req.userId, product_id, quantity, unit_price||null, reference||null, notes||null, mov_date||null, reason||'venta']
+      `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
+       VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8)`,
+      [id, req.userId, product_id, quantity, unit_price||null, reference||null, notes||null, mov_date||null]
     );
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
