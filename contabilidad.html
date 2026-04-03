@@ -2036,7 +2036,6 @@ async function doRegister() {
       plan: d.plan, trial_ends_at: d.trial_ends_at, trial_active: true, email, nombre,
     });
     toast('✅ Cuenta creada. ¡Bienvenido!');
-    else toast('✅ Cuenta creada correctamente.');
     showApp();
   } catch(e) { showErr('loginError', e.message); }
 }
