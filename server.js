@@ -2746,6 +2746,10 @@ app.delete('/api/income-records/:id', authMiddleware, async (req, res) => {
 // GET /api/inventory/stock
 app.get('/api/inventory/stock', authMiddleware, async (req, res) => {
   try {
+    // Ensure columns exist (migration for older tables)
+    try { await query(`ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS sell_price NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
+    try { await query(`ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
+    try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
     const r = await query(`
       SELECT p.id, p.code, p.name, p.category, p.unit,
              COALESCE(p.cost_price,0) as cost_price, COALESCE(p.sell_price,0) as sell_price,
@@ -2816,10 +2820,10 @@ app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
     const prodRow = await query('SELECT code,name,category,unit,cost_price,sale_price,stock_minimum FROM products WHERE id=$1 AND user_id=$2', [product_id, req.userId]);
     if (!prodRow.rows[0]) return res.status(404).json({ error: 'Producto no encontrado' });
     const p = prodRow.rows[0];
-    // Ensure columns exist (migration for older tables)
-    try { await query(`DO $$BEGIN ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS sell_price NUMERIC(12,2) DEFAULT 0; END$$`); } catch(e) {}
-    try { await query(`DO $$BEGIN ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,2) DEFAULT 0; END$$`); } catch(e) {}
-    try { await query(`DO $$BEGIN ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS reason TEXT; END$$`); } catch(e) {}
+    // Ensure columns exist (migration for older tables) — run separately
+    try { await query(`ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS sell_price NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
+    try { await query(`ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
+    try { await query(`ALTER TABLE inventory_products ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
     try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
     await query(
       `INSERT INTO inventory_products(id,user_id,code,name,category,unit,cost_price,sell_price,min_stock)
