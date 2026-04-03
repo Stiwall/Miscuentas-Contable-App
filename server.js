@@ -6361,6 +6361,11 @@ async function initDB() {
     }
   } catch(e) {}
 
+  // ── Fix: inventory_movements.reason — asegurar columna con DEFAULT ──
+  try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE inventory_movements ALTER COLUMN reason SET DEFAULT 'compra'`); } catch(e) {}
+  try { await query(`UPDATE inventory_movements SET reason='compra' WHERE reason IS NULL`); } catch(e) {}
+
   console.log('✅  Database schema ready');
 }
 
