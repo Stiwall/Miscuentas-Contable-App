@@ -3376,7 +3376,7 @@ app.get('/api/receivables', authMiddleware, async (req, res) => {
               r.total_amount, r.paid_amount, r.total_amount - r.paid_amount as outstanding,
               r.due_date, r.status, r.created_at
        FROM receivables r
-       JOIN clients c ON c.id = r.client_id
+       LEFT JOIN clients c ON c.id = r.client_id
        WHERE r.user_id=$1
        ORDER BY r.created_at DESC`,
       [req.userId]
@@ -4348,7 +4348,7 @@ app.get('/api/export/receivables', authMiddleware, async (req, res) => {
   try {
     const r = await query(
       `SELECT c.name as client, r.description, r.total_amount, r.paid_amount, r.total_amount - r.paid_amount as pending, r.due_date, r.status, r.created_at
-       FROM receivables r JOIN clients c ON c.id = r.client_id
+       FROM receivables r LEFT JOIN clients c ON c.id = r.client_id
        WHERE r.user_id=$1 ORDER BY r.due_date NULLS LAST`,
       [req.userId]
     );
