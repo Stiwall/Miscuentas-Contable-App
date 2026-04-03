@@ -6361,10 +6361,25 @@ async function initDB() {
     }
   } catch(e) {}
 
-  // ── Fix: inventory_movements.reason — asegurar columna con DEFAULT ──
+  // ── Fix: inventory_movements.reason — asegurar columna con DEFAULT y sin constraints problemáticos ──
   try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE inventory_movements ALTER COLUMN reason DROP NOT NULL`); } catch(e) {}
   try { await query(`ALTER TABLE inventory_movements ALTER COLUMN reason SET DEFAULT 'compra'`); } catch(e) {}
   try { await query(`UPDATE inventory_movements SET reason='compra' WHERE reason IS NULL`); } catch(e) {}
+  // Drop any check constraints on inventory_movements that may have been created in older versions
+  try {
+    const constraints = await query(`
+      SELECT conname FROM pg_constraint
+      WHERE conrelid = 'inventory_movements'::regclass
+      AND contype = 'c'
+    `);
+    for (const row of constraints.rows) {
+      // Keep only the type check constraint, drop any others (reason-related)
+      if (row.conname !== 'inventory_movements_type_check') {
+        try { await query(`ALTER TABLE inventory_movements DROP CONSTRAINT IF EXISTS "${row.conname}"`); } catch(e) {}
+      }
+    }
+  } catch(e) {}
 
   console.log('✅  Database schema ready');
 }
