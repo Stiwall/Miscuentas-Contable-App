@@ -1791,18 +1791,8 @@ app.get('/api/auth/plan', authMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// GET /api/admin/bootstrap
-app.get('/api/admin/bootstrap', async (req, res) => {
-  try {
-    const r = await query(`SELECT id FROM users ORDER BY created_at ASC LIMIT 1`);
-    if (!r.rows[0]) return res.status(404).json({ error: 'No users found' });
-    await query(`UPDATE users SET is_admin=TRUE WHERE id=$1`, [r.rows[0].id]);
-    res.json({ ok: true, message: 'User promoted to admin', userId: r.rows[0].id });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// GET /api/admin/promote/:userId — make any user admin (temp endpoint for setup)
-app.get('/api/admin/promote/:userId', async (req, res) => {
+// GET /api/admin/promote/:userId — make any user admin (requires admin auth)
+app.get('/api/admin/promote/:userId', authMiddleware, async (req, res) => {
   try {
     await query(`UPDATE users SET is_admin=TRUE WHERE id=$1`, [req.params.userId]);
     res.json({ ok: true, message: 'User promoted to admin', userId: req.params.userId });
