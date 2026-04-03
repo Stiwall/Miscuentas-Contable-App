@@ -6394,6 +6394,14 @@ async function initDB() {
   try { await query(`UPDATE users SET plan=COALESCE(plan,'trial'),subscription_status=COALESCE(subscription_status,'trial'),trial_ends_at=COALESCE(trial_ends_at,NOW()+INTERVAL '14 days'),email_verified=COALESCE(email_verified,TRUE) WHERE trial_ends_at IS NULL AND NOT is_admin`); } catch(e) {}
   try { await query(`UPDATE users SET plan='admin',subscription_status='active',email_verified=TRUE WHERE is_admin=TRUE`); } catch(e) {}
 
+  // Make first registered user an admin
+  try {
+    const r = await query(`SELECT id FROM users ORDER BY created_at ASC LIMIT 1`);
+    if (r.rows.length > 0) {
+      await query(`UPDATE users SET is_admin=TRUE WHERE id=$1`, [r.rows[0].id]);
+    }
+  } catch(e) {}
+
   // ── Fix: inventory_movements.reason — asegurar columna con DEFAULT y sin constraints problemáticos ──
   try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
   try { await query(`ALTER TABLE inventory_movements ALTER COLUMN reason DROP NOT NULL`); } catch(e) {}
