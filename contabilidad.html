@@ -1063,8 +1063,8 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <button class="btn btn-secondary btn-full" onclick="saveQuote("draft")">💾 Borrador</button>
-          <button class="btn btn-primary btn-full" onclick="saveQuote("sent")">📤 Enviar</button>
+          <button class="btn btn-secondary btn-full" onclick="saveQuote('draft')">💾 Borrador</button>
+          <button class="btn btn-primary btn-full" onclick="saveQuote('sent')">📤 Enviar</button>
         </div>
       </div>
     </div>
@@ -5264,7 +5264,7 @@ async function saveQuote(status='draft') {
     toast(status==='sent'?`📤 Cotización ${r.quote_number||''} enviada`:`💾 Cotización ${r.quote_number||''} guardada`);
     showPage('cotizaciones',el('nav-cotizaciones'));
     loadQuotes();
-  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} toast('❌ '+msg,'error'); }
+  } catch(e){ let msg=e.message;try{msg=JSON.parse(msg).error||msg;}catch{} console.error('saveQuote error full:', e); toast('❌ Error: '+msg,'error'); }
 }
 
 async function loadQuotes() {
