@@ -2634,6 +2634,32 @@ app.get('/api/assets/:id/depreciation', authMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// POST /api/assets/:id/depreciate — registrar depreciación mensual
+app.post('/api/assets/:id/depreciate', authMiddleware, async (req, res) => {
+  try {
+    const asset = await query(`SELECT * FROM fixed_assets WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    if (!asset.rows[0]) return res.status(404).json({ error: 'Activo no encontrado' });
+    const a = asset.rows[0];
+    const now = new Date();
+    const month = req.body.month || (now.getMonth() + 1);
+    const year  = req.body.year  || now.getFullYear();
+    const period = `${year}-${String(month).padStart(2,'0')}`;
+    // Verificar si ya existe depreciación para este período
+    const exists = await query(`SELECT id FROM asset_depreciation WHERE asset_id=$1 AND period=$2`, [a.id, period]);
+    if (exists.rows[0]) return res.status(400).json({ error: `Ya existe depreciación para ${period}` });
+    // Calcular depreciación mensual (línea recta)
+    const monthlyDepreciation = Math.round(
+      ((parseFloat(a.purchase_value) - parseFloat(a.salvage_value || 0)) / (parseInt(a.useful_life_years || 5) * 12)) * 100
+    ) / 100;
+    const id = `dep_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO asset_depreciation(id,asset_id,period,amount) VALUES($1,$2,$3,$4)`,
+      [id, a.id, period, monthlyDepreciation]
+    );
+    res.json({ ok: true, id, period, amount: monthlyDepreciation });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── INCOME TYPES ─────────────────────────────────────────────────────────────
 app.get('/api/income-types', authMiddleware, async (req, res) => {
   try {
