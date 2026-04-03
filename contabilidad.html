@@ -5239,12 +5239,16 @@ function recalcQuote() {
 }
 
 async function saveQuote(status='draft') {
-  const quoteNum = el('nq-number')?.value?.trim();
+  let quoteNum = el('nq-number')?.value?.trim();
+  if (!quoteNum) {
+    try { const r = await apiFetch('/api/quotes/next-number'); quoteNum = r.quote_number; if(el('nq-number')) el('nq-number').value = quoteNum; } catch { quoteNum = 'COT-'+Date.now(); }
+  }
   const lines    = getQuoteLines().filter(l=>l.description?.trim());
   if (!lines.length) { toast('⚠️ Agrega al menos una línea','error'); return; }
   const taxRate=parseFloat(el('nq-tax')?.value)||0, discPct=parseFloat(el('nq-discount')?.value)||0;
   let subtotal=0; lines.forEach(l=>{ subtotal+=l.quantity*l.unit_price*(1-l.discount_pct/100); });
   const discAmt=subtotal*discPct/100, taxAmt=(subtotal-discAmt)*taxRate/100, total=subtotal-discAmt+taxAmt;
+  if (total <= 0) { toast('⚠️ El total debe ser mayor a 0. Agrega un precio a las líneas.','error'); return; }
   try {
     const r = await apiFetch('/api/quotes',{method:'POST',body:JSON.stringify({
       quote_number: quoteNum, client_name: el('nq-client-name')?.value?.trim()||null,
