@@ -1758,8 +1758,10 @@ app.get('/verify-email', async (req, res) => {
   const appUrl = APP_URL || `https://${req.headers.host}`;
   if (!token) return res.redirect(appUrl);
   try {
+    //asegurar tabla existe
+    try { await query(`CREATE TABLE IF NOT EXISTS email_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, token TEXT UNIQUE NOT NULL, type TEXT NOT NULL CHECK (type IN ('verify','reset')), used BOOLEAN NOT NULL DEFAULT FALSE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); } catch(e) {}
     const tokRow = await query(`SELECT user_id FROM email_tokens WHERE token=$1 AND type='verify' AND expires_at>NOW() AND used=FALSE`, [token]);
-    if (!tokRow.rows[0]) return res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}</style></head><body><div><h2 style="color:#ff4d6d">⚠️ Enlace inválido o expirado</h2><a href="${appUrl}" style="color:#ff7c2a">← Ir a MisCuentas</a></div></body></html>`);
+    if (!tokRow.rows[0]) return res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:20px}</style></head><body><div style="text-align:center"><h2 style="color:#ff4d6d">⚠️ Enlace inválido o expirado</h2><p style="color:#8aada8;margin:16px 0">Solicita uno nuevo desde la app.</p><a href="${appUrl}" style="color:#ff7c2a">← Ir a MisCuentas</a></div></body></html>`);
     await query('UPDATE users SET email_verified=TRUE WHERE id=$1', [tokRow.rows[0].user_id]);
     await query('UPDATE email_tokens SET used=TRUE WHERE token=$1', [token]);
     return res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=${appUrl}"><style>body{font-family:sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}</style></head><body><div><h2 style="color:#00e5a0">✅ ¡Correo verificado!</h2><p>Redirigiendo...</p><a href="${appUrl}" style="color:#ff7c2a">← Ir a MisCuentas</a></div></body></html>`);
@@ -1787,6 +1789,26 @@ app.post('/api/auth/resend-verification', authMiddleware, async (req, res) => {
     const appUrl = APP_URL || `https://${req.headers.host}`;
     await sendEmail({ to:u.email, subject:'✅ Verifica tu correo — MisCuentas Contable', html:emailVerificationHTML(u.nombre, `${appUrl}/verify-email?token=${verifyTok}`) });
     res.json({ ok:true });
+  } catch(e) { res.status(500).json({ error:e.message }); }
+});
+
+// POST /api/auth/resend-verification-by-email — público, sin auth
+app.post('/api/auth/resend-verification-by-email', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error:'Correo inválido' });
+    const userRow = await query('SELECT id,email,nombre,email_verified FROM users WHERE email=$1', [email.toLowerCase()]);
+    if (!userRow.rows[0]) return res.json({ ok:true, message:'Si el correo existe, se envió un enlace' }); // no revelar si existe
+    const u = userRow.rows[0];
+    if (u.email_verified) return res.json({ ok:true, message:'Este correo ya está verificado' });
+    //确保 email_tokens table exists
+    try { await query(`CREATE TABLE IF NOT EXISTS email_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, token TEXT UNIQUE NOT NULL, type TEXT NOT NULL CHECK (type IN ('verify','reset')), used BOOLEAN NOT NULL DEFAULT FALSE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); } catch(e) {}
+    const verifyTok = crypto.randomBytes(32).toString('hex');
+    await query(`DELETE FROM email_tokens WHERE user_id=$1 AND type='verify'`, [u.id]);
+    await query(`INSERT INTO email_tokens(id,user_id,token,type,expires_at) VALUES($1,$2,$3,'verify',NOW()+INTERVAL '24 hours')`, [`etk_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`, u.id, verifyTok]);
+    const appUrl = APP_URL || `https://${req.headers.host}`;
+    const result = await sendEmail({ to:u.email, subject:'✅ Verifica tu correo — MisCuentas Contable', html:emailVerificationHTML(u.nombre, `${appUrl}/verify-email?token=${verifyTok}`) });
+    res.json({ ok:true, sent: result.ok });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
