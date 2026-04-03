@@ -4814,7 +4814,7 @@ async function renderAuditLog() {
   el('adminLoading').style.display='block';
   el('adminContent').innerHTML=`<button onclick="renderAdmin()" style="padding:6px 14px;border-radius:var(--radius-xs);border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px;font-weight:600;margin-bottom:12px">← Volver a Usuarios</button>
   <div style="margin-bottom:12px">
-    <select id="auditFiltro" onchange="doAuditLoad()" style="padding:6px 10px;border-radius:var(--radius-xs);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+    <select id="auditFiltro" onchange="doAuditLoad()" style="padding:6px 10px;border-radius:var(--radius-xs);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;">
       <option value="">Todas las acciones</option>
       <option value="auth.login">Login</option>
       <option value="auth.login_failed">Login fallido</option>
