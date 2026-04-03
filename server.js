@@ -71,7 +71,7 @@ async function sendEmail({ to, subject, html }) {
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${RESEND_API_KEY}`},
-      body: JSON.stringify({ from:'MisCuentas <noreply@miscuentasrd.com>', to:[to], subject, html }),
+      body: JSON.stringify({ from:'MisCuentas <onboarding@resend.dev>', to:[to], subject, html }),
       signal: AbortSignal.timeout(10000),
     });
     const d = await r.json();
