@@ -32,8 +32,8 @@ const {
   CRON_SECRET,
   WEBHOOK_SECRET,
   SESSION_SECRET = 'miscuentas_secret_change_me',
-  RESEND_API_KEY,          // para envío de emails (resend.com)
-  APP_URL = '',            // URL pública de la app (ej: https://miscuentas.up.railway.app)
+  RESEND_API_KEY,
+  APP_URL = '',
   PORT = 3000,
   API_BASE = '',
 } = process.env;
@@ -57,100 +57,37 @@ pool.on('error', err => console.error('PG pool error:', err.message));
 const crypto = require('crypto');
 
 // ─── PLANES Y TRIAL ───────────────────────────────────────────────────────────
-const TRIAL_DAYS     = 14;
+const TRIAL_DAYS = 14;
 const PLANS = {
-  trial:    { name: 'Prueba Gratis',    price: 0,   limits: null },
-  basic:    { name: 'Basic',            price: 299, limits: null },
-  pro:      { name: 'Pro',              price: 599, limits: null },
-  admin:    { name: 'Admin',            price: 0,   limits: null },
+  trial: { name: 'Prueba Gratis', price: 0 },
+  basic: { name: 'Basic',         price: 299 },
+  pro:   { name: 'Pro',           price: 599 },
+  admin: { name: 'Admin',         price: 0 },
 };
 
 // ─── EMAIL (Resend) ───────────────────────────────────────────────────────────
 async function sendEmail({ to, subject, html }) {
-  if (!RESEND_API_KEY) {
-    console.log(`📧 [EMAIL SIMULADO] To: ${to} | Subject: ${subject}`);
-    return { ok: true, simulated: true };
-  }
+  if (!RESEND_API_KEY) { console.log(`📧 [EMAIL SIMULADO] To:${to} | ${subject}`); return { ok:true, simulated:true }; }
   try {
     const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: 'MisCuentas <noreply@miscuentasrd.com>',
-        to: [to],
-        subject,
-        html,
-      }),
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${RESEND_API_KEY}`},
+      body: JSON.stringify({ from:'MisCuentas <noreply@miscuentasrd.com>', to:[to], subject, html }),
       signal: AbortSignal.timeout(10000),
     });
     const d = await r.json();
-    if (!r.ok) { console.error('Resend error:', d); return { ok: false, error: d }; }
-    return { ok: true, id: d.id };
-  } catch(e) {
-    console.error('sendEmail error:', e.message);
-    return { ok: false, error: e.message };
-  }
+    if (!r.ok) { console.error('Resend error:', d); return { ok:false, error:d }; }
+    return { ok:true, id:d.id };
+  } catch(e) { console.error('sendEmail:', e.message); return { ok:false, error:e.message }; }
 }
 
 function emailVerificationHTML(name, verifyUrl) {
-  return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><style>
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;margin:0;padding:20px}
-.card{background:#fff;border-radius:12px;max-width:480px;margin:0 auto;padding:32px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
-.logo{font-size:22px;font-weight:900;color:#111;margin-bottom:4px}
-.logo span{color:#ff7c2a}
-.btn{display:inline-block;background:#ff7c2a;color:#fff;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:16px;margin:20px 0}
-.footer{font-size:12px;color:#999;margin-top:24px}
-</style></head>
-<body><div class="card">
-<div class="logo">mis<span>cuentas</span> CONTABLE</div>
-<h2 style="margin:16px 0 8px">Verifica tu correo electrónico</h2>
-<p style="color:#555">Hola${name?' '+name:''},</p>
-<p style="color:#555">Gracias por registrarte. Haz clic en el botón para verificar tu correo y activar tu <strong>prueba gratis de ${TRIAL_DAYS} días</strong>.</p>
-<a href="${verifyUrl}" class="btn">✅ Verificar mi correo</a>
-<p style="color:#888;font-size:13px">Este enlace expira en 24 horas. Si no creaste esta cuenta, ignora este mensaje.</p>
-<div class="footer">MisCuentas Contable — Sistema de contabilidad para negocios dominicanos</div>
-</div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:-apple-system,sans-serif;background:#f5f5f5;margin:0;padding:20px}.card{background:#fff;border-radius:12px;max-width:480px;margin:0 auto;padding:32px}.logo span{color:#ff7c2a}.btn{display:inline-block;background:#ff7c2a;color:#fff;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:16px;margin:20px 0}</style></head><body><div class="card"><div class="logo"><strong>mis<span>cuentas</span> CONTABLE</strong></div><h2 style="margin:16px 0 8px">Verifica tu correo</h2><p>Hola${name?' '+name:''},</p><p>Activa tu <strong>prueba gratis de ${TRIAL_DAYS} días</strong>.</p><a href="${verifyUrl}" class="btn">✅ Verificar mi correo</a><p style="color:#888;font-size:13px">Expira en 24 horas.</p></div></body></html>`;
 }
-
 function emailPasswordResetHTML(resetUrl) {
-  return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><style>
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;margin:0;padding:20px}
-.card{background:#fff;border-radius:12px;max-width:480px;margin:0 auto;padding:32px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
-.logo{font-size:22px;font-weight:900;color:#111;margin-bottom:4px}
-.logo span{color:#ff7c2a}
-.btn{display:inline-block;background:#ff7c2a;color:#fff;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:16px;margin:20px 0}
-</style></head>
-<body><div class="card">
-<div class="logo">mis<span>cuentas</span> CONTABLE</div>
-<h2 style="margin:16px 0 8px">Restablecer contraseña</h2>
-<p style="color:#555">Recibimos una solicitud para restablecer tu contraseña.</p>
-<a href="${resetUrl}" class="btn">🔐 Cambiar mi contraseña</a>
-<p style="color:#888;font-size:13px">Este enlace expira en 1 hora. Si no solicitaste esto, ignora este mensaje.</p>
-</div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:-apple-system,sans-serif;background:#f5f5f5;margin:0;padding:20px}.card{background:#fff;border-radius:12px;max-width:480px;margin:0 auto;padding:32px}.logo span{color:#ff7c2a}.btn{display:inline-block;background:#ff7c2a;color:#fff;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:16px;margin:20px 0}</style></head><body><div class="card"><div class="logo"><strong>mis<span>cuentas</span> CONTABLE</strong></div><h2 style="margin:16px 0 8px">Restablecer contraseña</h2><p>Recibimos una solicitud para cambiar tu contraseña.</p><a href="${resetUrl}" class="btn">🔐 Cambiar contraseña</a><p style="color:#888;font-size:13px">Expira en 1 hora.</p></div></body></html>`;
 }
-
 function emailWelcomeHTML(name, plan) {
-  return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><style>
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;margin:0;padding:20px}
-.card{background:#fff;border-radius:12px;max-width:480px;margin:0 auto;padding:32px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
-.logo{font-size:22px;font-weight:900;color:#111;margin-bottom:4px}
-.logo span{color:#ff7c2a}
-.badge{display:inline-block;background:#ff7c2a20;color:#ff7c2a;font-weight:700;padding:4px 12px;border-radius:20px;font-size:13px}
-</style></head>
-<body><div class="card">
-<div class="logo">mis<span>cuentas</span> CONTABLE</div>
-<h2 style="margin:16px 0 8px">¡Bienvenido${name?' '+name:''}! 🎉</h2>
-<p><span class="badge">${plan}</span></p>
-<p style="color:#555">Tu cuenta está activa. Tienes <strong>${TRIAL_DAYS} días gratis</strong> para explorar todo el sistema.</p>
-<p style="color:#555">Incluye: Facturas · Inventario · CxC/CxP · Activos Fijos · Reportes Financieros</p>
-<p style="color:#888;font-size:13px;margin-top:20px">Cualquier pregunta, responde este correo.</p>
-</div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:-apple-system,sans-serif;background:#f5f5f5;margin:0;padding:20px}.card{background:#fff;border-radius:12px;max-width:480px;margin:0 auto;padding:32px}.logo span{color:#ff7c2a}</style></head><body><div class="card"><div class="logo"><strong>mis<span>cuentas</span> CONTABLE</strong></div><h2>¡Bienvenido${name?' '+name:''}! 🎉</h2><p>Tu cuenta está activa. Tienes <strong>${TRIAL_DAYS} días gratis</strong> para explorar todo.</p><p style="color:#888;font-size:13px">${plan}</p></div></body></html>`;
 }
 
 
@@ -213,7 +150,6 @@ function authMiddleware(req, res, next) {
   next();
 }
 
-// Middleware que verifica plan activo (trial no expirado o suscripción activa)
 async function planMiddleware(req, res, next) {
   const token = req.headers['x-session-token'];
   if (!token) return res.status(401).json({ error: 'unauthorized' });
@@ -224,18 +160,10 @@ async function planMiddleware(req, res, next) {
     const r = await query(`SELECT plan, trial_ends_at, subscription_status, is_admin FROM users WHERE id=$1`, [userId]);
     const u = r.rows[0];
     if (!u) return res.status(401).json({ error: 'user not found' });
-    // Admins always pass
     if (u.is_admin) return next();
-    // Active subscription
     if (u.subscription_status === 'active') return next();
-    // Trial active
     if (u.trial_ends_at && new Date(u.trial_ends_at) > new Date()) return next();
-    // Trial expired
-    return res.status(402).json({
-      error: 'trial_expired',
-      message: 'Tu período de prueba ha expirado. Actualiza tu plan para continuar.',
-      plan: u.plan,
-    });
+    return res.status(402).json({ error: 'trial_expired', message: 'Tu período de prueba ha expirado. Actualiza tu plan para continuar.' });
   } catch(e) { return res.status(500).json({ error: e.message }); }
 }
 
@@ -1659,90 +1587,54 @@ app.post('/api/auth/register', async (req, res) => {
     if (!username || !password) return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
     if (username.length < 3) return res.status(400).json({ error: 'Usuario mínimo 3 caracteres' });
     if (password.length < 6) return res.status(400).json({ error: 'Contraseña mínimo 6 caracteres' });
-    if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) {
-      return res.status(400).json({ error: 'Usuario: solo letras, números y _, 3-30 caracteres' });
-    }
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ error: 'Correo electrónico inválido' });
-    }
+    if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) return res.status(400).json({ error: 'Usuario: letras, números y _ solamente, 3-30 caracteres' });
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Correo electrónico inválido' });
 
-    // Check username not taken
     const existing = await query('SELECT user_id FROM user_credentials WHERE username=$1', [username.toLowerCase()]);
     if (existing.rows[0]) return res.status(409).json({ error: 'Ese nombre de usuario ya está en uso' });
-
-    // Check email not taken
     if (email) {
       const emailCheck = await query('SELECT id FROM users WHERE email=$1', [email.toLowerCase()]);
       if (emailCheck.rows[0]) return res.status(409).json({ error: 'Ese correo ya está registrado' });
     }
 
-    const userId = phone ? String(phone) : crypto.randomUUID();
-    const salt   = username.toLowerCase();
-    const hash   = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-
+    const userId     = phone ? String(phone) : crypto.randomUUID();
+    const salt       = username.toLowerCase();
+    const hash       = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
     const userCount  = await query(`SELECT COUNT(*) as cnt FROM users`);
     const isFirstUser = Number(userCount.rows[0].cnt) === 0;
     const trialEnds  = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
 
     await query(
       `INSERT INTO users(id, lang, is_admin, email, nombre, plan, trial_ends_at, subscription_status, email_verified)
-       VALUES($1, 'es', $2, $3, $4, 'trial', $5, 'trial', $6)
+       VALUES($1,'es',$2,$3,$4,'trial',$5,'trial',$6)
        ON CONFLICT(id) DO UPDATE SET
-         is_admin = EXCLUDED.is_admin,
-         email = COALESCE(EXCLUDED.email, users.email),
-         nombre = COALESCE(EXCLUDED.nombre, users.nombre),
-         plan = COALESCE(users.plan, 'trial'),
-         trial_ends_at = COALESCE(users.trial_ends_at, EXCLUDED.trial_ends_at),
-         subscription_status = COALESCE(users.subscription_status, 'trial')`,
-      [userId, isFirstUser, email ? email.toLowerCase() : null, nombre || null, trialEnds, email ? false : true]
+         is_admin=EXCLUDED.is_admin, email=COALESCE(EXCLUDED.email,users.email),
+         nombre=COALESCE(EXCLUDED.nombre,users.nombre),
+         plan=COALESCE(users.plan,'trial'),
+         trial_ends_at=COALESCE(users.trial_ends_at,EXCLUDED.trial_ends_at),
+         subscription_status=COALESCE(users.subscription_status,'trial')`,
+      [userId, isFirstUser, email?email.toLowerCase():null, nombre||null, trialEnds, email?false:true]
     );
     if (isFirstUser) {
-      await query(`UPDATE users SET plan='admin', subscription_status='active', email_verified=true WHERE id=$1`, [userId]);
+      await query(`UPDATE users SET plan='admin',subscription_status='active',email_verified=true WHERE id=$1`, [userId]);
       console.log('👑 Primer usuario registrado como admin:', username);
     }
     await createSystemAccounts(userId);
+    await query(`INSERT INTO user_credentials(user_id,username,password_hash) VALUES($1,$2,$3)`, [userId, username.toLowerCase(), hash]);
 
-    await query(
-      `INSERT INTO user_credentials(user_id, username, password_hash) VALUES($1,$2,$3)`,
-      [userId, username.toLowerCase(), hash]
-    );
-
-    // Send verification email if email provided and not first user (admin)
     let emailSent = false;
     if (email && !isFirstUser) {
-      const verifyToken_ = crypto.randomBytes(32).toString('hex');
-      await query(
-        `INSERT INTO email_tokens(id, user_id, token, type, expires_at)
-         VALUES($1,$2,$3,'verify', NOW() + INTERVAL '24 hours')`,
-        [`etk_${Date.now()}`, userId, verifyToken_]
-      );
+      const verifyTok = crypto.randomBytes(32).toString('hex');
+      await query(`INSERT INTO email_tokens(id,user_id,token,type,expires_at) VALUES($1,$2,$3,'verify',NOW()+INTERVAL '24 hours')`, [`etk_${Date.now()}`, userId, verifyTok]);
       const appUrl = APP_URL || `https://${req.headers.host}`;
-      const verifyUrl = `${appUrl}/verify-email?token=${verifyToken_}`;
-      const result = await sendEmail({
-        to: email,
-        subject: '✅ Verifica tu correo — MisCuentas Contable',
-        html: emailVerificationHTML(nombre, verifyUrl),
-      });
-      emailSent = result.ok;
-      // Also send welcome email
-      await sendEmail({
-        to: email,
-        subject: '🎉 ¡Bienvenido a MisCuentas Contable!',
-        html: emailWelcomeHTML(nombre, `Prueba gratis ${TRIAL_DAYS} días`),
-      });
+      const r1 = await sendEmail({ to: email, subject: '✅ Verifica tu correo — MisCuentas Contable', html: emailVerificationHTML(nombre, `${appUrl}/verify-email?token=${verifyTok}`) });
+      emailSent = r1.ok;
+      await sendEmail({ to: email, subject: '🎉 ¡Bienvenido a MisCuentas Contable!', html: emailWelcomeHTML(nombre, `Prueba gratis ${TRIAL_DAYS} días`) });
     }
 
     const token = generateToken(userId);
-    res.json({
-      ok: true, token, userId, isAdmin: isFirstUser,
-      plan: isFirstUser ? 'admin' : 'trial',
-      trial_ends_at: isFirstUser ? null : trialEnds,
-      email_verification_sent: emailSent,
-    });
-  } catch (e) {
-    console.error('Register error:', e.message);
-    res.status(500).json({ error: e.message });
-  }
+    res.json({ ok:true, token, userId, isAdmin:isFirstUser, plan:isFirstUser?'admin':'trial', trial_ends_at:isFirstUser?null:trialEnds, email_verification_sent:emailSent });
+  } catch(e) { console.error('Register error:', e.message); res.status(500).json({ error: e.message }); }
 });
 
 // POST /api/auth/login — body: { username, password }  (username puede ser email)
@@ -1751,62 +1643,41 @@ app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
 
-    // Allow login with email OR username
     let creds;
     if (username.includes('@')) {
-      // Login by email: find user_id first
       const uRow = await query('SELECT id FROM users WHERE email=$1', [username.toLowerCase()]);
-      if (uRow.rows[0]) {
-        creds = await query('SELECT user_id, password_hash FROM user_credentials WHERE user_id=$1', [uRow.rows[0].id]);
-      }
+      if (uRow.rows[0]) creds = await query('SELECT user_id, password_hash FROM user_credentials WHERE user_id=$1', [uRow.rows[0].id]);
     } else {
       creds = await query('SELECT user_id, password_hash FROM user_credentials WHERE username=$1', [username.toLowerCase()]);
     }
-
     if (!creds || !creds.rows[0]) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
 
     const { user_id: userId, password_hash: storedHash } = creds.rows[0];
-    // Get the username for salt (needed for PBKDF2)
     const credRow = await query('SELECT username FROM user_credentials WHERE user_id=$1', [userId]);
     const uname   = credRow.rows[0]?.username || username.toLowerCase();
     let hash = crypto.pbkdf2Sync(password, uname, 100000, 64, 'sha512').toString('hex');
-    if (hash !== storedHash) {
-      hash = crypto.pbkdf2Sync(password, username.toLowerCase(), 100000, 64, 'sha512').toString('hex');
-    }
+    if (hash !== storedHash) hash = crypto.pbkdf2Sync(password, username.toLowerCase(), 100000, 64, 'sha512').toString('hex');
     if (hash !== storedHash) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
 
-    const userRow = await query(
-      `SELECT is_admin, plan, trial_ends_at, subscription_status, email, nombre, email_verified FROM users WHERE id=$1`,
-      [userId]
-    );
+    const userRow = await query(`SELECT is_admin,plan,trial_ends_at,subscription_status,email,nombre,email_verified FROM users WHERE id=$1`, [userId]);
     const u = userRow.rows[0] || {};
-
-    // Compute trial status
     const now = new Date();
-    const trialActive  = u.trial_ends_at && new Date(u.trial_ends_at) > now;
-    const trialDaysLeft = u.trial_ends_at
-      ? Math.max(0, Math.ceil((new Date(u.trial_ends_at) - now) / (1000 * 60 * 60 * 24)))
-      : 0;
-    const hasAccess = u.is_admin || u.subscription_status === 'active' || trialActive;
+    const trialActive   = u.trial_ends_at && new Date(u.trial_ends_at) > now;
+    const trialDaysLeft = u.trial_ends_at ? Math.max(0, Math.ceil((new Date(u.trial_ends_at)-now)/(1000*60*60*24))) : 0;
 
     const token = generateToken(userId);
     res.json({
-      ok: true, token, userId,
-      isAdmin: u.is_admin || false,
-      plan: u.plan || 'trial',
-      subscription_status: u.subscription_status || 'trial',
+      ok:true, token, userId,
+      isAdmin: u.is_admin||false,
+      plan: u.plan||'trial',
+      subscription_status: u.subscription_status||'trial',
       trial_ends_at: u.trial_ends_at,
       trial_days_left: trialDaysLeft,
       trial_active: trialActive,
-      has_access: hasAccess,
-      email: u.email,
-      nombre: u.nombre,
-      email_verified: u.email_verified,
+      has_access: u.is_admin||u.subscription_status==='active'||trialActive,
+      email: u.email, nombre: u.nombre, email_verified: u.email_verified,
     });
-  } catch (e) {
-    console.error('Login error:', e.message);
-    res.status(500).json({ error: e.message });
-  }
+  } catch(e) { console.error('Login error:', e.message); res.status(500).json({ error: e.message }); }
 });
 
 // POST /api/auth/change-password — body: { currentPassword, newPassword }
@@ -1835,216 +1706,102 @@ app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/auth/me — returns current user plan/status
+// GET /api/auth/me
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
   try {
-    const r = await query(
-      `SELECT u.is_admin, u.plan, u.trial_ends_at, u.subscription_status, u.email, u.nombre, u.email_verified,
-              uc.username
-       FROM users u
-       LEFT JOIN user_credentials uc ON uc.user_id = u.id
-       WHERE u.id=$1`, [req.userId]
-    );
-    if (!r.rows[0]) return res.status(404).json({ error: 'Not found' });
+    const r = await query(`SELECT u.is_admin,u.plan,u.trial_ends_at,u.subscription_status,u.email,u.nombre,u.email_verified,uc.username FROM users u LEFT JOIN user_credentials uc ON uc.user_id=u.id WHERE u.id=$1`, [req.userId]);
+    if (!r.rows[0]) return res.status(404).json({ error:'Not found' });
     const u = r.rows[0];
     const now = new Date();
-    const trialActive   = u.trial_ends_at && new Date(u.trial_ends_at) > now;
-    const trialDaysLeft = u.trial_ends_at
-      ? Math.max(0, Math.ceil((new Date(u.trial_ends_at) - now) / (1000 * 60 * 60 * 24)))
-      : 0;
-    res.json({
-      ...u,
-      trial_active: trialActive,
-      trial_days_left: trialDaysLeft,
-      has_access: u.is_admin || u.subscription_status === 'active' || trialActive,
-    });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    const trialActive = u.trial_ends_at && new Date(u.trial_ends_at)>now;
+    res.json({ ...u, trial_active:trialActive, trial_days_left:u.trial_ends_at?Math.max(0,Math.ceil((new Date(u.trial_ends_at)-now)/(1000*60*60*24))):0, has_access:u.is_admin||u.subscription_status==='active'||trialActive });
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// POST /api/auth/forgot-password — body: { email }
+// POST /api/auth/forgot-password
 app.post('/api/auth/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email requerido' });
-    const uRow = await query('SELECT id, nombre FROM users WHERE email=$1', [email.toLowerCase()]);
-    // Always return ok to avoid email enumeration
-    if (!uRow.rows[0]) return res.json({ ok: true, message: 'Si ese correo existe, recibirás un enlace.' });
-
-    const userId    = uRow.rows[0].id;
-    const resetTok  = crypto.randomBytes(32).toString('hex');
-    await query(
-      `INSERT INTO email_tokens(id, user_id, token, type, expires_at)
-       VALUES($1,$2,$3,'reset', NOW() + INTERVAL '1 hour')`,
-      [`etk_${Date.now()}`, userId, resetTok]
-    );
-    const appUrl   = APP_URL || `https://${req.headers.host}`;
-    const resetUrl = `${appUrl}/reset-password?token=${resetTok}`;
-    await sendEmail({
-      to: email,
-      subject: '🔐 Restablecer contraseña — MisCuentas Contable',
-      html: emailPasswordResetHTML(resetUrl),
-    });
-    res.json({ ok: true, message: 'Si ese correo existe, recibirás un enlace.' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    if (!email) return res.status(400).json({ error:'Email requerido' });
+    const uRow = await query('SELECT id,nombre FROM users WHERE email=$1', [email.toLowerCase()]);
+    if (!uRow.rows[0]) return res.json({ ok:true, message:'Si ese correo existe, recibirás un enlace.' });
+    const userId = uRow.rows[0].id;
+    const resetTok = crypto.randomBytes(32).toString('hex');
+    await query(`INSERT INTO email_tokens(id,user_id,token,type,expires_at) VALUES($1,$2,$3,'reset',NOW()+INTERVAL '1 hour')`, [`etk_${Date.now()}`, userId, resetTok]);
+    const appUrl = APP_URL || `https://${req.headers.host}`;
+    await sendEmail({ to:email, subject:'🔐 Restablecer contraseña — MisCuentas Contable', html:emailPasswordResetHTML(`${appUrl}/reset-password?token=${resetTok}`) });
+    res.json({ ok:true, message:'Si ese correo existe, recibirás un enlace.' });
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// POST /api/auth/reset-password — body: { token, newPassword }
+// POST /api/auth/reset-password
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
     const { token, newPassword } = req.body;
-    if (!token || !newPassword) return res.status(400).json({ error: 'Token y nueva contraseña requeridos' });
-    if (newPassword.length < 6) return res.status(400).json({ error: 'Mínimo 6 caracteres' });
-
-    const tokRow = await query(
-      `SELECT user_id FROM email_tokens WHERE token=$1 AND type='reset' AND expires_at > NOW() AND used=FALSE`,
-      [token]
-    );
-    if (!tokRow.rows[0]) return res.status(400).json({ error: 'Enlace inválido o expirado' });
-
+    if (!token||!newPassword) return res.status(400).json({ error:'Token y contraseña requeridos' });
+    if (newPassword.length<6) return res.status(400).json({ error:'Mínimo 6 caracteres' });
+    const tokRow = await query(`SELECT user_id FROM email_tokens WHERE token=$1 AND type='reset' AND expires_at>NOW() AND used=FALSE`, [token]);
+    if (!tokRow.rows[0]) return res.status(400).json({ error:'Enlace inválido o expirado' });
     const userId  = tokRow.rows[0].user_id;
     const credRow = await query('SELECT username FROM user_credentials WHERE user_id=$1', [userId]);
-    if (!credRow.rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
-
-    const salt    = credRow.rows[0].username;
-    const newHash = crypto.pbkdf2Sync(newPassword, salt, 100000, 64, 'sha512').toString('hex');
+    if (!credRow.rows[0]) return res.status(404).json({ error:'Usuario no encontrado' });
+    const newHash = crypto.pbkdf2Sync(newPassword, credRow.rows[0].username, 100000, 64, 'sha512').toString('hex');
     await query('UPDATE user_credentials SET password_hash=$1 WHERE user_id=$2', [newHash, userId]);
     await query('UPDATE email_tokens SET used=TRUE WHERE token=$1', [token]);
-    res.json({ ok: true, message: 'Contraseña actualizada correctamente' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    res.json({ ok:true, message:'Contraseña actualizada correctamente' });
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// GET /verify-email?token=xxx — HTML page that verifies email
+// GET /verify-email
 app.get('/verify-email', async (req, res) => {
   const { token } = req.query;
   const appUrl = APP_URL || `https://${req.headers.host}`;
   if (!token) return res.redirect(appUrl);
   try {
-    const tokRow = await query(
-      `SELECT user_id FROM email_tokens WHERE token=$1 AND type='verify' AND expires_at > NOW() AND used=FALSE`,
-      [token]
-    );
-    if (!tokRow.rows[0]) {
-      return res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Enlace expirado</title>
-<style>body{font-family:sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}h2{color:#ff4d6d}a{color:#ff7c2a}</style>
-</head><body><div><h2>⚠️ Enlace inválido o expirado</h2><p>El enlace de verificación ya fue usado o expiró.</p><a href="${appUrl}">← Ir a MisCuentas</a></div></body></html>`);
-    }
-    const userId = tokRow.rows[0].user_id;
-    await query('UPDATE users SET email_verified=TRUE WHERE id=$1', [userId]);
+    const tokRow = await query(`SELECT user_id FROM email_tokens WHERE token=$1 AND type='verify' AND expires_at>NOW() AND used=FALSE`, [token]);
+    if (!tokRow.rows[0]) return res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}</style></head><body><div><h2 style="color:#ff4d6d">⚠️ Enlace inválido o expirado</h2><a href="${appUrl}" style="color:#ff7c2a">← Ir a MisCuentas</a></div></body></html>`);
+    await query('UPDATE users SET email_verified=TRUE WHERE id=$1', [tokRow.rows[0].user_id]);
     await query('UPDATE email_tokens SET used=TRUE WHERE token=$1', [token]);
-    return res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Correo verificado</title>
-<meta http-equiv="refresh" content="3;url=${appUrl}">
-<style>body{font-family:sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}h2{color:#00e5a0}a{color:#ff7c2a}</style>
-</head><body><div><h2>✅ ¡Correo verificado!</h2><p>Tu correo fue verificado correctamente. Redirigiendo...</p><a href="${appUrl}">← Ir a MisCuentas</a></div></body></html>`);
-  } catch(e) {
-    res.redirect(appUrl);
-  }
+    return res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=${appUrl}"><style>body{font-family:sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}</style></head><body><div><h2 style="color:#00e5a0">✅ ¡Correo verificado!</h2><p>Redirigiendo...</p><a href="${appUrl}" style="color:#ff7c2a">← Ir a MisCuentas</a></div></body></html>`);
+  } catch(e) { res.redirect(appUrl); }
 });
 
-// GET /reset-password?token=xxx — HTML page for password reset
+// GET /reset-password
 app.get('/reset-password', async (req, res) => {
   const { token } = req.query;
   const appUrl = APP_URL || `https://${req.headers.host}`;
   if (!token) return res.redirect(appUrl);
-  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Nueva contraseña</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
-.card{background:#0f1a18;border:1px solid #1f3330;border-radius:16px;padding:28px;width:100%;max-width:380px}
-.logo{font-size:20px;font-weight:900;margin-bottom:20px}.logo span{color:#ff7c2a}
-label{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#8aada8;display:block;margin-bottom:5px}
-input{width:100%;background:#162220;border:1px solid #28403c;border-radius:8px;padding:10px 12px;color:#e8f0ee;font-size:14px;outline:none;margin-bottom:14px}
-input:focus{border-color:#ff7c2a}
-button{width:100%;background:#ff7c2a;color:#000;font-weight:700;font-size:14px;padding:11px;border:none;border-radius:8px;cursor:pointer}
-.msg{margin-top:12px;padding:10px;border-radius:8px;font-size:13px;display:none}
-.ok{background:#00e5a015;border:1px solid #00e5a040;color:#00e5a0}
-.err{background:#ff4d6d15;border:1px solid #ff4d6d40;color:#ff4d6d}
-a{color:#ff7c2a;font-size:13px;display:block;margin-top:14px;text-align:center}
-</style></head>
-<body><div class="card">
-<div class="logo">mis<span>cuentas</span></div>
-<h2 style="margin-bottom:20px;font-size:18px">Nueva contraseña</h2>
-<label>Nueva contraseña</label>
-<input type="password" id="pw1" placeholder="Mínimo 6 caracteres">
-<label>Confirmar contraseña</label>
-<input type="password" id="pw2" placeholder="Repite tu contraseña" onkeydown="if(event.key==='Enter')reset()">
-<button onclick="reset()">Guardar nueva contraseña</button>
-<div id="msg" class="msg"></div>
-<a href="${appUrl}">← Volver al inicio</a>
-</div>
-<script>
-async function reset() {
-  const pw1 = document.getElementById('pw1').value;
-  const pw2 = document.getElementById('pw2').value;
-  const msg = document.getElementById('msg');
-  msg.style.display='none';
-  if (!pw1 || pw1.length < 6) { showMsg('Mínimo 6 caracteres','err'); return; }
-  if (pw1 !== pw2) { showMsg('Las contraseñas no coinciden','err'); return; }
-  const r = await fetch('/api/auth/reset-password', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:'${token}',newPassword:pw1})
-  });
-  const d = await r.json();
-  if (d.ok) {
-    showMsg('✅ Contraseña actualizada. Redirigiendo...','ok');
-    setTimeout(()=>window.location='${appUrl}',2000);
-  } else { showMsg(d.error||'Error al actualizar','err'); }
-}
-function showMsg(text,cls){const m=document.getElementById('msg');m.textContent=text;m.className='msg '+cls;m.style.display='block';}
-</script></body></html>`);
+  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Nueva contraseña</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,sans-serif;background:#09100f;color:#e8f0ee;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}.card{background:#0f1a18;border:1px solid #1f3330;border-radius:16px;padding:28px;width:100%;max-width:380px}label{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#8aada8;display:block;margin-bottom:5px}input{width:100%;background:#162220;border:1px solid #28403c;border-radius:8px;padding:10px 12px;color:#e8f0ee;font-size:14px;outline:none;margin-bottom:14px}input:focus{border-color:#ff7c2a}button{width:100%;background:#ff7c2a;color:#000;font-weight:700;font-size:14px;padding:11px;border:none;border-radius:8px;cursor:pointer}.msg{margin-top:12px;padding:10px;border-radius:8px;font-size:13px;display:none}.ok{background:#00e5a015;border:1px solid #00e5a040;color:#00e5a0}.err{background:#ff4d6d15;border:1px solid #ff4d6d40;color:#ff4d6d}a{color:#ff7c2a;font-size:13px;display:block;margin-top:14px;text-align:center}</style></head><body><div class="card"><div style="font-size:20px;font-weight:900;margin-bottom:20px">mis<span style="color:#ff7c2a">cuentas</span></div><h2 style="margin-bottom:20px;font-size:18px">Nueva contraseña</h2><label>Nueva contraseña</label><input type="password" id="pw1" placeholder="Mínimo 6 caracteres"><label>Confirmar</label><input type="password" id="pw2" placeholder="Repite tu contraseña" onkeydown="if(event.key==='Enter')reset()"><button onclick="reset()">Guardar</button><div id="msg" class="msg"></div><a href="${appUrl}">← Volver al inicio</a></div><script>async function reset(){const pw1=document.getElementById('pw1').value,pw2=document.getElementById('pw2').value,msg=document.getElementById('msg');msg.style.display='none';if(!pw1||pw1.length<6){show('Mínimo 6 caracteres','err');return;}if(pw1!==pw2){show('Las contraseñas no coinciden','err');return;}const r=await fetch('/api/auth/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:'${token}',newPassword:pw1})});const d=await r.json();if(d.ok){show('✅ Contraseña actualizada. Redirigiendo...','ok');setTimeout(()=>window.location='${appUrl}',2000);}else show(d.error||'Error','err');}function show(t,c){const m=document.getElementById('msg');m.textContent=t;m.className='msg '+c;m.style.display='block';}</script></body></html>`);
 });
 
-// GET /api/auth/plan — current user plan info
-app.get('/api/auth/plan', authMiddleware, async (req, res) => {
-  try {
-    const r = await query(
-      `SELECT plan, trial_ends_at, subscription_status, email, email_verified, nombre FROM users WHERE id=$1`,
-      [req.userId]
-    );
-    const u = r.rows[0] || {};
-    const now = new Date();
-    const trialActive   = u.trial_ends_at && new Date(u.trial_ends_at) > now;
-    const trialDaysLeft = u.trial_ends_at
-      ? Math.max(0, Math.ceil((new Date(u.trial_ends_at) - now) / (1000 * 60 * 60 * 24)))
-      : 0;
-    res.json({
-      plan: u.plan || 'trial',
-      subscription_status: u.subscription_status || 'trial',
-      trial_ends_at: u.trial_ends_at,
-      trial_active: trialActive,
-      trial_days_left: trialDaysLeft,
-      has_access: u.is_admin || u.subscription_status === 'active' || trialActive,
-      email: u.email,
-      email_verified: u.email_verified,
-    });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// POST /api/auth/resend-verification — resend verification email
+// POST /api/auth/resend-verification
 app.post('/api/auth/resend-verification', authMiddleware, async (req, res) => {
   try {
-    const r = await query('SELECT email, nombre, email_verified FROM users WHERE id=$1', [req.userId]);
+    const r = await query('SELECT email,nombre,email_verified FROM users WHERE id=$1', [req.userId]);
     const u = r.rows[0];
-    if (!u?.email) return res.status(400).json({ error: 'No hay correo asociado a esta cuenta' });
-    if (u.email_verified) return res.json({ ok: true, message: 'Tu correo ya está verificado' });
-
+    if (!u?.email) return res.status(400).json({ error:'No hay correo asociado a esta cuenta' });
+    if (u.email_verified) return res.json({ ok:true, message:'Tu correo ya está verificado' });
     const verifyTok = crypto.randomBytes(32).toString('hex');
     await query(`DELETE FROM email_tokens WHERE user_id=$1 AND type='verify'`, [req.userId]);
-    await query(
-      `INSERT INTO email_tokens(id, user_id, token, type, expires_at) VALUES($1,$2,$3,'verify', NOW() + INTERVAL '24 hours')`,
-      [`etk_${Date.now()}`, req.userId, verifyTok]
-    );
-    const appUrl    = APP_URL || `https://${req.headers.host}`;
-    const verifyUrl = `${appUrl}/verify-email?token=${verifyTok}`;
-    await sendEmail({
-      to: u.email,
-      subject: '✅ Verifica tu correo — MisCuentas Contable',
-      html: emailVerificationHTML(u.nombre, verifyUrl),
-    });
-    res.json({ ok: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    await query(`INSERT INTO email_tokens(id,user_id,token,type,expires_at) VALUES($1,$2,$3,'verify',NOW()+INTERVAL '24 hours')`, [`etk_${Date.now()}`, req.userId, verifyTok]);
+    const appUrl = APP_URL || `https://${req.headers.host}`;
+    await sendEmail({ to:u.email, subject:'✅ Verifica tu correo — MisCuentas Contable', html:emailVerificationHTML(u.nombre, `${appUrl}/verify-email?token=${verifyTok}`) });
+    res.json({ ok:true });
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
+// GET /api/auth/plan
+app.get('/api/auth/plan', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT plan,trial_ends_at,subscription_status,email,email_verified,nombre FROM users WHERE id=$1`, [req.userId]);
+    const u = r.rows[0]||{};
+    const now = new Date();
+    const trialActive = u.trial_ends_at && new Date(u.trial_ends_at)>now;
+    res.json({ plan:u.plan||'trial', subscription_status:u.subscription_status||'trial', trial_ends_at:u.trial_ends_at, trial_active:trialActive, trial_days_left:u.trial_ends_at?Math.max(0,Math.ceil((new Date(u.trial_ends_at)-now)/(1000*60*60*24))):0, has_access:u.is_admin||u.subscription_status==='active'||trialActive, email:u.email, email_verified:u.email_verified });
+  } catch(e) { res.status(500).json({ error:e.message }); }
+});
+
+// GET /api/admin/bootstrap
 app.get('/api/admin/bootstrap', async (req, res) => {
   try {
     const r = await query(`SELECT id FROM users ORDER BY created_at ASC LIMIT 1`);
@@ -2065,146 +1822,60 @@ app.get('/api/admin/promote/:userId', async (req, res) => {
 // GET /api/admin/users — list all users with plan info (admin only)
 app.get('/api/admin/users', adminMiddleware, async (req, res) => {
   try {
-    const r = await query(`
-      SELECT u.id, u.is_admin, u.created_at, u.email, u.nombre,
-             u.plan, u.trial_ends_at, u.subscription_status, u.email_verified,
-             uc.username
-      FROM users u
-      LEFT JOIN user_credentials uc ON uc.user_id = u.id
-      ORDER BY u.created_at DESC
-    `);
+    const r = await query(`SELECT u.id,u.is_admin,u.created_at,u.email,u.nombre,u.plan,u.trial_ends_at,u.subscription_status,u.email_verified,uc.username FROM users u LEFT JOIN user_credentials uc ON uc.user_id=u.id ORDER BY u.created_at DESC`);
     const now = new Date();
-    const rows = r.rows.map(u => ({
-      ...u,
-      trial_days_left: u.trial_ends_at
-        ? Math.max(0, Math.ceil((new Date(u.trial_ends_at) - now) / (1000 * 60 * 60 * 24)))
-        : 0,
-      trial_active: u.trial_ends_at && new Date(u.trial_ends_at) > now,
-      has_access: u.is_admin || u.subscription_status === 'active' || (u.trial_ends_at && new Date(u.trial_ends_at) > now),
-    }));
-    res.json(rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    res.json(r.rows.map(u=>({...u,trial_days_left:u.trial_ends_at?Math.max(0,Math.ceil((new Date(u.trial_ends_at)-now)/(1000*60*60*24))):0,trial_active:u.trial_ends_at&&new Date(u.trial_ends_at)>now,has_access:u.is_admin||u.subscription_status==='active'||(u.trial_ends_at&&new Date(u.trial_ends_at)>now)})));
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// PUT /api/admin/users/:id/plan — update user plan/subscription (admin only)
-app.put('/api/admin/users/:id/plan', adminMiddleware, async (req, res) => {
-  try {
-    const { plan, subscription_status, trial_days, notes } = req.body;
-    const updates = [];
-    const params  = [];
-    let p = 1;
-    if (plan)                { updates.push(`plan=$${p++}`);                params.push(plan); }
-    if (subscription_status) { updates.push(`subscription_status=$${p++}`); params.push(subscription_status); }
-    if (trial_days != null)  {
-      const newTrialEnd = new Date(Date.now() + Number(trial_days) * 24 * 60 * 60 * 1000);
-      updates.push(`trial_ends_at=$${p++}`); params.push(newTrialEnd);
-    }
-    if (!updates.length) return res.status(400).json({ error: 'Nada que actualizar' });
-    params.push(req.params.id);
-    await query(`UPDATE users SET ${updates.join(',')} WHERE id=$${p}`, params);
-
-    // Log the change
-    await query(
-      `INSERT INTO subscription_events(id, user_id, admin_id, event_type, plan, notes)
-       VALUES($1,$2,$3,$4,$5,$6)`,
-      [`sev_${Date.now()}`, req.params.id, req.userId, subscription_status || 'updated', plan || null, notes || null]
-    );
-    res.json({ ok: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// POST /api/admin/users/:id/extend-trial — extend trial X days (admin only)
+// POST /api/admin/users/:id/extend-trial
 app.post('/api/admin/users/:id/extend-trial', adminMiddleware, async (req, res) => {
   try {
-    const { days = 7, notes } = req.body;
+    const { days=7, notes } = req.body;
     const uRow = await query('SELECT trial_ends_at FROM users WHERE id=$1', [req.params.id]);
-    const current = uRow.rows[0]?.trial_ends_at ? new Date(uRow.rows[0].trial_ends_at) : new Date();
-    const base    = current > new Date() ? current : new Date(); // extend from today if expired
-    const newEnd  = new Date(base.getTime() + Number(days) * 24 * 60 * 60 * 1000);
-    await query(
-      `UPDATE users SET trial_ends_at=$1, plan='trial', subscription_status='trial' WHERE id=$2`,
-      [newEnd, req.params.id]
-    );
-    await query(
-      `INSERT INTO subscription_events(id, user_id, admin_id, event_type, notes)
-       VALUES($1,$2,$3,'trial_extended',$4)`,
-      [`sev_${Date.now()}`, req.params.id, req.userId, notes || `Extendido ${days} días`]
-    );
-    res.json({ ok: true, new_trial_end: newEnd });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    const base = uRow.rows[0]?.trial_ends_at && new Date(uRow.rows[0].trial_ends_at)>new Date() ? new Date(uRow.rows[0].trial_ends_at) : new Date();
+    const newEnd = new Date(base.getTime()+Number(days)*24*60*60*1000);
+    await query(`UPDATE users SET trial_ends_at=$1,plan='trial',subscription_status='trial' WHERE id=$2`, [newEnd, req.params.id]);
+    await query(`INSERT INTO subscription_events(id,user_id,admin_id,event_type,notes) VALUES($1,$2,$3,'trial_extended',$4)`, [`sev_${Date.now()}`, req.params.id, req.userId, notes||`Extendido ${days} días`]);
+    res.json({ ok:true, new_trial_end:newEnd });
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// POST /api/admin/users/:id/activate — activate paid subscription (admin only)
+// POST /api/admin/users/:id/activate
 app.post('/api/admin/users/:id/activate', adminMiddleware, async (req, res) => {
   try {
-    const { plan = 'basic', notes, months = 1 } = req.body;
-    const subEnd = new Date(Date.now() + Number(months) * 30 * 24 * 60 * 60 * 1000);
-    await query(
-      `UPDATE users SET plan=$1, subscription_status='active', trial_ends_at=$2 WHERE id=$3`,
-      [plan, subEnd, req.params.id]
-    );
-    await query(
-      `INSERT INTO subscription_events(id, user_id, admin_id, event_type, plan, notes)
-       VALUES($1,$2,$3,'activated',$4,$5)`,
-      [`sev_${Date.now()}`, req.params.id, req.userId, plan, notes || `Activado ${months} mes(es)`]
-    );
-    // Notify user by email if they have one
-    const uRow = await query('SELECT email, nombre FROM users WHERE id=$1', [req.params.id]);
+    const { plan='basic', notes, months=1 } = req.body;
+    const subEnd = new Date(Date.now()+Number(months)*30*24*60*60*1000);
+    await query(`UPDATE users SET plan=$1,subscription_status='active',trial_ends_at=$2 WHERE id=$3`, [plan, subEnd, req.params.id]);
+    await query(`INSERT INTO subscription_events(id,user_id,admin_id,event_type,plan,notes) VALUES($1,$2,$3,'activated',$4,$5)`, [`sev_${Date.now()}`, req.params.id, req.userId, plan, notes||`Activado ${months} mes(es)`]);
+    const uRow = await query('SELECT email,nombre FROM users WHERE id=$1', [req.params.id]);
     if (uRow.rows[0]?.email) {
-      const planName = PLANS[plan]?.name || plan;
-      await sendEmail({
-        to: uRow.rows[0].email,
-        subject: `✅ Suscripción activada — MisCuentas ${planName}`,
-        html: `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;background:#f5f5f5;padding:20px}.card{background:#fff;border-radius:12px;max-width:480px;margin:0 auto;padding:32px}.logo span{color:#ff7c2a}</style></head>
-<body><div class="card">
-<div class="logo"><strong>mis<span>cuentas</span> CONTABLE</strong></div>
-<h2 style="margin:16px 0 8px">¡Tu suscripción está activa! 🎉</h2>
-<p>Hola${uRow.rows[0].nombre?' '+uRow.rows[0].nombre:''},</p>
-<p>Tu plan <strong>${planName}</strong> ha sido activado. Tienes acceso completo a MisCuentas Contable.</p>
-<p style="color:#888;font-size:13px">Válido por ${months} mes(es) hasta ${subEnd.toLocaleDateString('es-DO')}.</p>
-</div></body></html>`,
-      });
+      await sendEmail({ to:uRow.rows[0].email, subject:`✅ Suscripción activada — MisCuentas ${PLANS[plan]?.name||plan}`, html:emailWelcomeHTML(uRow.rows[0].nombre, `Plan ${PLANS[plan]?.name||plan} activado por ${months} mes(es)`) });
     }
-    res.json({ ok: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    res.json({ ok:true });
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// GET /api/admin/subscriptions — subscription event history (admin only)
-app.get('/api/admin/subscriptions', adminMiddleware, async (req, res) => {
-  try {
-    const r = await query(`
-      SELECT se.*, u.email, u.nombre, uc.username,
-             au.email as admin_email
-      FROM subscription_events se
-      JOIN users u ON u.id = se.user_id
-      LEFT JOIN user_credentials uc ON uc.user_id = se.user_id
-      LEFT JOIN users au ON au.id = se.admin_id
-      ORDER BY se.created_at DESC
-      LIMIT 100
-    `);
-    res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// GET /api/admin/stats — dashboard stats (admin only)
+// GET /api/admin/stats
 app.get('/api/admin/stats', adminMiddleware, async (req, res) => {
   try {
-    const now = new Date();
-    const [total, active, trial, expired, thisMonth] = await Promise.all([
+    const [total,active,trial,expired,thisMonth] = await Promise.all([
       query(`SELECT COUNT(*) as cnt FROM users`),
       query(`SELECT COUNT(*) as cnt FROM users WHERE subscription_status='active'`),
-      query(`SELECT COUNT(*) as cnt FROM users WHERE subscription_status='trial' AND trial_ends_at > NOW()`),
-      query(`SELECT COUNT(*) as cnt FROM users WHERE subscription_status='trial' AND trial_ends_at < NOW() AND NOT is_admin`),
-      query(`SELECT COUNT(*) as cnt FROM users WHERE created_at >= DATE_TRUNC('month', NOW())`),
+      query(`SELECT COUNT(*) as cnt FROM users WHERE subscription_status='trial' AND trial_ends_at>NOW()`),
+      query(`SELECT COUNT(*) as cnt FROM users WHERE subscription_status='trial' AND trial_ends_at<NOW() AND NOT is_admin`),
+      query(`SELECT COUNT(*) as cnt FROM users WHERE created_at>=DATE_TRUNC('month',NOW())`),
     ]);
-    res.json({
-      total_users:    Number(total.rows[0].cnt),
-      active_subs:    Number(active.rows[0].cnt),
-      trial_active:   Number(trial.rows[0].cnt),
-      trial_expired:  Number(expired.rows[0].cnt),
-      new_this_month: Number(thisMonth.rows[0].cnt),
-    });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    res.json({ total_users:Number(total.rows[0].cnt), active_subs:Number(active.rows[0].cnt), trial_active:Number(trial.rows[0].cnt), trial_expired:Number(expired.rows[0].cnt), new_this_month:Number(thisMonth.rows[0].cnt) });
+  } catch(e) { res.status(500).json({ error:e.message }); }
+});
+
+// GET /api/admin/subscriptions
+app.get('/api/admin/subscriptions', adminMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT se.*,u.email,u.nombre,uc.username FROM subscription_events se JOIN users u ON u.id=se.user_id LEFT JOIN user_credentials uc ON uc.user_id=se.user_id ORDER BY se.created_at DESC LIMIT 100`);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
 // PUT /api/admin/users/:id/admin — promote to admin
@@ -2322,147 +1993,306 @@ app.get('/api/invoices/next-number', authMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─── HELPER: registrar asiento contable dentro de una transacción PG ─────────
+async function insertJournalEntry(pgClient, userId, date, description, refType, refId, lines) {
+  const q = pgClient
+    ? (sql, params) => pgClient.query(sql, params)
+    : (sql, params) => query(sql, params);
+
+  const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,8)}`;
+  await q(
+    `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
+    [jeId, userId, date, description, refType, refId]
+  );
+  for (const ln of lines) {
+    const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,8)}`;
+    await q(
+      `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit,auxiliary_type,auxiliary_id,auxiliary_name)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [lnId, jeId, ln.acct, ln.d||0, ln.c||0, ln.auxType||null, ln.auxId||null, ln.auxName||null]
+    );
+    await q(
+      `INSERT INTO account_balances(account_id,balance) VALUES($1,$2)
+       ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
+      [ln.acct, (ln.d||0)-(ln.c||0)]
+    );
+  }
+  return jeId;
+}
+
+// ─── HELPER: calcular y registrar CMV de los ítems de una factura ──────────
+async function processCMVForInvoice(pgClient, userId, invoiceId, invoiceNumber, rawItems, invoiceDate) {
+  const q = pgClient
+    ? (sql, params) => pgClient.query(sql, params)
+    : (sql, params) => query(sql, params);
+
+  // Buscar cuentas CMV e Inventario (con múltiples códigos posibles según plan)
+  const acctR = await q(
+    `SELECT id, code, name FROM accounts
+     WHERE user_id=$1 AND code IN ('5101','5.1.01','5102','5.1.02','1103','1.1.03','1301','1.3.01')
+     ORDER BY code`,
+    [userId]
+  );
+  const acctMap = {};
+  acctR.rows.forEach(a => { acctMap[a.code] = { id: a.id, name: a.name }; });
+
+  // CMV: preferir 5101 o 5.1.01
+  const cmvAcct = acctMap['5101'] || acctMap['5.1.01'] || acctMap['5102'] || acctMap['5.1.02'];
+  // Inventario: preferir 1103 o 1.1.03 o 1301
+  const invAcct = acctMap['1103'] || acctMap['1.1.03'] || acctMap['1301'] || acctMap['1.3.01'];
+
+  let totalCMV = 0;
+  const cmvDetails = [];
+
+  for (const item of rawItems) {
+    if (!item.product_id) continue;
+    const qty = parseFloat(item.quantity || item.qty || 1);
+    if (qty <= 0) continue;
+
+    const prodR = await q(
+      `SELECT id, name, cost_price, stock_current FROM products WHERE id=$1 AND user_id=$2`,
+      [item.product_id, userId]
+    );
+    if (!prodR.rows[0]) continue;
+    const prod = prodR.rows[0];
+    const costPrice = parseFloat(prod.cost_price || 0);
+    if (costPrice <= 0) continue;
+
+    const stockActual = parseFloat(prod.stock_current || 0);
+    const lineCMV = Math.round(qty * costPrice * 100) / 100;
+    totalCMV += lineCMV;
+
+    // Reducir stock en tabla products
+    const newStock = Math.max(0, stockActual - qty);
+    await q(
+      `UPDATE products SET stock_current=$1 WHERE id=$2 AND user_id=$3`,
+      [newStock, item.product_id, userId]
+    );
+
+    // Registrar salida en inventory_movements si el producto también existe en inventory_products
+    const invProdR = await q(
+      `SELECT id FROM inventory_products WHERE user_id=$1 AND code=(SELECT code FROM products WHERE id=$2 AND user_id=$1)`,
+      [userId, item.product_id]
+    );
+    if (invProdR.rows[0]) {
+      const movId = `mov_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await q(
+        `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date)
+         VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8)`,
+        [movId, userId, invProdR.rows[0].id, qty, costPrice,
+         `FAC-${invoiceNumber}`, `CMV automático Factura ${invoiceNumber}`, invoiceDate]
+      );
+    }
+
+    cmvDetails.push({ product: prod.name, qty, cost: costPrice, cmv: lineCMV, stockBefore: stockActual, stockAfter: newStock });
+  }
+
+  // Asiento CMV: Débito CMV / Crédito Inventario
+  if (totalCMV > 0 && cmvAcct && invAcct) {
+    await insertJournalEntry(pgClient, userId, invoiceDate,
+      `CMV Factura ${invoiceNumber} — Costo de mercancía vendida`,
+      'cmv', invoiceId,
+      [
+        { acct: cmvAcct.id, d: totalCMV, c: 0 },   // Débito CMV (costo)
+        { acct: invAcct.id, d: 0, c: totalCMV },    // Crédito Inventario (activo baja)
+      ]
+    );
+  }
+
+  return { totalCMV, cmvDetails, hasCMVAccounts: !!(cmvAcct && invAcct) };
+}
+
 app.post('/api/invoices', authMiddleware, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { invoice_number, client_name, client_rnc, client_address, subtotal, tax, total, discount_amount, discount_pct, status, date, due_date, notes, items } = req.body;
-    if (!total) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'total is required' }); }
-    // Resolve invoice number: use submitted, or get next from counter
-    let resolvedInvoiceNumber = invoice_number;
-    if (!resolvedInvoiceNumber) {
+    const {
+      invoice_number, client_name, client_rnc, client_address,
+      subtotal, tax, total, discount_amount, discount_pct,
+      status, date, due_date, notes, items
+    } = req.body;
+
+    if (!total) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'total es requerido' }); }
+
+    // ── Resolver número de factura ──
+    let resolvedNum = invoice_number;
+    if (!resolvedNum) {
       const cntR = await client.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
-      const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
-      resolvedInvoiceNumber = String(nextNum).padStart(6, '0');
+      resolvedNum = String((parseInt(cntR.rows[0]?.last_number) || 0) + 1).padStart(6, '0');
     } else {
-      // If submitted number already exists, get a fresh one instead of failing
-      const dupCheck = await client.query(`SELECT id FROM invoices WHERE user_id=$1 AND invoice_number=$2`, [req.userId, invoice_number]);
-      if (dupCheck.rows[0]) {
+      const dup = await client.query(`SELECT id FROM invoices WHERE user_id=$1 AND invoice_number=$2`, [req.userId, invoice_number]);
+      if (dup.rows[0]) {
         const cntR = await client.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
-        const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
-        resolvedInvoiceNumber = String(nextNum).padStart(6, '0');
+        resolvedNum = String((parseInt(cntR.rows[0]?.last_number) || 0) + 1).padStart(6, '0');
       }
     }
-    const id = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+
+    const invId = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const invDate = date || new Date().toISOString().split('T')[0];
+    const invStatus = status || 'draft';
+
     await client.query(
-      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,subtotal,tax,total,discount_amount,discount_pct,status,date,due_date,notes)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-      [id, req.userId, resolvedInvoiceNumber, client_name||null, client_rnc||null, client_address||null, subtotal||0, tax||0, total, discount_amount||0, discount_pct||0, status||'pending', date||null, due_date||null, notes||null]
+      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,
+        subtotal,tax,total,discount_amount,discount_pct,status,date,due_date,notes,payment_method)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+      [invId, req.userId, resolvedNum, client_name||null, client_rnc||null, client_address||null,
+       subtotal||0, tax||0, total, discount_amount||0, discount_pct||0,
+       invStatus, invDate, due_date||null, notes||null, req.body.payment_method||'credit']
     );
-    // Update counter
-    const num = parseInt(resolvedInvoiceNumber) || 1;
-    await client.query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, num]);
-    // Insert items (frontend sends 'lines' array)
+
+    // Actualizar contador
+    await client.query(
+      `INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2)
+       ON CONFLICT(user_id) DO UPDATE SET last_number=$2`,
+      [req.userId, parseInt(resolvedNum) || 1]
+    );
+
+    // ── Insertar ítems ──
     const rawItems = req.body.lines || items || [];
-    if (rawItems.length > 0) {
-      for (const item of rawItems) {
-        const itemId = `item_${Date.now()}_${Math.random().toString(36).substr(2,4)}`;
-        const qty = parseFloat(item.quantity || item.qty || 1);
-        const price = parseFloat(item.unit_price || item.price || 0);
-        const disc = parseFloat(item.discount_pct || 0);
-        const unitPrice = price * (1 - disc / 100);
-        const lineTotal = qty * unitPrice;
-        await client.query(`INSERT INTO invoice_items(id,invoice_id,description,qty,price,total,discount_pct) VALUES($1,$2,$3,$4,$5,$6,$7)`,
-          [itemId, id, item.description || '', qty, unitPrice, lineTotal, disc]);
-      }
+    for (const item of rawItems) {
+      const itemId = `item_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      const qty      = parseFloat(item.quantity || item.qty || 1);
+      const price    = parseFloat(item.unit_price || item.price || 0);
+      const disc     = parseFloat(item.discount_pct || 0);
+      const unitPrice = price * (1 - disc / 100);
+      const lineTotal = Math.round(qty * unitPrice * 100) / 100;
+      await client.query(
+        `INSERT INTO invoice_items(id,invoice_id,description,qty,price,total,discount_pct,product_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [itemId, invId, item.description||'', qty, unitPrice, lineTotal, disc, item.product_id||null]
+      );
     }
-    // If created as issued directly, also auto-create CxC/journal based on payment method
-    if ((status || 'draft') === 'issued') {
-      const total  = parseFloat(req.body.total || 0);
-      const tax    = parseFloat(req.body.tax || 0);
-      const sub    = parseFloat(req.body.subtotal || total);
-      const pmeth  = req.body.payment_method || 'credit'; // cash | bank | card | credit
 
-      // Find accounts
-      const accts = await query(`SELECT id, code FROM accounts WHERE user_id=$1 AND code IN ('1.1.01','1.1.02','1.2.01','4.1.01','4.2.01','2.1.02')`, [req.userId]);
-      const acctMap = {}; accts.rows.forEach(a => { acctMap[a.code] = a.id; });
-      const salesAcct = acctMap['4.1.01'] || acctMap['4.2.01'];
+    // ══════════════════════════════════════════════════════════════════
+    // ── LÓGICA CONTABLE — Solo cuando se emite (status = 'issued') ──
+    // ══════════════════════════════════════════════════════════════════
+    if (invStatus === 'issued') {
+      const totalNum = parseFloat(total);
+      const taxNum   = parseFloat(tax || 0);
+      const subNum   = parseFloat(subtotal || totalNum);
+      const pmeth    = req.body.payment_method || 'credit';
+      const payDescs = { cash:'Efectivo', bank:'Transferencia/Banco', card:'Tarjeta', credit:'Crédito' };
+      const payDesc  = payDescs[pmeth] || 'Crédito';
+
+      // Buscar cuentas contables (busca códigos del plan de cuentas del usuario)
+      const acctR = await client.query(
+        `SELECT id, code FROM accounts WHERE user_id=$1
+         AND code IN ('1101','1.1.01','1102','1.1.02','1201','1.2.01',
+                      '4101','4.1.01','4102','4.1.02','2101','2.1.01',
+                      '2201','2.2.01','2102','2.1.02')`,
+        [req.userId]
+      );
+      const am = {}; acctR.rows.forEach(a => { am[a.code] = a.id; });
+
+      // Caja / Banco / CxC / Ventas / ITBIS Cobrado
+      const cajaAcct  = am['1101'] || am['1.1.01'];
+      const bancoAcct = am['1102'] || am['1.1.02'];
+      const cxcAcct   = am['1201'] || am['1.2.01'];
+      const salesAcct = am['4101'] || am['4.1.01'] || am['4102'] || am['4.1.02'];
+      const itbisAcct = am['2201'] || am['2.2.01'] || am['2102'] || am['2.1.02'];
+
       if (!salesAcct) {
-        return res.status(400).json({ error: 'Cuenta de ventas (4.1.01) no encontrada. Configura tu plan de cuentas.' });
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'Cuenta de Ventas (4101) no encontrada. Ve a Plan de Cuentas → Inicio Rápido para configurarla.'
+        });
       }
 
-      // Determine debit account based on payment method
+      // ── Cuenta débito según método de pago ──
       let debitAcct = null;
-      let payDesc   = '';
-      if (pmeth === 'cash') {
-        debitAcct = acctMap['1.1.01']; // Caja
-        payDesc = 'Efectivo';
-      } else if (pmeth === 'bank' || pmeth === 'card') {
-        debitAcct = acctMap['1.1.02']; // Banco
-        payDesc = pmeth === 'bank' ? 'Transferencia' : 'Tarjeta';
-      } else {
-        debitAcct = acctMap['1.2.01']; // CxC (crédito)
-        payDesc = 'Crédito';
-      }
+      if (pmeth === 'cash')              debitAcct = cajaAcct || bancoAcct;
+      else if (pmeth === 'bank' || pmeth === 'card') debitAcct = bancoAcct || cajaAcct;
+      else                               debitAcct = cxcAcct;  // crédito → CxC
 
-      // Create CxC only if payment is on credit
-      if (pmeth === 'credit' && (req.body.client_name || debitAcct)) {
-        const cxcId = `rec_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        let clientId = null;
-        if (req.body.client_name) {
-          const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, req.body.client_name]);
-          if (cl.rows[0]) clientId = cl.rows[0].id;
+      // ── Asiento #1: Ingreso por venta ──
+      if (debitAcct) {
+        const jLines = [
+          { acct: debitAcct, d: totalNum,  c: 0 },      // Débito: cobro (caja/banco/cxc)
+          { acct: salesAcct, d: 0, c: subNum },          // Crédito: ventas (neto sin ITBIS)
+        ];
+        if (taxNum > 0 && itbisAcct) {
+          jLines.push({ acct: itbisAcct, d: 0, c: taxNum }); // Crédito: ITBIS cobrado
+        } else if (taxNum > 0) {
+          // Si no hay cuenta ITBIS separada, suma a ventas
+          jLines[1].c = totalNum;
         }
-        await query(
-          `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
-          [cxcId, req.userId, clientId||null,
-           `Factura ${invoice_number}${req.body.client_name?' — '+req.body.client_name:''}`,
-           total, 0, 'pending', req.body.due_date||null]
+        await insertJournalEntry(client, req.userId, invDate,
+          `Factura ${resolvedNum} — ${client_name||'Cliente'} [${payDesc}]`,
+          'invoice', invId, jLines
         );
       }
 
-      // If paid immediately (cash/bank/card), mark invoice as paid
-      if (pmeth !== 'credit') {
-        await query(`UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2`, [total, id]);
-      }
+      // ── CMV automático: Débito CMV / Crédito Inventario ──
+      const cmvResult = await processCMVForInvoice(
+        client, req.userId, invId, resolvedNum, rawItems, invDate
+      );
 
-      // Auto-create income record — ONLY for cash (efectivo); transfer/tarjeta wait until marked paid
-      if (pmeth === 'cash') {
-        const pmLabels = { cash:'💵 Efectivo', bank:'🏦 Transferencia/Banco', card:'💳 Tarjeta', credit:'📋 Crédito/CxC' };
-        const pmLabel = pmLabels[pmeth] || '💰 Venta';
-        const pmIcon = '💵';
-        let incTypeId = null;
-        const itR = await client.query(`SELECT id FROM income_types WHERE user_id=$1 AND (name=$2 OR icon=$3) LIMIT 1`, [req.userId, pmLabel, pmIcon]);
+      // ── CxC si es a crédito ──
+      if (pmeth === 'credit') {
+        let clientId = null;
+        if (client_name) {
+          const cl = await client.query(
+            `SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`,
+            [req.userId, client_name]
+          );
+          if (cl.rows[0]) clientId = cl.rows[0].id;
+        }
+        const cxcRecId = `rec_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        await client.query(
+          `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
+           VALUES($1,$2,$3,$4,$5,$6,'pending',$7) ON CONFLICT DO NOTHING`,
+          [cxcRecId, req.userId, clientId||null,
+           `Factura ${resolvedNum}${client_name?' — '+client_name:''}`,
+           totalNum, 0, due_date||null]
+        );
+      } else {
+        // Pago inmediato → marcar pagada
+        await client.query(
+          `UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2`,
+          [totalNum, invId]
+        );
+
+        // Registro de ingreso para pago inmediato
+        const pmLabels = { cash:'💵 Ventas Efectivo', bank:'🏦 Ventas Transferencia', card:'💳 Ventas Tarjeta' };
+        const pmLabel  = pmLabels[pmeth] || '💰 Ventas';
+        let incTypeId  = null;
+        const itR = await client.query(
+          `SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`, [req.userId, pmLabel]
+        );
         if (itR.rows[0]) {
           incTypeId = itR.rows[0].id;
         } else {
           incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-          await client.query(`INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
-            [incTypeId, req.userId, pmLabel, 'Generado automáticamente desde facturas', '💵', '#00e5a0']);
+          const icons = { cash:'💵', bank:'🏦', card:'💳' };
+          await client.query(
+            `INSERT INTO income_types(id,user_id,name,description,icon,color) VALUES($1,$2,$3,$4,$5,$6)`,
+            [incTypeId, req.userId, pmLabel, 'Auto desde facturas', icons[pmeth]||'💰', '#00e5a0']
+          );
         }
-        // Create journal entry
-      if (debitAcct && salesAcct) {
         const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
         await client.query(
           `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
            VALUES($1,$2,$3,$4,$5,$6,$7)`,
-          [incId, req.userId, incTypeId, total,
-           `Factura ${invoice_number}${client_name?' — '+client_name:''}`,
-           date||new Date().toISOString().split('T')[0],
-           invoice_number]
+          [incId, req.userId, incTypeId, subNum,
+           `Factura ${resolvedNum}${client_name?' — '+client_name:''}`,
+           invDate, resolvedNum]
         );
-        const jeId = `je_inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await client.query(`INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
-          [jeId, req.userId, date||new Date().toISOString().split('T')[0],
-           `Factura ${invoice_number} — ${client_name||'Cliente'} [${payDesc}]`, 'invoice', id]);
-        const jLines = [{acct:debitAcct,d:total,c:0},{acct:salesAcct,d:0,c:sub}];
-        if (tax>0 && acctMap['2102']) jLines.push({acct:acctMap['2102'],d:0,c:tax});
-        for (const ln of jLines) {
-          const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-          await client.query(`INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit) VALUES($1,$2,$3,$4,$5)`,
-            [lnId, jeId, ln.acct, ln.d, ln.c]);
-          await client.query(`INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`, [ln.acct, ln.d-ln.c]);
-        }
       }
-      }  // closes pmeth === 'cash'
+
+      // ── Guardar resumen de CMV en la factura (columna cmv_amount) ──
+      if (cmvResult.totalCMV > 0) {
+        await client.query(
+          `UPDATE invoices SET cmv_amount=$1 WHERE id=$2`,
+          [cmvResult.totalCMV, invId]
+        ).catch(() => {}); // columna opcional, ignorar si no existe aún
+      }
     }
 
-    // For credit: only CxC is created above; bank/card income waits until marked paid
     await client.query('COMMIT');
-    res.json({ ok: true, id, invoice_number: resolvedInvoiceNumber, total });
+    res.json({ ok: true, id: invId, invoice_number: resolvedNum, total });
   } catch(e) {
     await client.query('ROLLBACK');
+    console.error('Invoice POST error:', e.message);
     res.status(500).json({ error: e.message });
   } finally {
     client.release();
@@ -2488,80 +2318,79 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
 
     await query(`UPDATE invoices SET status=$1 WHERE id=$2 AND user_id=$3`, [status, req.params.id, req.userId]);
 
-    // When invoice is ISSUED: create CxC + journal entry
+    // When invoice is ISSUED: create CxC + journal entry + CMV
     if (status === 'issued' && prevStatus === 'draft') {
       const total = parseFloat(inv.total || 0);
       const tax   = parseFloat(inv.tax || 0);
       const sub   = parseFloat(inv.subtotal || total);
+      const pmeth = inv.payment_method || 'credit';
+      const payDescs = { cash:'Efectivo', bank:'Transferencia', card:'Tarjeta', credit:'Crédito' };
+      const payDesc  = payDescs[pmeth] || 'Crédito';
 
-      // 1) Create CxC (Cuentas por Cobrar)
-      const cxcId = `rec_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-      // Find client_id if client_name matches
-      let clientId = null;
-      if (inv.client_name) {
-        const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, inv.client_name]);
-        if (cl.rows[0]) clientId = cl.rows[0].id;
-      }
-      if (clientId || inv.client_name) {
-        await query(
-          `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-           ON CONFLICT DO NOTHING`,
-          [cxcId, req.userId, clientId||null,
-           `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
-           total, 0, 'pending', inv.due_date||null]
-        );
-      }
-
-      // 2) Create journal entry
-      // Find accounts: Clientes (1.2.01), Ventas (4.1.01/4.1.02), ITBIS Cobrado (2.1.02)
-      const accts = await query(
-        `SELECT id, code, name FROM accounts WHERE user_id=$1 AND code IN ('1.2.01','4.1.01','4.1.02','4.2.01','2.1.02') ORDER BY code`,
+      // Buscar cuentas (soporta ambos formatos de código: 1101 y 1.1.01)
+      const acctR = await query(
+        `SELECT id, code FROM accounts WHERE user_id=$1
+         AND code IN ('1101','1.1.01','1102','1.1.02','1201','1.2.01',
+                      '4101','4.1.01','4102','4.1.02','2201','2.2.01','2102','2.1.02')`,
         [req.userId]
       );
-      const acctMap = {};
-      accts.rows.forEach(a => { acctMap[a.code] = a.id; });
+      const am = {}; acctR.rows.forEach(a => { am[a.code] = a.id; });
+      const cajaAcct  = am['1101'] || am['1.1.01'];
+      const bancoAcct = am['1102'] || am['1.1.02'];
+      const cxcAcct   = am['1201'] || am['1.2.01'];
+      const salesAcct = am['4101'] || am['4.1.01'] || am['4102'] || am['4.1.02'];
+      const itbisAcct = am['2201'] || am['2.2.01'] || am['2102'] || am['2.1.02'];
 
-      const clientAcct  = acctMap['1.2.01'];
-      const salesAcct   = acctMap['4.1.01'] || acctMap['4.1.02'] || acctMap['4.2.01'];
-      const itbisAcct   = acctMap['2.1.02'];
+      let debitAcct = null;
+      if (pmeth === 'cash')              debitAcct = cajaAcct || bancoAcct;
+      else if (pmeth === 'bank' || pmeth === 'card') debitAcct = bancoAcct || cajaAcct;
+      else                               debitAcct = cxcAcct;
 
-      if (clientAcct && salesAcct) {
-        const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
-        await query(
-          `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id)
-           VALUES($1,$2,$3,$4,$5,$6)`,
-          [jeId, req.userId, inv.date||new Date().toISOString().split('T')[0],
-           `Factura ${inv.invoice_number} — ${inv.client_name||'Cliente'}`,
-           'invoice', inv.id]
+      // Asiento #1: Ingreso por venta
+      if (debitAcct && salesAcct) {
+        const jLines = [
+          { acct: debitAcct, d: total, c: 0 },
+          { acct: salesAcct, d: 0, c: sub },
+        ];
+        if (tax > 0 && itbisAcct) jLines.push({ acct: itbisAcct, d: 0, c: tax });
+        else if (tax > 0) jLines[1].c = total; // sin cuenta ITBIS: suma a ventas
+        await insertJournalEntry(null, req.userId, inv.date||new Date().toISOString().split('T')[0],
+          `Factura ${inv.invoice_number} — ${inv.client_name||'Cliente'} [${payDesc}]`,
+          'invoice', inv.id, jLines
         );
+      }
 
-        const lines = [];
-        // Debit: Clientes (CxC) por el total
-        lines.push({ acct: clientAcct, debit: total, credit: 0 });
-        // Credit: Ventas por subtotal
-        lines.push({ acct: salesAcct, debit: 0, credit: sub });
-        // Credit: ITBIS Cobrado si hay impuesto
-        if (tax > 0 && itbisAcct) {
-          lines.push({ acct: itbisAcct, debit: 0, credit: tax });
-        } else if (tax > 0) {
-          // If no ITBIS account, add to sales
-          lines[1].credit += tax;
-        }
+      // Asiento #2: CMV automático
+      const invItems = await query(`SELECT * FROM invoice_items WHERE invoice_id=$1`, [inv.id]);
+      const cmvResult = await processCMVForInvoice(
+        null, req.userId, inv.id, inv.invoice_number,
+        invItems.rows.map(r => ({ product_id: r.product_id, quantity: r.qty, unit_price: r.price, discount_pct: r.discount_pct })),
+        inv.date || new Date().toISOString().split('T')[0]
+      );
+      if (cmvResult.totalCMV > 0) {
+        await query(`UPDATE invoices SET cmv_amount=$1 WHERE id=$2`, [cmvResult.totalCMV, inv.id]).catch(()=>{});
+      }
 
-        for (const ln of lines) {
-          const lnId = `jl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      // CxC si es a crédito
+      if (pmeth === 'credit') {
+        let clientId = null;
+        if (inv.client_name) {
+          const cl = await query(`SELECT id FROM clients WHERE user_id=$1 AND name ILIKE $2 LIMIT 1`, [req.userId, inv.client_name]);
+          if (cl.rows[0]) clientId = cl.rows[0].id;
+        }
+        const cxcId = `rec_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+        if (clientId || inv.client_name) {
           await query(
-            `INSERT INTO journal_lines(id,journal_entry_id,account_id,debit,credit)
-             VALUES($1,$2,$3,$4,$5)`,
-            [lnId, jeId, ln.acct, ln.debit, ln.credit]
-          );
-          // Update account balance
-          await query(
-            `INSERT INTO account_balances(account_id,balance) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET balance=account_balances.balance+$2`,
-            [ln.acct, ln.debit - ln.credit]
+            `INSERT INTO receivables(id,user_id,client_id,description,total_amount,paid_amount,status,due_date)
+             VALUES($1,$2,$3,$4,$5,$6,'pending',$7) ON CONFLICT DO NOTHING`,
+            [cxcId, req.userId, clientId||null,
+             `Factura ${inv.invoice_number}${inv.client_name?' — '+inv.client_name:''}`,
+             total, 0, inv.due_date||null]
           );
         }
+      } else {
+        // Pago inmediato → marcar pagada
+        await query(`UPDATE invoices SET status='paid', paid_amount=$1 WHERE id=$2`, [total, inv.id]);
       }
     }
 
@@ -3602,71 +3431,150 @@ app.post('/api/receivables', authMiddleware, async (req, res) => {
 });
 
 // POST /api/receivables/:id/payments
+// Body: { amount, payment_date, notes, payment_method: 'cash'|'bank'|'card' }
 app.post('/api/receivables/:id/payments', authMiddleware, async (req, res) => {
-  const client = await pool.connect();
+  const pgClient = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const { amount, payment_date, notes } = req.body;
-    if (!amount) return res.status(400).json({ error: 'Amount required' });
-    const rec = await client.query(
-      `SELECT * FROM receivables WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]
-    );
-    if (!rec.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Not found' }); }
+    await pgClient.query('BEGIN');
+    const { amount, payment_date, notes, payment_method = 'bank' } = req.body;
+    if (!amount || parseFloat(amount) <= 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'Monto requerido y debe ser mayor a 0' });
+    }
 
-    const payId = `rpay_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-    await client.query(
-      `INSERT INTO receivable_payments(id, receivable_id, amount, payment_date, notes)
+    // Cargar CxC con info del cliente
+    const rec = await pgClient.query(
+      `SELECT r.*, c.name as client_name
+       FROM receivables r LEFT JOIN clients c ON c.id=r.client_id
+       WHERE r.id=$1 AND r.user_id=$2`,
+      [req.params.id, req.userId]
+    );
+    if (!rec.rows[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'Cuenta por cobrar no encontrada' });
+    }
+    const recRow    = rec.rows[0];
+    const amtNum    = parseFloat(amount);
+    const payDate   = payment_date || new Date().toISOString().split('T')[0];
+    const outstanding = parseFloat(recRow.total_amount) - parseFloat(recRow.paid_amount);
+
+    if (amtNum > outstanding + 0.01) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: `Monto excede lo pendiente (RD$ ${outstanding.toFixed(2)})` });
+    }
+
+    // 1. Registrar pago
+    const payId = `rpay_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await pgClient.query(
+      `INSERT INTO receivable_payments(id,receivable_id,amount,payment_date,notes)
        VALUES($1,$2,$3,$4,$5)`,
-      [payId, req.params.id, amount, payment_date || new Date().toISOString().split('T')[0], notes]
+      [payId, req.params.id, amtNum, payDate, notes||null]
     );
-    await client.query(
-      `UPDATE receivables SET paid_amount = paid_amount + $1,
-       status = CASE WHEN paid_amount + $1 >= total_amount THEN 'paid'
-                     WHEN paid_amount + $1 > 0 THEN 'partial' ELSE status END
-       WHERE id=$2`,
-      [amount, req.params.id]
+
+    // 2. Actualizar saldo CxC
+    const newPaid = parseFloat(recRow.paid_amount) + amtNum;
+    const newStatus = newPaid >= parseFloat(recRow.total_amount) - 0.01 ? 'paid' : 'partial';
+    await pgClient.query(
+      `UPDATE receivables SET paid_amount=$1, status=$2 WHERE id=$3`,
+      [newPaid, newStatus, req.params.id]
     );
-    // Reverse the receivable journal: Debit "Caja/Banco", Credit "Cuentas por Cobrar"
-    const caja = await client.query(`SELECT id FROM accounts WHERE code='1.1.01' AND user_id=$1`, [req.userId]);
-    const banco = await client.query(`SELECT id FROM accounts WHERE code='1.1.02' AND user_id=$1`, [req.userId]);
-    const cxc = await client.query(`SELECT id FROM accounts WHERE code='1.2.01' AND user_id=$1`, [req.userId]);
-    const cashAcc = banco.rows[0]?.id || caja.rows[0]?.id;
-    if (cashAcc && cxc.rows[0]) {
-      const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-      await client.query(
-        `INSERT INTO journal_entries(id, user_id, date, description, ref_type, ref_id)
-         VALUES($1,$2,CURRENT_DATE,$3,'receivable',$4)`,
-        [jeId, req.userId, `Pago de cliente: ${rec.rows[0].description}`, req.params.id]
-      );
-      const debitLine  = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-      const creditLine = `jl_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-      const clientId = rec.rows[0].client_id;
-      await client.query(
-        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit)
-         VALUES($1,$2,$3,$4,0)`, [debitLine, jeId, cashAcc, amount]
-      );
-      await client.query(
-        `INSERT INTO journal_lines(id, journal_entry_id, account_id, debit, credit, auxiliary_type, auxiliary_id, auxiliary_name)
-         VALUES($1,$2,$3,0,$4,'client',$5,$6)`, [creditLine, jeId, cxc.rows[0].id, amount, clientId||null, rec.rows[0].client_name||null]
-      );
-      await client.query(
-        `INSERT INTO account_balances(account_id, balance)
-         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance + $2`,
-        [cashAcc, amount]
-      );
-      await client.query(
-        `INSERT INTO account_balances(account_id, balance)
-         VALUES($1, $2) ON CONFLICT(account_id) DO UPDATE SET balance = account_balances.balance - $2`,
-        [cxc.rows[0].id, amount]
+
+    // 3. Buscar cuentas contables (soporta ambos formatos de código)
+    const acctR = await pgClient.query(
+      `SELECT id, code FROM accounts WHERE user_id=$1
+       AND code IN ('1101','1.1.01','1102','1.1.02','1201','1.2.01',
+                    '4101','4.1.01','4102','4.1.02')`,
+      [req.userId]
+    );
+    const am = {}; acctR.rows.forEach(a => { am[a.code] = a.id; });
+    const cajaAcct   = am['1101'] || am['1.1.01'];
+    const bancoAcct  = am['1102'] || am['1.1.02'];
+    const cxcAcct    = am['1201'] || am['1.2.01'];
+    const salesAcct  = am['4101'] || am['4.1.01'] || am['4102'] || am['4.1.02'];
+
+    // Cuenta de destino según método de pago
+    const cashAcct = payment_method === 'cash'
+      ? (cajaAcct || bancoAcct)
+      : (bancoAcct || cajaAcct);
+
+    const pmLabels = { cash:'Efectivo', bank:'Banco/Transferencia', card:'Tarjeta' };
+    const pmLabel  = pmLabels[payment_method] || 'Banco';
+
+    // 4. Asiento contable: Débito Caja/Banco → Crédito CxC
+    if (cashAcct && cxcAcct) {
+      await insertJournalEntry(pgClient, req.userId, payDate,
+        `Cobro CxC — ${recRow.client_name||recRow.description} [${pmLabel}]`,
+        'receivable_payment', req.params.id,
+        [
+          { acct: cashAcct, d: amtNum, c: 0,
+            auxType: 'client', auxId: recRow.client_id, auxName: recRow.client_name },
+          { acct: cxcAcct,  d: 0, c: amtNum,
+            auxType: 'client', auxId: recRow.client_id, auxName: recRow.client_name },
+        ]
       );
     }
-    await client.query('COMMIT');
-    res.json({ ok: true });
+
+    // 5. ── INGRESO AUTOMÁTICO ──
+    // Solo registrar ingreso si la CxC viene de una factura con cuenta de ventas
+    // O si no tiene referencia a factura (CxC manual = servicio)
+    const pmIncLabels = { cash:'💵 Cobros Efectivo', bank:'🏦 Cobros Banco', card:'💳 Cobros Tarjeta' };
+    const pmIncLabel  = pmIncLabels[payment_method] || '🏦 Cobros Banco';
+    const pmIncIcon   = payment_method === 'cash' ? '💵' : payment_method === 'card' ? '💳' : '🏦';
+
+    // Buscar o crear tipo de ingreso para este método
+    let incTypeId = null;
+    const itR = await pgClient.query(
+      `SELECT id FROM income_types WHERE user_id=$1 AND name=$2 LIMIT 1`,
+      [req.userId, pmIncLabel]
+    );
+    if (itR.rows[0]) {
+      incTypeId = itR.rows[0].id;
+    } else {
+      incTypeId = `it_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await pgClient.query(
+        `INSERT INTO income_types(id,user_id,name,description,icon,color)
+         VALUES($1,$2,$3,$4,$5,$6)`,
+        [incTypeId, req.userId, pmIncLabel, 'Generado automáticamente al cobrar CxC',
+         pmIncIcon, '#00e5a0']
+      );
+    }
+
+    // Registrar ingreso por el monto cobrado
+    const incId = `inc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await pgClient.query(
+      `INSERT INTO income_records(id,user_id,income_type_id,amount,description,date,reference)
+       VALUES($1,$2,$3,$4,$5,$6,$7)`,
+      [incId, req.userId, incTypeId, amtNum,
+       `Cobro — ${recRow.client_name||recRow.description}`,
+       payDate, recRow.description]
+    );
+
+    // 6. Si la CxC quedó pagada y viene de factura, marcar factura como pagada
+    if (newStatus === 'paid') {
+      const invMatch = recRow.description?.match(/Factura\s+(\S+)/i);
+      if (invMatch) {
+        await pgClient.query(
+          `UPDATE invoices SET status='paid', paid_amount=total
+           WHERE user_id=$1 AND invoice_number=$2 AND status IN ('issued','partial')`,
+          [req.userId, invMatch[1]]
+        );
+      }
+    }
+
+    await pgClient.query('COMMIT');
+    res.json({
+      ok: true,
+      new_status: newStatus,
+      paid: newPaid,
+      outstanding: parseFloat(recRow.total_amount) - newPaid,
+      income_registered: true
+    });
   } catch(e) {
-    await client.query('ROLLBACK');
+    await pgClient.query('ROLLBACK');
+    console.error('Receivable payment error:', e.message);
     res.status(500).json({ error: e.message });
   } finally {
-    client.release();
+    pgClient.release();
   }
 });
 
@@ -4043,6 +3951,319 @@ app.get('/api/balance', authMiddleware, async (req, res) => {
 });
 
 // ─── EXPORT endpoints (CSV) ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 1.2: CIERRE DE PERÍODO MENSUAL ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/cierre/preview — vista previa antes de cerrar
+app.get('/api/cierre/preview', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return res.status(400).json({ error: 'month y year requeridos' });
+    const m = parseInt(month); const y = parseInt(year);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    // Verificar si ya hay cierre para este período
+    const existing = await query(
+      `SELECT id FROM period_closings WHERE user_id=$1 AND month=$2 AND year=$3`,
+      [req.userId, m, y]
+    );
+    if (existing.rows[0]) {
+      return res.json({ already_closed: true, month: m, year: y });
+    }
+
+    // Saldos de cuentas de resultado (clase 4,5,6)
+    const r = await query(
+      `SELECT a.code, a.name, a.type, a.class,
+              COALESCE(ab.balance, 0) as balance
+       FROM accounts a
+       LEFT JOIN account_balances ab ON ab.account_id = a.id
+       WHERE a.user_id=$1 AND a.class IN (4,5,6) AND a.is_active=TRUE
+       ORDER BY a.class, a.code`,
+      [req.userId]
+    );
+
+    let ingresos = 0, costos = 0, gastos = 0;
+    const lineas = r.rows.map(row => {
+      const bal = parseFloat(row.balance || 0);
+      if (row.class === 4) ingresos += bal;
+      if (row.class === 5) costos   += bal;
+      if (row.class === 6) gastos   += bal;
+      return { code: row.code, name: row.name, type: row.type, class: row.class, balance: bal };
+    });
+
+    const utilidad_neta = ingresos - costos - gastos;
+
+    // Buscar cuenta de Utilidades Retenidas (patrimonio clase 3)
+    const utRet = await query(
+      `SELECT id, code, name FROM accounts
+       WHERE user_id=$1 AND class=3
+       AND (code ILIKE '%utilidad%' OR code IN ('3201','3.2.01','3101','3.1.01') OR name ILIKE '%utilidad%' OR name ILIKE '%retenid%')
+       LIMIT 1`,
+      [req.userId]
+    );
+
+    res.json({
+      already_closed: false, month: m, year: y,
+      periodo: `${from} al ${to}`,
+      ingresos, costos, gastos, utilidad_neta,
+      lineas,
+      utilidades_retenidas_cuenta: utRet.rows[0] || null,
+      advertencias: utRet.rows.length === 0
+        ? ['No se encontró cuenta de Utilidades Retenidas (clase 3). Se necesita para el asiento de cierre.']
+        : []
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/cierre — ejecutar cierre mensual
+app.post('/api/cierre', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const { month, year } = req.body;
+    if (!month || !year) { await pgClient.query('ROLLBACK'); return res.status(400).json({ error: 'month y year requeridos' }); }
+    const m = parseInt(month); const y = parseInt(year);
+    const lastDay = new Date(y, m, 0).getDate();
+    const closeDate = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    // Verificar duplicado
+    const existing = await pgClient.query(
+      `SELECT id FROM period_closings WHERE user_id=$1 AND month=$2 AND year=$3`,
+      [req.userId, m, y]
+    );
+    if (existing.rows[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ error: `El período ${m}/${y} ya fue cerrado` });
+    }
+
+    // Obtener saldos de cuentas de resultado (4,5,6)
+    const r = await pgClient.query(
+      `SELECT a.id, a.code, a.name, a.class, COALESCE(ab.balance,0) as balance
+       FROM accounts a LEFT JOIN account_balances ab ON ab.account_id=a.id
+       WHERE a.user_id=$1 AND a.class IN (4,5,6) AND a.is_active=TRUE`,
+      [req.userId]
+    );
+
+    let ingresos = 0, costos = 0, gastos = 0;
+    r.rows.forEach(row => {
+      const bal = parseFloat(row.balance || 0);
+      if (row.class === 4) ingresos += bal;
+      if (row.class === 5) costos   += bal;
+      if (row.class === 6) gastos   += bal;
+    });
+    const utilidad_neta = ingresos - costos - gastos;
+
+    // Buscar cuenta Utilidades Retenidas
+    const utRet = await pgClient.query(
+      `SELECT id, code, name FROM accounts
+       WHERE user_id=$1 AND class=3
+       AND (code IN ('3201','3.2.01') OR name ILIKE '%utilidad%' OR name ILIKE '%retenid%')
+       LIMIT 1`,
+      [req.userId]
+    );
+
+    // Si no existe cuenta de Utilidades Retenidas, crearla
+    let utRetId = utRet.rows[0]?.id;
+    if (!utRetId) {
+      utRetId = `acc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await pgClient.query(
+        `INSERT INTO accounts(id,user_id,code,name,type,class,currency)
+         VALUES($1,$2,'3201','Utilidades Retenidas','equity',3,'DOP')
+         ON CONFLICT(user_id,code) DO NOTHING`,
+        [utRetId, req.userId]
+      );
+      await pgClient.query(
+        `INSERT INTO account_balances(account_id,balance) VALUES($1,0) ON CONFLICT DO NOTHING`,
+        [utRetId]
+      );
+    }
+
+    // ── Asiento de Cierre ──
+    // Las cuentas de ingresos (clase 4) tienen saldo Crédito → se debitan para cerrar
+    // Las cuentas de costos/gastos (clase 5,6) tienen saldo Débito → se acreditan para cerrar
+    // La diferencia va a Utilidades Retenidas
+
+    const jeLines = [];
+
+    // Cerrar ingresos (debitar)
+    for (const row of r.rows.filter(x => x.class === 4 && parseFloat(x.balance) !== 0)) {
+      const bal = parseFloat(row.balance);
+      jeLines.push({ acct: row.id, d: Math.abs(bal), c: 0 });
+    }
+    // Cerrar costos y gastos (acreditar)
+    for (const row of r.rows.filter(x => (x.class === 5 || x.class === 6) && parseFloat(x.balance) !== 0)) {
+      const bal = parseFloat(row.balance);
+      jeLines.push({ acct: row.id, d: 0, c: Math.abs(bal) });
+    }
+    // Diferencia a Utilidades Retenidas
+    if (utilidad_neta > 0) {
+      jeLines.push({ acct: utRetId, d: 0, c: utilidad_neta });
+    } else if (utilidad_neta < 0) {
+      jeLines.push({ acct: utRetId, d: Math.abs(utilidad_neta), c: 0 });
+    }
+
+    if (jeLines.length > 0) {
+      await insertJournalEntry(pgClient, req.userId, closeDate,
+        `CIERRE DE PERÍODO — ${m}/${y}`,
+        'period_close', `${m}-${y}`,
+        jeLines
+      );
+    }
+
+    // Resetear saldos de cuentas de resultado a 0
+    for (const row of r.rows) {
+      await pgClient.query(
+        `UPDATE account_balances SET balance=0 WHERE account_id=$1`,
+        [row.id]
+      );
+    }
+
+    // Registrar cierre
+    const cierreId = `close_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await pgClient.query(
+      `INSERT INTO period_closings(id,user_id,month,year,closed_at,ingresos,costos,gastos,utilidad_neta)
+       VALUES($1,$2,$3,$4,NOW(),$5,$6,$7,$8)`,
+      [cierreId, req.userId, m, y, ingresos, costos, gastos, utilidad_neta]
+    );
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, month: m, year: y, ingresos, costos, gastos, utilidad_neta, cierreId });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    console.error('Cierre error:', e.message);
+    res.status(500).json({ error: e.message });
+  } finally {
+    pgClient.release();
+  }
+});
+
+// GET /api/cierre/historial — lista de cierres realizados
+app.get('/api/cierre/historial', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT * FROM period_closings WHERE user_id=$1 ORDER BY year DESC, month DESC`,
+      [req.userId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 1.3: CONCILIACIÓN BANCARIA ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/conciliacion — movimientos de cuentas banco/caja para un período
+app.get('/api/conciliacion', authMiddleware, async (req, res) => {
+  try {
+    const { month, year, account_code } = req.query;
+    if (!month || !year) return res.status(400).json({ error: 'month y year requeridos' });
+    const m  = parseInt(month); const y = parseInt(year);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to   = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    // Cuentas de banco disponibles
+    const bankAccts = await query(
+      `SELECT a.id, a.code, a.name, COALESCE(ab.balance,0) as balance
+       FROM accounts a LEFT JOIN account_balances ab ON ab.account_id=a.id
+       WHERE a.user_id=$1 AND a.class=1 AND (a.code ILIKE '%banco%' OR a.code IN ('1101','1.1.01','1102','1.1.02') OR a.name ILIKE '%banco%' OR a.name ILIKE '%caja%')
+       ORDER BY a.code`,
+      [req.userId]
+    );
+
+    // Filtrar por cuenta específica si se pide
+    const acctFilter = account_code
+      ? bankAccts.rows.filter(a => a.code === account_code)
+      : bankAccts.rows;
+
+    if (!acctFilter.length) {
+      return res.json({ accounts: bankAccts.rows, movements: [], summary: {} });
+    }
+
+    const acctIds = acctFilter.map(a => a.id);
+    const placeholders = acctIds.map((_,i) => `$${i+4}`).join(',');
+
+    // Movimientos del período para esas cuentas
+    const movs = await query(
+      `SELECT je.date, je.description, je.ref_type, je.ref_id,
+              jl.debit, jl.credit, a.code as account_code, a.name as account_name,
+              jl.auxiliary_name,
+              jl.id as line_id, je.id as entry_id
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id=jl.journal_entry_id
+       JOIN accounts a ON a.id=jl.account_id
+       WHERE je.user_id=$1 AND je.date>=$2 AND je.date<=$3
+         AND jl.account_id IN (${placeholders})
+       ORDER BY je.date ASC, je.created_at ASC`,
+      [req.userId, from, to, ...acctIds]
+    );
+
+    // Calcular saldo inicial (antes del período) para cada cuenta
+    const openingBalances = {};
+    for (const acct of acctFilter) {
+      const ob = await query(
+        `SELECT COALESCE(SUM(jl.debit - jl.credit), 0) as net
+         FROM journal_lines jl
+         JOIN journal_entries je ON je.id=jl.journal_entry_id
+         WHERE jl.account_id=$1 AND je.date < $2`,
+        [acct.id, from]
+      );
+      openingBalances[acct.id] = parseFloat(ob.rows[0]?.net || 0);
+    }
+
+    // Construir movimientos con saldo corrido
+    let runningBalance = Object.values(openingBalances).reduce((s,v)=>s+v, 0);
+    const movements = movs.rows.map(row => {
+      const debit  = parseFloat(row.debit  || 0);
+      const credit = parseFloat(row.credit || 0);
+      runningBalance += debit - credit;
+      return {
+        ...row,
+        debit, credit,
+        balance: Math.round(runningBalance * 100) / 100,
+        type: debit > 0 ? 'entrada' : 'salida',
+        amount: debit > 0 ? debit : credit
+      };
+    });
+
+    const totalEntradas  = movements.reduce((s,m) => s + m.debit, 0);
+    const totalSalidas   = movements.reduce((s,m) => s + m.credit, 0);
+    const saldoInicial   = Object.values(openingBalances).reduce((s,v)=>s+v, 0);
+    const saldoFinal     = saldoInicial + totalEntradas - totalSalidas;
+
+    res.json({
+      accounts: bankAccts.rows,
+      selected_accounts: acctFilter,
+      movements,
+      summary: {
+        period: `${from} al ${to}`,
+        saldo_inicial:  Math.round(saldoInicial  * 100) / 100,
+        total_entradas: Math.round(totalEntradas * 100) / 100,
+        total_salidas:  Math.round(totalSalidas  * 100) / 100,
+        saldo_final:    Math.round(saldoFinal    * 100) / 100,
+      }
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/conciliacion/mark — marcar movimiento como conciliado
+app.post('/api/conciliacion/mark', authMiddleware, async (req, res) => {
+  try {
+    const { line_id, conciliado, bank_reference } = req.body;
+    if (!line_id) return res.status(400).json({ error: 'line_id requerido' });
+    await query(
+      `UPDATE journal_lines SET conciliado=$1, bank_reference=$2
+       WHERE id=$3
+         AND journal_entry_id IN (SELECT id FROM journal_entries WHERE user_id=$4)`,
+      [conciliado !== false, bank_reference||null, line_id, req.userId]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 function toCSV(headers, rows) {
   const escape = (v) => {
     if (v == null) return '';
@@ -4192,6 +4413,1370 @@ app.get('/api/export/transactions', authMiddleware, async (req, res) => {
     }));
     res.set(csvHeaders('transacciones.csv'));
     res.send(toCSV(['tx_date', 'type', 'category', 'description', 'amount', 'account', 'created_at'], rows));
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 2.1: COTIZACIONES / PRESUPUESTOS ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/quotes — listar cotizaciones
+app.get('/api/quotes', authMiddleware, async (req, res) => {
+  try {
+    const { status } = req.query;
+    let sql = `SELECT * FROM quotes WHERE user_id=$1`;
+    const params = [req.userId];
+    if (status) { sql += ` AND status=$2`; params.push(status); }
+    sql += ` ORDER BY date DESC, created_at DESC LIMIT 100`;
+    const r = await query(sql, params);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/quotes/next-number
+app.get('/api/quotes/next-number', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT COALESCE(MAX(CAST(REGEXP_REPLACE(quote_number,'[^0-9]','','g') AS INTEGER)),0) as last
+       FROM quotes WHERE user_id=$1`,
+      [req.userId]
+    );
+    const next = (parseInt(r.rows[0]?.last) || 0) + 1;
+    res.json({ quote_number: 'COT-' + String(next).padStart(5, '0') });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/quotes — crear cotización
+app.post('/api/quotes', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const {
+      quote_number, client_name, client_rnc, client_address,
+      date, valid_until, subtotal, tax, total,
+      discount_amount, discount_pct, notes, items, lines,
+      payment_terms, delivery_terms
+    } = req.body;
+    if (!total) { await pgClient.query('ROLLBACK'); return res.status(400).json({ error: 'total requerido' }); }
+
+    const id = `cot_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const quoteDate = date || new Date().toISOString().split('T')[0];
+
+    await pgClient.query(
+      `INSERT INTO quotes(id,user_id,quote_number,client_name,client_rnc,client_address,
+         date,valid_until,subtotal,tax,total,discount_amount,discount_pct,
+         notes,payment_terms,delivery_terms,status)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'draft')`,
+      [id, req.userId, quote_number, client_name||null, client_rnc||null, client_address||null,
+       quoteDate, valid_until||null, subtotal||0, tax||0, total,
+       discount_amount||0, discount_pct||0, notes||null,
+       payment_terms||null, delivery_terms||null]
+    );
+
+    // Insertar ítems
+    const rawItems = lines || items || [];
+    for (const item of rawItems) {
+      const itemId = `qi_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      const qty    = parseFloat(item.quantity || item.qty || 1);
+      const price  = parseFloat(item.unit_price || item.price || 0);
+      const disc   = parseFloat(item.discount_pct || 0);
+      const total  = Math.round(qty * price * (1 - disc/100) * 100) / 100;
+      await pgClient.query(
+        `INSERT INTO quote_items(id,quote_id,description,qty,price,total,discount_pct,product_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [itemId, id, item.description||'', qty, price, total, disc, item.product_id||null]
+      );
+    }
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, id, quote_number });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
+});
+
+// GET /api/quotes/:id
+app.get('/api/quotes/:id', authMiddleware, async (req, res) => {
+  try {
+    const q = await query(`SELECT * FROM quotes WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    if (!q.rows[0]) return res.status(404).json({ error: 'No encontrada' });
+    const items = await query(`SELECT * FROM quote_items WHERE quote_id=$1 ORDER BY rowid`, [req.params.id]).catch(
+      () => query(`SELECT * FROM quote_items WHERE quote_id=$1`, [req.params.id])
+    );
+    res.json({ ...q.rows[0], items: items.rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/quotes/:id/status — cambiar estado
+app.put('/api/quotes/:id/status', authMiddleware, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const valid = ['draft','sent','approved','rejected','expired','converted'];
+    if (!valid.includes(status)) return res.status(400).json({ error: 'Estado inválido' });
+    await query(`UPDATE quotes SET status=$1 WHERE id=$2 AND user_id=$3`, [status, req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/quotes/:id
+app.delete('/api/quotes/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM quote_items WHERE quote_id=$1`, [req.params.id]);
+    await query(`DELETE FROM quotes WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/quotes/:id/convert — convertir cotización en factura
+app.post('/api/quotes/:id/convert', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const q = await pgClient.query(
+      `SELECT q.*, array_agg(row_to_json(qi)) as items_json
+       FROM quotes q
+       LEFT JOIN quote_items qi ON qi.quote_id=q.id
+       WHERE q.id=$1 AND q.user_id=$2
+       GROUP BY q.id`,
+      [req.params.id, req.userId]
+    );
+    if (!q.rows[0]) { await pgClient.query('ROLLBACK'); return res.status(404).json({ error: 'Cotización no encontrada' }); }
+    const quote = q.rows[0];
+    if (quote.status === 'converted') { await pgClient.query('ROLLBACK'); return res.status(409).json({ error: 'Ya fue convertida en factura' }); }
+
+    // Obtener siguiente número de factura
+    const cntR = await pgClient.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
+    const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
+    const invNum  = String(nextNum).padStart(6, '0');
+
+    // Extraer datos del body (puede sobreescribir payment_method)
+    const { payment_method = 'credit', due_date } = req.body;
+
+    // Crear factura como borrador (status draft)
+    const invId  = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const invDate = new Date().toISOString().split('T')[0];
+    await pgClient.query(
+      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,client_address,
+         subtotal,tax,total,discount_amount,discount_pct,status,date,due_date,notes,
+         payment_method,quote_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft',$12,$13,$14,$15,$16)`,
+      [invId, req.userId, invNum, quote.client_name, quote.client_rnc, quote.client_address,
+       quote.subtotal, quote.tax, quote.total, quote.discount_amount, quote.discount_pct,
+       invDate, due_date||null, quote.notes, payment_method, req.params.id]
+    );
+    await pgClient.query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, nextNum]);
+
+    // Copiar ítems
+    const items = (quote.items_json || []).filter(Boolean);
+    for (const item of items) {
+      const iId = `item_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await pgClient.query(
+        `INSERT INTO invoice_items(id,invoice_id,description,qty,price,total,discount_pct,product_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [iId, invId, item.description||'', item.qty||1, item.price||0, item.total||0, item.discount_pct||0, item.product_id||null]
+      );
+    }
+
+    // Marcar cotización como convertida
+    await pgClient.query(`UPDATE quotes SET status='converted', invoice_id=$1 WHERE id=$2`, [invId, req.params.id]);
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, invoice_id: invId, invoice_number: invNum });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 2.2: FACTURAS RECURRENTES ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/recurring — listar plantillas recurrentes
+app.get('/api/recurring', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT * FROM recurring_invoices WHERE user_id=$1 ORDER BY next_date ASC`, [req.userId]);
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/recurring — crear plantilla
+app.post('/api/recurring', authMiddleware, async (req, res) => {
+  try {
+    const {
+      name, client_name, client_rnc, subtotal, tax, total,
+      discount_amount, discount_pct, notes, payment_method,
+      frequency, // 'monthly' | 'bimonthly' | 'quarterly' | 'weekly'
+      start_date, end_date, items
+    } = req.body;
+    if (!name || !total || !frequency) return res.status(400).json({ error: 'name, total y frequency requeridos' });
+
+    const id = `rec_tmpl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const nextDate = start_date || new Date().toISOString().split('T')[0];
+
+    await query(
+      `INSERT INTO recurring_invoices(id,user_id,name,client_name,client_rnc,subtotal,tax,total,
+         discount_amount,discount_pct,notes,payment_method,frequency,next_date,end_date,
+         items_json,is_active)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,TRUE)`,
+      [id, req.userId, name, client_name||null, client_rnc||null, subtotal||0, tax||0, total,
+       discount_amount||0, discount_pct||0, notes||null, payment_method||'credit',
+       frequency, nextDate, end_date||null, JSON.stringify(items||[])]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/recurring/:id — activar/desactivar
+app.put('/api/recurring/:id', authMiddleware, async (req, res) => {
+  try {
+    const { is_active, name, end_date } = req.body;
+    await query(
+      `UPDATE recurring_invoices SET is_active=COALESCE($1,is_active), name=COALESCE($2,name), end_date=COALESCE($3,end_date)
+       WHERE id=$4 AND user_id=$5`,
+      [is_active, name||null, end_date||null, req.params.id, req.userId]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/recurring/:id
+app.delete('/api/recurring/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM recurring_invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/recurring/:id/generate — generar factura ahora desde plantilla
+app.post('/api/recurring/:id/generate', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const tmpl = await pgClient.query(
+      `SELECT * FROM recurring_invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]
+    );
+    if (!tmpl.rows[0]) { await pgClient.query('ROLLBACK'); return res.status(404).json({ error: 'Plantilla no encontrada' }); }
+    const t = tmpl.rows[0];
+
+    // Número de factura
+    const cntR = await pgClient.query(`SELECT last_number FROM invoice_counter WHERE user_id=$1`, [req.userId]);
+    const nextNum = (parseInt(cntR.rows[0]?.last_number) || 0) + 1;
+    const invNum  = String(nextNum).padStart(6, '0');
+    const invDate = new Date().toISOString().split('T')[0];
+    const invId   = `inv_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+
+    await pgClient.query(
+      `INSERT INTO invoices(id,user_id,invoice_number,client_name,client_rnc,subtotal,tax,total,
+         discount_amount,discount_pct,status,date,notes,payment_method,recurring_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14)`,
+      [invId, req.userId, invNum, t.client_name, t.client_rnc,
+       t.subtotal, t.tax, t.total, t.discount_amount, t.discount_pct,
+       invDate, t.notes, t.payment_method, t.id]
+    );
+    await pgClient.query(`INSERT INTO invoice_counter(user_id,last_number) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET last_number=$2`, [req.userId, nextNum]);
+
+    // Ítems
+    const items = typeof t.items_json === 'string' ? JSON.parse(t.items_json) : (t.items_json || []);
+    for (const item of items) {
+      const iId = `item_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+      await pgClient.query(
+        `INSERT INTO invoice_items(id,invoice_id,description,qty,price,total,discount_pct,product_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [iId, invId, item.description||'', item.qty||1, item.price||0, item.total||0, item.discount_pct||0, item.product_id||null]
+      );
+    }
+
+    // Calcular próxima fecha
+    const freqDays = { weekly:7, biweekly:14, monthly:30, bimonthly:60, quarterly:90, yearly:365 };
+    const days = freqDays[t.frequency] || 30;
+    const nextDate = new Date();
+    nextDate.setDate(nextDate.getDate() + days);
+    const nextDateStr = nextDate.toISOString().split('T')[0];
+
+    await pgClient.query(
+      `UPDATE recurring_invoices SET next_date=$1, generated_count=COALESCE(generated_count,0)+1 WHERE id=$2`,
+      [nextDateStr, t.id]
+    );
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, invoice_id: invId, invoice_number: invNum, next_date: nextDateStr });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
+});
+
+// POST /api/recurring/process-due — generar todas las vencidas (cron o manual)
+app.post('/api/recurring/process-due', authMiddleware, async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const due = await query(
+      `SELECT id FROM recurring_invoices
+       WHERE user_id=$1 AND is_active=TRUE AND next_date<=$2
+         AND (end_date IS NULL OR end_date>=$2)`,
+      [req.userId, today]
+    );
+    const generated = [];
+    for (const row of due.rows) {
+      try {
+        const r = await fetch(`http://localhost:${PORT}/api/recurring/${row.id}/generate`, {
+          method:'POST', headers: { 'Content-Type':'application/json', 'x-session-token': req.headers['x-session-token'] }
+        });
+        const d = await r.json();
+        if (d.ok) generated.push({ id: row.id, invoice_number: d.invoice_number });
+      } catch(e) { console.error('Recurring generate error:', e.message); }
+    }
+    res.json({ ok: true, processed: generated.length, generated });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 2.3: RETENCIONES ISR / ITBIS (RD) ──────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/retenciones — listar retenciones
+app.get('/api/retenciones', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    let sql = `SELECT r.*, c.name as client_name, v.name as vendor_name
+               FROM retenciones r
+               LEFT JOIN clients c ON c.id=r.client_id
+               LEFT JOIN vendors v ON v.id=r.vendor_id
+               WHERE r.user_id=$1`;
+    const params = [req.userId]; let p = 2;
+    if (month && year) {
+      sql += ` AND EXTRACT(MONTH FROM r.date)=$${p++} AND EXTRACT(YEAR FROM r.date)=$${p++}`;
+      params.push(month, year);
+    }
+    sql += ` ORDER BY r.date DESC`;
+    const result = await query(sql, params);
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/retenciones — registrar retención
+app.post('/api/retenciones', authMiddleware, async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const {
+      tipo,          // 'isr' | 'itbis'
+      subtipo,       // 'servicios' | 'alquileres' | 'honorarios' | 'otros' (para ISR)
+      entity_type,   // 'client' | 'vendor'
+      client_id, vendor_id,
+      invoice_id,
+      base_amount,   // monto base sobre el que se aplica la retención
+      retention_pct, // % de retención (ej: 10 para ISR servicios, 30 para ITBIS)
+      date, ncf, notes
+    } = req.body;
+
+    if (!tipo || !base_amount || !retention_pct) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'tipo, base_amount y retention_pct requeridos' });
+    }
+
+    const retention_amount = Math.round(parseFloat(base_amount) * parseFloat(retention_pct) / 100 * 100) / 100;
+    const id = `ret_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const retDate = date || new Date().toISOString().split('T')[0];
+
+    await pgClient.query(
+      `INSERT INTO retenciones(id,user_id,tipo,subtipo,entity_type,client_id,vendor_id,
+         invoice_id,base_amount,retention_pct,retention_amount,date,ncf,notes,status)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending')`,
+      [id, req.userId, tipo, subtipo||null, entity_type||'client',
+       client_id||null, vendor_id||null, invoice_id||null,
+       parseFloat(base_amount), parseFloat(retention_pct), retention_amount,
+       retDate, ncf||null, notes||null]
+    );
+
+    // Asiento contable de la retención
+    // ISR retenido: Débito Gasto ISR / Crédito ISR por Pagar al Estado
+    // ITBIS retenido: Débito ITBIS Retenido (activo) / Crédito CxC (reduce lo cobrable)
+    const acctR = await pgClient.query(
+      `SELECT id, code FROM accounts WHERE user_id=$1
+       AND code IN ('1101','1.1.01','1102','1.1.02','1201','1.2.01',
+                    '2301','2.3.01','2302','2.3.02','2303',
+                    '6201','6.2.01','6202','6.2.02','1401','1.4.01')`,
+      [req.userId]
+    );
+    const am = {}; acctR.rows.forEach(a => { am[a.code] = a.id; });
+
+    // Cuentas para retención ISR por pagar al estado (pasivo)
+    const isrPagarAcct = am['2301'] || am['2.3.01'] || am['2302'] || am['2.3.02'] || am['2303'];
+    // Gasto ISR
+    const isrGastoAcct = am['6201'] || am['6.2.01'] || am['6202'] || am['6.2.02'];
+    // ITBIS retenido por cobrar (activo — cuando somos nosotros quienes retenemos al proveedor)
+    const itbisRetAcct = am['1401'] || am['1.4.01'];
+    // CxC y Caja/Banco
+    const cxcAcct  = am['1201'] || am['1.2.01'];
+    const cashAcct = am['1102'] || am['1.1.02'] || am['1101'] || am['1.1.01'];
+
+    if (tipo === 'isr' && isrGastoAcct && isrPagarAcct) {
+      // El cliente nos retiene ISR: registramos el gasto y la cuenta por pagar al estado
+      await insertJournalEntry(pgClient, req.userId, retDate,
+        `Retención ISR ${retention_pct}% — ${subtipo||'servicios'} — RD$ ${retention_amount}`,
+        'retencion', id,
+        [
+          { acct: isrGastoAcct,  d: retention_amount, c: 0 },
+          { acct: isrPagarAcct,  d: 0, c: retention_amount },
+        ]
+      );
+    } else if (tipo === 'itbis' && cxcAcct) {
+      // El cliente retiene 30% del ITBIS: reduce lo que nos deben en CxC
+      await insertJournalEntry(pgClient, req.userId, retDate,
+        `Retención ITBIS ${retention_pct}% — RD$ ${retention_amount}`,
+        'retencion', id,
+        itbisRetAcct ? [
+          { acct: itbisRetAcct, d: retention_amount, c: 0 },  // ITBIS retenido por cobrar
+          { acct: cxcAcct,      d: 0, c: retention_amount },  // Reduce CxC
+        ] : [
+          { acct: cashAcct || cxcAcct, d: retention_amount, c: 0 },
+          { acct: cxcAcct, d: 0, c: retention_amount },
+        ]
+      );
+    }
+
+    await pgClient.query('COMMIT');
+    res.json({ ok: true, id, retention_amount });
+  } catch(e) {
+    await pgClient.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { pgClient.release(); }
+});
+
+// DELETE /api/retenciones/:id
+app.delete('/api/retenciones/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM retenciones WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/retenciones/resumen — totales ISR e ITBIS por período
+app.get('/api/retenciones/resumen', authMiddleware, async (req, res) => {
+  try {
+    const { year } = req.query;
+    const y = parseInt(year) || new Date().getFullYear();
+    const r = await query(
+      `SELECT
+         tipo,
+         EXTRACT(MONTH FROM date) as month,
+         SUM(base_amount) as base_total,
+         SUM(retention_amount) as ret_total,
+         COUNT(*) as count
+       FROM retenciones
+       WHERE user_id=$1 AND EXTRACT(YEAR FROM date)=$2
+       GROUP BY tipo, EXTRACT(MONTH FROM date)
+       ORDER BY month, tipo`,
+      [req.userId, y]
+    );
+    // Totales anuales
+    const totR = await query(
+      `SELECT tipo, SUM(base_amount) as base_total, SUM(retention_amount) as ret_total
+       FROM retenciones WHERE user_id=$1 AND EXTRACT(YEAR FROM date)=$2
+       GROUP BY tipo`,
+      [req.userId, y]
+    );
+    res.json({ monthly: r.rows, annual: totR.rows, year: y });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 3.1: DASHBOARD INTELIGENTE ─────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/dashboard/stats — datos completos para dashboard inteligente
+app.get('/api/dashboard/stats', authMiddleware, async (req, res) => {
+  try {
+    const today = new Date();
+    const yr    = today.getFullYear();
+    const mo    = today.getMonth() + 1; // 1-12
+
+    // ── Ventas últimos 6 meses ──
+    const salesHistory = await query(
+      `SELECT
+         EXTRACT(YEAR  FROM je.date)::int as year,
+         EXTRACT(MONTH FROM je.date)::int as month,
+         SUM(jl.credit) as ventas,
+         SUM(CASE WHEN a.class=5 THEN jl.debit ELSE 0 END) as cmv
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id=jl.journal_entry_id
+       JOIN accounts a ON a.id=jl.account_id
+       WHERE je.user_id=$1
+         AND a.class IN (4,5)
+         AND je.date >= (CURRENT_DATE - INTERVAL '6 months')
+       GROUP BY year, month
+       ORDER BY year, month`,
+      [req.userId]
+    );
+
+    // ── Top 5 productos más vendidos (por cantidad) ──
+    const topProducts = await query(
+      `SELECT p.name, p.code, p.sale_price, p.cost_price,
+              COALESCE(SUM(ii.qty), 0) as qty_sold,
+              COALESCE(SUM(ii.total), 0) as revenue,
+              COALESCE(SUM(ii.qty * p.cost_price), 0) as cost_total
+       FROM products p
+       JOIN invoice_items ii ON ii.product_id = p.id
+       JOIN invoices inv ON inv.id = ii.invoice_id
+       WHERE p.user_id=$1
+         AND inv.status IN ('issued','paid','partial')
+         AND inv.date >= (CURRENT_DATE - INTERVAL '12 months')
+       GROUP BY p.id, p.name, p.code, p.sale_price, p.cost_price
+       ORDER BY revenue DESC
+       LIMIT 5`,
+      [req.userId]
+    );
+
+    // ── Top 5 clientes por facturación ──
+    const topClients = await query(
+      `SELECT
+         COALESCE(inv.client_name, 'Sin nombre') as name,
+         COUNT(inv.id) as invoice_count,
+         SUM(inv.total) as total_billed,
+         SUM(inv.paid_amount) as total_paid,
+         SUM(inv.total - inv.paid_amount) as outstanding
+       FROM invoices inv
+       WHERE inv.user_id=$1
+         AND inv.status IN ('issued','paid','partial')
+         AND inv.date >= (CURRENT_DATE - INTERVAL '12 months')
+       GROUP BY inv.client_name
+       ORDER BY total_billed DESC
+       LIMIT 5`,
+      [req.userId]
+    );
+
+    // ── KPIs del mes actual ──
+    const monthFrom = `${yr}-${String(mo).padStart(2,'0')}-01`;
+    const monthTo   = `${yr}-${String(mo).padStart(2,'0')}-${new Date(yr,mo,0).getDate()}`;
+
+    const monthSales = await query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN a.class=4 THEN jl.credit-jl.debit ELSE 0 END),0) as ingresos,
+         COALESCE(SUM(CASE WHEN a.class=5 THEN jl.debit-jl.credit ELSE 0 END),0) as cmv,
+         COALESCE(SUM(CASE WHEN a.class=6 THEN jl.debit-jl.credit ELSE 0 END),0) as gastos
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id=jl.journal_entry_id
+       JOIN accounts a ON a.id=jl.account_id
+       WHERE je.user_id=$1 AND je.date>=$2 AND je.date<=$3 AND a.class IN (4,5,6)`,
+      [req.userId, monthFrom, monthTo]
+    );
+
+    // ── Comparación mes anterior ──
+    const prevMo    = mo === 1 ? 12 : mo - 1;
+    const prevYr    = mo === 1 ? yr - 1 : yr;
+    const prevFrom  = `${prevYr}-${String(prevMo).padStart(2,'0')}-01`;
+    const prevTo    = `${prevYr}-${String(prevMo).padStart(2,'0')}-${new Date(prevYr,prevMo,0).getDate()}`;
+
+    const prevSales = await query(
+      `SELECT COALESCE(SUM(CASE WHEN a.class=4 THEN jl.credit-jl.debit ELSE 0 END),0) as ingresos
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id=jl.journal_entry_id
+       JOIN accounts a ON a.id=jl.account_id
+       WHERE je.user_id=$1 AND je.date>=$2 AND je.date<=$3 AND a.class=4`,
+      [req.userId, prevFrom, prevTo]
+    );
+
+    // ── Facturas pendientes vencidas ──
+    const overdueInvoices = await query(
+      `SELECT COUNT(*) as count, COALESCE(SUM(total-paid_amount),0) as total
+       FROM invoices
+       WHERE user_id=$1 AND status IN ('issued','partial')
+         AND due_date < CURRENT_DATE`,
+      [req.userId]
+    );
+
+    // ── CxC vencidas ──
+    const overdueCxC = await query(
+      `SELECT COUNT(*) as count,
+              COALESCE(SUM(total_amount-paid_amount),0) as total
+       FROM receivables
+       WHERE user_id=$1 AND status IN ('pending','partial')
+         AND due_date < CURRENT_DATE`,
+      [req.userId]
+    );
+
+    const ms = monthSales.rows[0];
+    const ps = prevSales.rows[0];
+    const ingAct  = parseFloat(ms.ingresos||0);
+    const ingPrev = parseFloat(ps.ingresos||0);
+    const varPct  = ingPrev > 0 ? Math.round((ingAct-ingPrev)/ingPrev*100) : null;
+
+    res.json({
+      current_month: { year: yr, month: mo },
+      kpis: {
+        ingresos:     ingAct,
+        cmv:          parseFloat(ms.cmv||0),
+        gastos:       parseFloat(ms.gastos||0),
+        utilidad:     ingAct - parseFloat(ms.cmv||0) - parseFloat(ms.gastos||0),
+        vs_prev_pct:  varPct,
+      },
+      sales_history: salesHistory.rows.map(r => ({
+        year: r.year, month: r.month,
+        ventas: parseFloat(r.ventas||0),
+        cmv:    parseFloat(r.cmv||0),
+        margen: parseFloat(r.ventas||0) - parseFloat(r.cmv||0),
+      })),
+      top_products: topProducts.rows.map(r => ({
+        name:      r.name, code: r.code,
+        qty_sold:  parseFloat(r.qty_sold||0),
+        revenue:   parseFloat(r.revenue||0),
+        margin:    parseFloat(r.revenue||0) - parseFloat(r.cost_total||0),
+        margin_pct: parseFloat(r.revenue||0) > 0
+          ? Math.round((parseFloat(r.revenue||0)-parseFloat(r.cost_total||0))/parseFloat(r.revenue||0)*100)
+          : 0,
+      })),
+      top_clients: topClients.rows.map(r => ({
+        name:          r.name,
+        invoice_count: parseInt(r.invoice_count||0),
+        total_billed:  parseFloat(r.total_billed||0),
+        total_paid:    parseFloat(r.total_paid||0),
+        outstanding:   parseFloat(r.outstanding||0),
+      })),
+      overdue: {
+        invoices_count: parseInt(overdueInvoices.rows[0]?.count||0),
+        invoices_total: parseFloat(overdueInvoices.rows[0]?.total||0),
+        cxc_count:      parseInt(overdueCxC.rows[0]?.count||0),
+        cxc_total:      parseFloat(overdueCxC.rows[0]?.total||0),
+      }
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 3.2: ALERTAS INTELIGENTES ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/alerts — retorna todas las alertas activas
+app.get('/api/alerts', authMiddleware, async (req, res) => {
+  try {
+    const alerts = [];
+    const today  = new Date().toISOString().split('T')[0];
+    const in7    = new Date(Date.now() + 7*24*60*60*1000).toISOString().split('T')[0];
+    const in30   = new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0];
+
+    // 1. Stock bajo o agotado
+    const stockAlerts = await query(
+      `SELECT id, name, code, stock_current, stock_minimum, unit
+       FROM products
+       WHERE user_id=$1 AND stock_current <= stock_minimum AND stock_minimum > 0
+       ORDER BY (stock_current/NULLIF(stock_minimum,0)) ASC
+       LIMIT 10`,
+      [req.userId]
+    );
+    stockAlerts.rows.forEach(p => {
+      const isOut = parseFloat(p.stock_current) <= 0;
+      alerts.push({
+        type:     isOut ? 'danger' : 'warning',
+        category: 'stock',
+        icon:     isOut ? '🚨' : '⚡',
+        title:    isOut ? `${p.name} — AGOTADO` : `${p.name} — Stock bajo`,
+        detail:   `Stock: ${p.stock_current} ${p.unit||''} (mín: ${p.stock_minimum})`,
+        action:   'Registrar entrada',
+        action_page: 'movimientos-inv',
+        product_id: p.id,
+      });
+    });
+
+    // 2. Facturas vencidas
+    const overdueInv = await query(
+      `SELECT id, invoice_number, client_name, total, paid_amount, due_date
+       FROM invoices
+       WHERE user_id=$1 AND status IN ('issued','partial')
+         AND due_date < $2
+       ORDER BY due_date ASC LIMIT 10`,
+      [req.userId, today]
+    );
+    overdueInv.rows.forEach(inv => {
+      const pend = parseFloat(inv.total||0) - parseFloat(inv.paid_amount||0);
+      alerts.push({
+        type: 'danger', category: 'invoice_overdue',
+        icon: '🧾', title: `Factura ${inv.invoice_number} vencida`,
+        detail: `${inv.client_name||'Sin cliente'} — RD$ ${fmt(pend)} pendiente · Venció: ${inv.due_date}`,
+        action: 'Ver facturas', action_page: 'facturas',
+      });
+    });
+
+    // 3. Facturas por vencer en 7 días
+    const soonInv = await query(
+      `SELECT id, invoice_number, client_name, total, paid_amount, due_date
+       FROM invoices
+       WHERE user_id=$1 AND status IN ('issued','partial')
+         AND due_date >= $2 AND due_date <= $3
+       ORDER BY due_date ASC LIMIT 5`,
+      [req.userId, today, in7]
+    );
+    soonInv.rows.forEach(inv => {
+      const pend = parseFloat(inv.total||0) - parseFloat(inv.paid_amount||0);
+      const dias = Math.ceil((new Date(inv.due_date)-new Date(today))/(1000*60*60*24));
+      alerts.push({
+        type: 'warning', category: 'invoice_soon',
+        icon: '⏰', title: `Factura ${inv.invoice_number} vence en ${dias} día(s)`,
+        detail: `${inv.client_name||'Sin cliente'} — RD$ ${fmt(pend)}`,
+        action: 'Ver facturas', action_page: 'facturas',
+      });
+    });
+
+    // 4. CxC vencidas
+    const overdueCxC = await query(
+      `SELECT r.id, c.name as client_name,
+              r.total_amount-r.paid_amount as outstanding, r.due_date
+       FROM receivables r LEFT JOIN clients c ON c.id=r.client_id
+       WHERE r.user_id=$1 AND r.status IN ('pending','partial')
+         AND r.due_date < $2
+       ORDER BY r.due_date ASC LIMIT 5`,
+      [req.userId, today]
+    );
+    overdueCxC.rows.forEach(r => {
+      alerts.push({
+        type: 'danger', category: 'cxc_overdue',
+        icon: '💰', title: `CxC vencida — ${r.client_name||'Cliente'}`,
+        detail: `RD$ ${fmt(r.outstanding)} pendiente · Venció: ${r.due_date}`,
+        action: 'Ver CxC', action_page: 'cobrar',
+      });
+    });
+
+    // 5. CxP por vencer en 7 días
+    const soonCxP = await query(
+      `SELECT p.id, v.name as vendor_name,
+              p.total_amount-p.paid_amount as outstanding, p.due_date
+       FROM payables p LEFT JOIN vendors v ON v.id=p.vendor_id
+       WHERE p.user_id=$1 AND p.status IN ('pending','partial')
+         AND p.due_date >= $2 AND p.due_date <= $3
+       ORDER BY p.due_date ASC LIMIT 5`,
+      [req.userId, today, in7]
+    );
+    soonCxP.rows.forEach(p => {
+      const dias = Math.ceil((new Date(p.due_date)-new Date(today))/(1000*60*60*24));
+      alerts.push({
+        type: 'warning', category: 'cxp_soon',
+        icon: '💳', title: `Pago a ${p.vendor_name||'Proveedor'} vence en ${dias} día(s)`,
+        detail: `RD$ ${fmt(p.outstanding)} por pagar`,
+        action: 'Ver CxP', action_page: 'pagar',
+      });
+    });
+
+    // 6. Cotizaciones aprobadas sin convertir
+    const pendingQuotes = await query(
+      `SELECT id, quote_number, client_name, total, valid_until
+       FROM quotes
+       WHERE user_id=$1 AND status='approved'
+       ORDER BY valid_until ASC NULLS LAST LIMIT 5`,
+      [req.userId]
+    ).catch(()=>({rows:[]}));
+    pendingQuotes.rows.forEach(q => {
+      const isExpiring = q.valid_until && q.valid_until <= in7;
+      alerts.push({
+        type: isExpiring ? 'warning' : 'info',
+        category: 'quote_approved',
+        icon: '📄', title: `Cotización ${q.quote_number} aprobada sin convertir`,
+        detail: `${q.client_name||''} — RD$ ${fmt(q.total)}${isExpiring?' · ⚠️ Vence pronto':''}`,
+        action: 'Convertir a Factura', action_page: 'cotizaciones',
+      });
+    });
+
+    // 7. Facturas recurrentes vencidas
+    const dueRecurring = await query(
+      `SELECT id, name, next_date, total
+       FROM recurring_invoices
+       WHERE user_id=$1 AND is_active=TRUE AND next_date<=$2
+         AND (end_date IS NULL OR end_date>=$2)
+       LIMIT 5`,
+      [req.userId, today]
+    ).catch(()=>({rows:[]}));
+    dueRecurring.rows.forEach(r => {
+      alerts.push({
+        type: 'warning', category: 'recurring_due',
+        icon: '🔄', title: `Factura recurrente vencida: ${r.name}`,
+        detail: `RD$ ${fmt(r.total)} · Fecha: ${r.next_date}`,
+        action: 'Generar ahora', action_page: 'recurrentes',
+      });
+    });
+
+    // Ordenar: danger primero, luego warning, luego info
+    const priority = { danger:0, warning:1, info:2 };
+    alerts.sort((a,b) => (priority[a.type]||2) - (priority[b.type]||2));
+
+    res.json({ alerts, count: alerts.length, has_danger: alerts.some(a=>a.type==='danger') });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 3.3: DGII 606 / 607 ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/dgii/606 — Compras (para tu declaración de ITBIS)
+// Formato: mes/año de compras a proveedores con ITBIS
+app.get('/api/dgii/606', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return res.status(400).json({ error: 'month y year requeridos' });
+    const m = parseInt(month), y = parseInt(year);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    // Cuentas por pagar del período como base de compras
+    const rows = await query(
+      `SELECT
+         p.id,
+         v.name                        as proveedor,
+         COALESCE(v.rnc,'')            as rnc_cedula,
+         COALESCE(v.vendor_type,'vendor') as tipo_bienes,
+         TO_CHAR(p.created_at,'YYYYMMDD') as fecha_comprobante,
+         ''                            as ncf_comprobante,
+         p.total_amount                as monto_facturado,
+         0                             as itbis_facturado,
+         COALESCE(ret.retention_amount,0) as itbis_retenido,
+         COALESCE(ret.retention_amount,0) as isr_retenido
+       FROM payables p
+       JOIN vendors v ON v.id=p.vendor_id
+       LEFT JOIN retenciones ret ON ret.invoice_id=p.id AND ret.user_id=p.user_id
+       WHERE p.user_id=$1
+         AND p.created_at::date>=$2 AND p.created_at::date<=$3
+       ORDER BY p.created_at ASC`,
+      [req.userId, from, to]
+    );
+
+    // Totales
+    const totales = {
+      cantidad_registros: rows.rows.length,
+      total_monto:        rows.rows.reduce((s,r)=>s+parseFloat(r.monto_facturado||0),0),
+      total_itbis:        rows.rows.reduce((s,r)=>s+parseFloat(r.itbis_facturado||0),0),
+      total_ret_itbis:    rows.rows.reduce((s,r)=>s+parseFloat(r.itbis_retenido||0),0),
+      total_ret_isr:      rows.rows.reduce((s,r)=>s+parseFloat(r.isr_retenido||0),0),
+    };
+
+    res.json({ period: `${m}/${y}`, from, to, rows: rows.rows, totales });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/dgii/607 — Ventas (para tu declaración de ITBIS)
+app.get('/api/dgii/607', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return res.status(400).json({ error: 'month y year requeridos' });
+    const m = parseInt(month), y = parseInt(year);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    const rows = await query(
+      `SELECT
+         inv.id,
+         COALESCE(inv.client_name,'Consumidor Final')  as nombre_cliente,
+         COALESCE(inv.client_rnc,'')                   as rnc_cedula,
+         TO_CHAR(inv.date,'YYYYMMDD')                  as fecha_comprobante,
+         COALESCE(inv.invoice_number,'')               as ncf,
+         inv.subtotal                                  as monto_facturado,
+         inv.tax                                       as itbis_facturado,
+         inv.total                                     as total,
+         COALESCE(ret.retention_amount,0)              as itbis_retenido_cliente
+       FROM invoices inv
+       LEFT JOIN retenciones ret
+         ON ret.invoice_id=inv.id AND ret.tipo='itbis' AND ret.user_id=inv.user_id
+       WHERE inv.user_id=$1
+         AND inv.date>=$2 AND inv.date<=$3
+         AND inv.status IN ('issued','paid','partial')
+       ORDER BY inv.date ASC`,
+      [req.userId, from, to]
+    );
+
+    const totales = {
+      cantidad_registros: rows.rows.length,
+      total_monto:        rows.rows.reduce((s,r)=>s+parseFloat(r.monto_facturado||0),0),
+      total_itbis:        rows.rows.reduce((s,r)=>s+parseFloat(r.itbis_facturado||0),0),
+      total_ret_itbis:    rows.rows.reduce((s,r)=>s+parseFloat(r.itbis_retenido_cliente||0),0),
+    };
+
+    res.json({ period: `${m}/${y}`, from, to, rows: rows.rows, totales });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/dgii/itbis — resumen ITBIS para declaración IT-1
+app.get('/api/dgii/itbis', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return res.status(400).json({ error: 'month y year requeridos' });
+    const m = parseInt(month), y = parseInt(year);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+    // ITBIS cobrado en ventas
+    const cobrado = await query(
+      `SELECT COALESCE(SUM(tax),0) as total
+       FROM invoices
+       WHERE user_id=$1 AND date>=$2 AND date<=$3
+         AND status IN ('issued','paid','partial')`,
+      [req.userId, from, to]
+    );
+
+    // ITBIS pagado en compras (estimado de CxP)
+    const pagado = await query(
+      `SELECT COALESCE(SUM(total_amount*0.18),0) as total
+       FROM payables
+       WHERE user_id=$1 AND created_at::date>=$2 AND created_at::date<=$3`,
+      [req.userId, from, to]
+    );
+
+    // ITBIS retenido por clientes
+    const retenido = await query(
+      `SELECT COALESCE(SUM(retention_amount),0) as total
+       FROM retenciones
+       WHERE user_id=$1 AND tipo='itbis' AND date>=$2 AND date<=$3`,
+      [req.userId, from, to]
+    );
+
+    const itbisCobrado = parseFloat(cobrado.rows[0]?.total||0);
+    const itbisPagado  = parseFloat(pagado.rows[0]?.total||0);
+    const itbisRet     = parseFloat(retenido.rows[0]?.total||0);
+    const saldo        = itbisCobrado - itbisPagado - itbisRet;
+
+    res.json({
+      period: `${m}/${y}`,
+      itbis_cobrado:  itbisCobrado,
+      itbis_pagado:   itbisPagado,
+      itbis_retenido: itbisRet,
+      saldo_a_pagar:  Math.max(0, saldo),
+      saldo_a_favor:  Math.max(0, -saldo),
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 4.1: MÚLTIPLES MONEDAS ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/exchange-rates — tasas de cambio actuales
+app.get('/api/exchange-rates', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT * FROM exchange_rates WHERE user_id=$1 ORDER BY date DESC LIMIT 30`,
+      [req.userId]
+    );
+    // Si no hay tasas registradas, devolver defaults
+    if (!r.rows.length) {
+      return res.json({
+        rates: [{ currency:'USD', rate:60.00, date: new Date().toISOString().split('T')[0] }],
+        current: { USD: 60.00 }
+      });
+    }
+    // Tasa más reciente por moneda
+    const current = {};
+    const seen = new Set();
+    r.rows.forEach(row => {
+      if (!seen.has(row.currency)) { current[row.currency] = parseFloat(row.rate); seen.add(row.currency); }
+    });
+    res.json({ rates: r.rows, current });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/exchange-rates — registrar tasa de cambio
+app.post('/api/exchange-rates', authMiddleware, async (req, res) => {
+  try {
+    const { currency, rate, date } = req.body;
+    if (!currency || !rate) return res.status(400).json({ error: 'currency y rate requeridos' });
+    const id = `exr_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO exchange_rates(id,user_id,currency,rate,date)
+       VALUES($1,$2,$3,$4,$5)
+       ON CONFLICT(user_id,currency,date) DO UPDATE SET rate=$4`,
+      [id, req.userId, currency.toUpperCase(), parseFloat(rate), date||new Date().toISOString().split('T')[0]]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/exchange-rates/:id
+app.delete('/api/exchange-rates/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM exchange_rates WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/exchange-rates/convert — convertir monto entre monedas
+app.get('/api/exchange-rates/convert', authMiddleware, async (req, res) => {
+  try {
+    const { amount, from, to } = req.query;
+    if (!amount || !from || !to) return res.status(400).json({ error: 'amount, from y to requeridos' });
+    if (from === to) return res.json({ result: parseFloat(amount), rate: 1 });
+
+    // Obtener tasas vs DOP (moneda base)
+    const getRate = async (currency) => {
+      if (currency === 'DOP') return 1;
+      const r = await query(
+        `SELECT rate FROM exchange_rates WHERE user_id=$1 AND currency=$2 ORDER BY date DESC LIMIT 1`,
+        [req.userId, currency]
+      );
+      return parseFloat(r.rows[0]?.rate || (currency==='USD'?60:1));
+    };
+
+    const fromRate = await getRate(from.toUpperCase());
+    const toRate   = await getRate(to.toUpperCase());
+    // Convertir: amount(from) → DOP → to
+    const inDOP    = parseFloat(amount) * fromRate;
+    const result   = inDOP / toRate;
+    const rate     = fromRate / toRate;
+    res.json({ result: Math.round(result*100)/100, rate: Math.round(rate*10000)/10000, from, to });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 4.2: MULTI-SUCURSAL ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/branches
+app.get('/api/branches', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT b.*, COUNT(DISTINCT inv.id) as invoice_count,
+              COALESCE(SUM(inv.total),0) as total_sales
+       FROM branches b
+       LEFT JOIN invoices inv ON inv.branch_id=b.id AND inv.status IN ('issued','paid')
+       WHERE b.user_id=$1
+       GROUP BY b.id ORDER BY b.name`,
+      [req.userId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/branches
+app.post('/api/branches', authMiddleware, async (req, res) => {
+  try {
+    const { name, address, phone, email, manager, rnc, is_active=true } = req.body;
+    if (!name) return res.status(400).json({ error: 'name requerido' });
+    const id = `branch_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO branches(id,user_id,name,address,phone,email,manager,rnc,is_active)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, req.userId, name, address||null, phone||null, email||null, manager||null, rnc||null, is_active]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/branches/:id
+app.put('/api/branches/:id', authMiddleware, async (req, res) => {
+  try {
+    const { name, address, phone, email, manager, rnc, is_active } = req.body;
+    await query(
+      `UPDATE branches SET name=COALESCE($1,name), address=COALESCE($2,address),
+       phone=COALESCE($3,phone), email=COALESCE($4,email), manager=COALESCE($5,manager),
+       rnc=COALESCE($6,rnc), is_active=COALESCE($7,is_active)
+       WHERE id=$8 AND user_id=$9`,
+      [name||null, address||null, phone||null, email||null, manager||null, rnc||null, is_active, req.params.id, req.userId]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/branches/:id
+app.delete('/api/branches/:id', authMiddleware, async (req, res) => {
+  try {
+    await query(`DELETE FROM branches WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/branches/:id/stats — estadísticas de una sucursal
+app.get('/api/branches/:id/stats', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    const from = month && year ? `${year}-${String(month).padStart(2,'0')}-01` : null;
+    const lastDay = month && year ? new Date(year, month, 0).getDate() : null;
+    const to = month && year ? `${year}-${String(month).padStart(2,'0')}-${lastDay}` : null;
+
+    let sql = `SELECT COUNT(*) as invoices, COALESCE(SUM(total),0) as ventas,
+               COALESCE(SUM(paid_amount),0) as cobrado,
+               COALESCE(SUM(total-paid_amount),0) as pendiente
+               FROM invoices WHERE user_id=$1 AND branch_id=$2 AND status IN ('issued','paid','partial')`;
+    const params = [req.userId, req.params.id];
+    if (from) { sql += ` AND date>=$3 AND date<=$4`; params.push(from, to); }
+
+    const r = await query(sql, params);
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 4.3: ROLES Y PERMISOS DE USUARIOS ──────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Roles: admin (todo), contador (todo menos eliminar usuarios), cajero (solo facturas + cobros)
+const ROLE_PERMISSIONS = {
+  admin:    ['*'],
+  contador: ['invoices','quotes','products','clients','vendors','receivables','payables','journal','accounts','reports','inventory','assets','income','retenciones','recurring','branches'],
+  cajero:   ['invoices_read','invoices_create','clients_read','products_read','receivables_read','receivables_pay'],
+};
+
+// GET /api/user-roles — listar usuarios con roles
+app.get('/api/user-roles', authMiddleware, async (req, res) => {
+  try {
+    // Solo admins pueden ver roles de otros usuarios
+    const adminR = await query(`SELECT is_admin FROM users WHERE id=$1`, [req.userId]);
+    if (!adminR.rows[0]?.is_admin) return res.status(403).json({ error: 'Solo admins' });
+
+    const r = await query(
+      `SELECT u.id, uc.username, ur.role, ur.branch_id, b.name as branch_name,
+              ur.is_active, ur.created_at
+       FROM users u
+       LEFT JOIN user_credentials uc ON uc.user_id=u.id
+       LEFT JOIN user_roles ur ON ur.user_id=u.id AND ur.owner_id=$1
+       LEFT JOIN branches b ON b.id=ur.branch_id
+       ORDER BY uc.username`,
+      [req.userId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/user-roles — asignar rol a usuario
+app.post('/api/user-roles', authMiddleware, async (req, res) => {
+  try {
+    const adminR = await query(`SELECT is_admin FROM users WHERE id=$1`, [req.userId]);
+    if (!adminR.rows[0]?.is_admin) return res.status(403).json({ error: 'Solo admins' });
+
+    const { target_user_id, role, branch_id } = req.body;
+    if (!target_user_id || !role) return res.status(400).json({ error: 'target_user_id y role requeridos' });
+    if (!['admin','contador','cajero'].includes(role)) return res.status(400).json({ error: 'Rol inválido' });
+
+    const id = `role_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO user_roles(id,user_id,owner_id,role,branch_id,is_active)
+       VALUES($1,$2,$3,$4,$5,TRUE)
+       ON CONFLICT(user_id,owner_id) DO UPDATE SET role=$4, branch_id=$5, is_active=TRUE`,
+      [id, target_user_id, req.userId, role, branch_id||null]
+    );
+    res.json({ ok: true, id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/user-roles/:userId — revocar acceso
+app.delete('/api/user-roles/:userId', authMiddleware, async (req, res) => {
+  try {
+    const adminR = await query(`SELECT is_admin FROM users WHERE id=$1`, [req.userId]);
+    if (!adminR.rows[0]?.is_admin) return res.status(403).json({ error: 'Solo admins' });
+    await query(`DELETE FROM user_roles WHERE user_id=$1 AND owner_id=$2`, [req.params.userId, req.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── FASE 4.4: LINKS DE PAGO (AZUL / PAGOFLASH / GENÉRICO) ───────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/payment-config — configuración de pasarelas
+app.get('/api/payment-config', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT provider, is_active, config_public FROM payment_configs WHERE user_id=$1`,
+      [req.userId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/payment-config — guardar configuración de pasarela
+app.post('/api/payment-config', authMiddleware, async (req, res) => {
+  try {
+    const { provider, api_key, merchant_id, config_public, is_active } = req.body;
+    if (!provider) return res.status(400).json({ error: 'provider requerido' });
+    const id = `pc_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO payment_configs(id,user_id,provider,api_key_enc,merchant_id,config_public,is_active)
+       VALUES($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT(user_id,provider) DO UPDATE SET
+         api_key_enc=COALESCE($4,api_key_enc), merchant_id=COALESCE($5,merchant_id),
+         config_public=COALESCE($6,config_public), is_active=$7`,
+      [id, req.userId, provider, api_key||null, merchant_id||null,
+       config_public ? JSON.stringify(config_public) : null, is_active!==false]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/payment-links — generar link de pago para una factura
+app.post('/api/payment-links', authMiddleware, async (req, res) => {
+  try {
+    const { invoice_id, provider = 'generic', expires_in_days = 3 } = req.body;
+    if (!invoice_id) return res.status(400).json({ error: 'invoice_id requerido' });
+
+    const inv = await query(`SELECT * FROM invoices WHERE id=$1 AND user_id=$2`, [invoice_id, req.userId]);
+    if (!inv.rows[0]) return res.status(404).json({ error: 'Factura no encontrada' });
+    const invoice = inv.rows[0];
+
+    // Token único para el link
+    const token     = crypto.randomBytes(20).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + parseInt(expires_in_days));
+    const id = `pl_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+
+    await query(
+      `INSERT INTO payment_links(id,user_id,invoice_id,token,provider,amount,currency,expires_at,status)
+       VALUES($1,$2,$3,$4,$5,$6,'DOP',$7,'active')`,
+      [id, req.userId, invoice_id, token, provider,
+       parseFloat(invoice.total)-parseFloat(invoice.paid_amount||0), expiresAt.toISOString()]
+    );
+
+    const baseUrl = process.env.API_BASE || `https://miscuentas-contable-app-production.up.railway.app`;
+    const payUrl  = `${baseUrl}/pay/${token}`;
+
+    res.json({ ok: true, id, token, url: payUrl, expires_at: expiresAt.toISOString(), amount: parseFloat(invoice.total)-parseFloat(invoice.paid_amount||0) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/payment-links — listar links de pago
+app.get('/api/payment-links', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT pl.*, inv.invoice_number, inv.client_name
+       FROM payment_links pl
+       LEFT JOIN invoices inv ON inv.id=pl.invoice_id
+       WHERE pl.user_id=$1
+       ORDER BY pl.created_at DESC LIMIT 50`,
+      [req.userId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /pay/:token — página pública de pago (sin auth)
+app.get('/pay/:token', async (req, res) => {
+  try {
+    const pl = await query(
+      `SELECT pl.*, inv.invoice_number, inv.client_name, inv.total, inv.paid_amount, u.id as owner_id
+       FROM payment_links pl
+       JOIN invoices inv ON inv.id=pl.invoice_id
+       JOIN users u ON u.id=pl.user_id
+       WHERE pl.token=$1`,
+      [req.params.token]
+    );
+    if (!pl.rows[0]) return res.status(404).send('<h2>Link no encontrado o expirado</h2>');
+    const link = pl.rows[0];
+    if (link.status !== 'active') return res.status(410).send('<h2>Este link ya fue utilizado o cancelado</h2>');
+    if (new Date(link.expires_at) < new Date()) {
+      await query(`UPDATE payment_links SET status='expired' WHERE id=$1`, [link.id]);
+      return res.status(410).send('<h2>Este link de pago ha expirado</h2>');
+    }
+
+    const pending = parseFloat(link.total||0) - parseFloat(link.paid_amount||0);
+    // Obtener config pública de pasarela si existe
+    const pcR = await query(
+      `SELECT config_public FROM payment_configs WHERE user_id=$1 AND provider=$2 AND is_active=TRUE`,
+      [link.owner_id, link.provider]
+    );
+    const config = pcR.rows[0]?.config_public ? JSON.parse(pcR.rows[0].config_public) : {};
+
+    res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pagar Factura ${link.invoice_number}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#09100f;color:#e8f0ee;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{background:#0f1a18;border:1px solid #1f3330;border-radius:16px;padding:28px;width:100%;max-width:420px}
+    .logo{font-size:20px;font-weight:900;color:#ff7c2a;text-align:center;margin-bottom:20px}
+    .amount{text-align:center;font-size:42px;font-weight:900;color:#00e5a0;margin:16px 0}
+    .label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#3d6660;margin-bottom:4px}
+    .value{font-size:14px;font-weight:600;margin-bottom:12px}
+    .btn{width:100%;padding:14px;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px;transition:.2s}
+    .btn-pay{background:#ff7c2a;color:#000}
+    .btn-pay:hover{opacity:.9}
+    .btn-azul{background:#0066cc;color:#fff}
+    .info{font-size:11px;color:#3d6660;text-align:center;margin-top:14px}
+    .badge{display:inline-flex;align-items:center;gap:4px;background:rgba(0,229,160,.1);border:1px solid rgba(0,229,160,.2);border-radius:50px;padding:4px 10px;font-size:11px;color:#00e5a0;margin-bottom:16px}
+    .divider{height:1px;background:#1f3330;margin:16px 0}
+    #paySuccess{display:none;text-align:center;padding:20px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">mis<span style="color:#fff">cuentas</span></div>
+    <div style="text-align:center"><span class="badge">🔒 Pago Seguro</span></div>
+    <div class="label">Factura</div>
+    <div class="value">${link.invoice_number}</div>
+    <div class="label">Cliente</div>
+    <div class="value">${link.client_name||'Sin nombre'}</div>
+    <div class="divider"></div>
+    <div class="label">Monto a Pagar</div>
+    <div class="amount">RD$ ${Number(pending).toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+    <div class="divider"></div>
+    <div id="payForms">
+      ${link.provider === 'azul' && config.merchant_id ? `
+      <div>
+        <div class="label" style="margin-bottom:8px">Tarjeta de Crédito/Débito</div>
+        <input type="text" id="cardNumber" placeholder="Número de tarjeta" style="width:100%;padding:10px 12px;background:#162220;border:1px solid #1f3330;border-radius:8px;color:#e8f0ee;font-size:14px;margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <input type="text" id="cardExp" placeholder="MM/AA" style="padding:10px 12px;background:#162220;border:1px solid #1f3330;border-radius:8px;color:#e8f0ee;font-size:14px">
+          <input type="text" id="cardCVV" placeholder="CVV" style="padding:10px 12px;background:#162220;border:1px solid #1f3330;border-radius:8px;color:#e8f0ee;font-size:14px">
+        </div>
+        <button class="btn btn-azul" onclick="processAzul()">💳 Pagar con Azul</button>
+      </div>` : `
+      <div style="text-align:center;padding:12px;background:#162220;border-radius:10px;margin-bottom:12px">
+        <div style="font-size:12px;color:#8aada8;margin-bottom:6px">Realiza tu pago por:</div>
+        <div style="font-size:14px;font-weight:600">Transferencia Bancaria · Efectivo</div>
+        <div style="font-size:11px;color:#3d6660;margin-top:4px">Contacta al emisor de la factura para coordinar el pago</div>
+      </div>
+      <button class="btn btn-pay" onclick="confirmPayment()">✅ Confirmar Pago Realizado</button>`}
+    </div>
+    <div id="paySuccess">
+      <div style="font-size:48px;margin-bottom:12px">✅</div>
+      <div style="font-size:18px;font-weight:700;color:#00e5a0">¡Pago Confirmado!</div>
+      <div style="font-size:13px;color:#8aada8;margin-top:8px">Tu pago ha sido registrado. Gracias.</div>
+    </div>
+    <div class="info">Vence: ${new Date(link.expires_at).toLocaleDateString('es-DO')} · Generado por MisCuentas Contable</div>
+  </div>
+  <script>
+    function confirmPayment() {
+      fetch('/api/payment-links/${link.token}/confirm', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'manual'})})
+        .then(r=>r.json())
+        .then(d=>{ if(d.ok){ document.getElementById('payForms').style.display='none'; document.getElementById('paySuccess').style.display='block'; } else alert('Error: '+d.error); })
+        .catch(()=>alert('Error al procesar'));
+    }
+    function processAzul() { alert('Integración Azul en configuración. Contacta al emisor.'); }
+  </script>
+</body>
+</html>`);
+  } catch(e) { res.status(500).send('<h2>Error interno</h2>'); }
+});
+
+// POST /api/payment-links/:token/confirm — confirmar pago desde link público
+app.post('/api/payment-links/:token/confirm', async (req, res) => {
+  try {
+    const { method = 'manual', reference } = req.body;
+    const pl = await query(
+      `SELECT pl.*, inv.user_id, inv.total, inv.paid_amount
+       FROM payment_links pl JOIN invoices inv ON inv.id=pl.invoice_id
+       WHERE pl.token=$1 AND pl.status='active' AND pl.expires_at>NOW()`,
+      [req.params.token]
+    );
+    if (!pl.rows[0]) return res.status(404).json({ error: 'Link no válido o expirado' });
+    const link   = pl.rows[0];
+    const amount = parseFloat(link.total)-parseFloat(link.paid_amount||0);
+
+    // Marcar link como usado
+    await query(`UPDATE payment_links SET status='used', used_at=NOW() WHERE token=$1`, [req.params.token]);
+
+    // Registrar pago en CxC/factura
+    const payId = `rpay_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const today = new Date().toISOString().split('T')[0];
+    // Actualizar factura
+    await query(`UPDATE invoices SET paid_amount=total, status='paid' WHERE id=$1`, [link.invoice_id]);
+    // Actualizar CxC relacionada
+    await query(
+      `UPDATE receivables SET paid_amount=total_amount, status='paid'
+       WHERE user_id=$1 AND description ILIKE $2`,
+      [link.user_id, `%${link.invoice_number}%`]
+    );
+
+    res.json({ ok: true, amount, method });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -4513,59 +6098,6 @@ async function initDB() {
   try { await query(`CREATE INDEX IF NOT EXISTS idx_receivables_user ON receivables(user_id)`); } catch(e) {}
   try { await query(`CREATE INDEX IF NOT EXISTS idx_payables_user ON payables(user_id)`); } catch(e) {}
 
-  // ── Nuevas tablas para email auth + monetización ──
-  try {
-    await query(`CREATE TABLE IF NOT EXISTS email_tokens (
-      id          TEXT PRIMARY KEY,
-      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      token       TEXT UNIQUE NOT NULL,
-      type        TEXT NOT NULL CHECK (type IN ('verify','reset')),
-      used        BOOLEAN NOT NULL DEFAULT FALSE,
-      expires_at  TIMESTAMPTZ NOT NULL,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`);
-  } catch(e) { console.warn('email_tokens:', e.message); }
-
-  try {
-    await query(`CREATE TABLE IF NOT EXISTS subscription_events (
-      id          TEXT PRIMARY KEY,
-      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      admin_id    TEXT REFERENCES users(id),
-      event_type  TEXT NOT NULL,
-      plan        TEXT,
-      notes       TEXT,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`);
-  } catch(e) { console.warn('subscription_events:', e.message); }
-
-  // Migraciones columnas users: email, nombre, plan, trial, subscription
-  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`); } catch(e) {}
-  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS nombre TEXT`); } catch(e) {}
-  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE`); } catch(e) {}
-  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'trial'`); } catch(e) {}
-  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ`); } catch(e) {}
-  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEFAULT 'trial'`); } catch(e) {}
-  // Índice único en email (solo cuando no es null)
-  try { await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL`); } catch(e) {}
-  // Índice en email_tokens token
-  try { await query(`CREATE INDEX IF NOT EXISTS idx_email_tokens_token ON email_tokens(token)`); } catch(e) {}
-
-  // Todos los usuarios existentes sin trial_ends_at → darles 14 días desde hoy
-  try {
-    await query(`
-      UPDATE users SET
-        plan = COALESCE(plan, 'trial'),
-        subscription_status = COALESCE(subscription_status, 'trial'),
-        trial_ends_at = COALESCE(trial_ends_at, NOW() + INTERVAL '14 days'),
-        email_verified = COALESCE(email_verified, TRUE)
-      WHERE trial_ends_at IS NULL AND NOT is_admin
-    `);
-  } catch(e) { console.warn('trial migration:', e.message); }
-  // Admin users → always active
-  try {
-    await query(`UPDATE users SET plan='admin', subscription_status='active', email_verified=TRUE WHERE is_admin=TRUE`);
-  } catch(e) {}
-
   // Migration: add is_admin column if not exists
   try { await query(`ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE`); } catch(e) {}
   try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS auxiliary_type TEXT`); } catch(e) {}
@@ -4600,6 +6132,226 @@ async function initDB() {
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_pct NUMERIC(5,2) DEFAULT 0`); } catch(e) {}
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
   try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS discount_pct NUMERIC(5,2) DEFAULT 0`); } catch(e) {}
+  // ── CMV: nuevas columnas ──
+  try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cmv_amount NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
+  try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS product_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
+  try { await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS cmv_amount NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
+  // Actualizar status CHECK constraint para incluir 'issued' (además de 'pending','paid','cancelled')
+  try { await query(`ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_status_check`); } catch(e) {}
+  try { await query(`ALTER TABLE invoices ADD CONSTRAINT invoices_status_check CHECK (status IN ('draft','issued','pending','paid','partial','cancelled'))`); } catch(e) {}
+
+  // ── Fase 1.2: Cierre de Período ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS period_closings (
+      id           TEXT PRIMARY KEY,
+      user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      month        INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+      year         INTEGER NOT NULL,
+      closed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ingresos     NUMERIC(14,2) NOT NULL DEFAULT 0,
+      costos       NUMERIC(14,2) NOT NULL DEFAULT 0,
+      gastos       NUMERIC(14,2) NOT NULL DEFAULT 0,
+      utilidad_neta NUMERIC(14,2) NOT NULL DEFAULT 0,
+      notes        TEXT,
+      UNIQUE(user_id, month, year)
+    )`);
+  } catch(e) { console.warn('period_closings table:', e.message); }
+
+  // ── Fase 1.3: Conciliación Bancaria ──
+  try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS conciliado BOOLEAN DEFAULT FALSE`); } catch(e) {}
+  try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS bank_reference TEXT`); } catch(e) {}
+  try { await query(`CREATE INDEX IF NOT EXISTS idx_jl_conciliado ON journal_lines(conciliado) WHERE conciliado=FALSE`); } catch(e) {}
+
+  // ── Fase 2.1: Cotizaciones ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS quotes (
+      id               TEXT PRIMARY KEY,
+      user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      quote_number     TEXT NOT NULL,
+      client_name      TEXT,
+      client_rnc       TEXT,
+      client_address   TEXT,
+      date             DATE NOT NULL DEFAULT CURRENT_DATE,
+      valid_until      DATE,
+      subtotal         NUMERIC(12,2) DEFAULT 0,
+      tax              NUMERIC(12,2) DEFAULT 0,
+      total            NUMERIC(12,2) NOT NULL,
+      discount_amount  NUMERIC(12,2) DEFAULT 0,
+      discount_pct     NUMERIC(5,2)  DEFAULT 0,
+      notes            TEXT,
+      payment_terms    TEXT,
+      delivery_terms   TEXT,
+      status           TEXT NOT NULL DEFAULT 'draft'
+                       CHECK (status IN ('draft','sent','approved','rejected','expired','converted')),
+      invoice_id       TEXT,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch(e) { console.warn('quotes table:', e.message); }
+
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS quote_items (
+      id           TEXT PRIMARY KEY,
+      quote_id     TEXT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+      description  TEXT NOT NULL,
+      qty          NUMERIC(12,3) NOT NULL DEFAULT 1,
+      price        NUMERIC(12,2) NOT NULL DEFAULT 0,
+      total        NUMERIC(12,2) NOT NULL DEFAULT 0,
+      discount_pct NUMERIC(5,2)  DEFAULT 0,
+      product_id   TEXT
+    )`);
+  } catch(e) { console.warn('quote_items table:', e.message); }
+
+  // Columna quote_id en invoices
+  try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS quote_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS recurring_id TEXT`); } catch(e) {}
+
+  // ── Fase 2.2: Facturas Recurrentes ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS recurring_invoices (
+      id               TEXT PRIMARY KEY,
+      user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name             TEXT NOT NULL,
+      client_name      TEXT,
+      client_rnc       TEXT,
+      subtotal         NUMERIC(12,2) DEFAULT 0,
+      tax              NUMERIC(12,2) DEFAULT 0,
+      total            NUMERIC(12,2) NOT NULL,
+      discount_amount  NUMERIC(12,2) DEFAULT 0,
+      discount_pct     NUMERIC(5,2)  DEFAULT 0,
+      notes            TEXT,
+      payment_method   TEXT DEFAULT 'credit',
+      frequency        TEXT NOT NULL DEFAULT 'monthly'
+                       CHECK (frequency IN ('weekly','biweekly','monthly','bimonthly','quarterly','yearly')),
+      next_date        DATE NOT NULL,
+      end_date         DATE,
+      items_json       JSONB DEFAULT '[]',
+      is_active        BOOLEAN NOT NULL DEFAULT TRUE,
+      generated_count  INTEGER DEFAULT 0,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch(e) { console.warn('recurring_invoices table:', e.message); }
+
+  // ── Fase 2.3: Retenciones ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS retenciones (
+      id               TEXT PRIMARY KEY,
+      user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      tipo             TEXT NOT NULL CHECK (tipo IN ('isr','itbis')),
+      subtipo          TEXT,
+      entity_type      TEXT DEFAULT 'client' CHECK (entity_type IN ('client','vendor')),
+      client_id        TEXT REFERENCES clients(id),
+      vendor_id        TEXT REFERENCES vendors(id),
+      invoice_id       TEXT,
+      base_amount      NUMERIC(12,2) NOT NULL,
+      retention_pct    NUMERIC(5,2)  NOT NULL,
+      retention_amount NUMERIC(12,2) NOT NULL,
+      date             DATE NOT NULL DEFAULT CURRENT_DATE,
+      ncf              TEXT,
+      notes            TEXT,
+      status           TEXT DEFAULT 'pending' CHECK (status IN ('pending','filed','paid')),
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch(e) { console.warn('retenciones table:', e.message); }
+
+  // ── Fase 4.1: Tasas de Cambio ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS exchange_rates (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      currency   TEXT NOT NULL,
+      rate       NUMERIC(12,6) NOT NULL,
+      date       DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, currency, date)
+    )`);
+  } catch(e) { console.warn('exchange_rates:', e.message); }
+
+  // ── Fase 4.2: Sucursales ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS branches (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name       TEXT NOT NULL,
+      address    TEXT,
+      phone      TEXT,
+      email      TEXT,
+      manager    TEXT,
+      rnc        TEXT,
+      is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch(e) { console.warn('branches:', e.message); }
+
+  // columna branch_id en invoices y quotes
+  try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS branch_id TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE quotes   ADD COLUMN IF NOT EXISTS branch_id TEXT`); } catch(e) {}
+
+  // ── Fase 4.3: Roles ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS user_roles (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      owner_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role       TEXT NOT NULL CHECK (role IN ('admin','contador','cajero')),
+      branch_id  TEXT,
+      is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, owner_id)
+    )`);
+  } catch(e) { console.warn('user_roles:', e.message); }
+
+  // ── Fase 4.4: Pasarelas de Pago ──
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS payment_configs (
+      id             TEXT PRIMARY KEY,
+      user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider       TEXT NOT NULL,
+      api_key_enc    TEXT,
+      merchant_id    TEXT,
+      config_public  TEXT,
+      is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, provider)
+    )`);
+  } catch(e) { console.warn('payment_configs:', e.message); }
+
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS payment_links (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      invoice_id  TEXT NOT NULL,
+      token       TEXT NOT NULL UNIQUE,
+      provider    TEXT NOT NULL DEFAULT 'generic',
+      amount      NUMERIC(12,2) NOT NULL,
+      currency    TEXT NOT NULL DEFAULT 'DOP',
+      expires_at  TIMESTAMPTZ NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','used','expired','cancelled')),
+      used_at     TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch(e) { console.warn('payment_links:', e.message); }
+
+  // invoice_number en payment_links (para referencia)
+  try { await query(`ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS invoice_number TEXT`); } catch(e) {}
+
+  // ── Email auth + monetización ──
+  try { await query(`CREATE TABLE IF NOT EXISTS email_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, token TEXT UNIQUE NOT NULL, type TEXT NOT NULL CHECK (type IN ('verify','reset')), used BOOLEAN NOT NULL DEFAULT FALSE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); } catch(e) { console.warn('email_tokens:', e.message); }
+  try { await query(`CREATE TABLE IF NOT EXISTS subscription_events (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, admin_id TEXT REFERENCES users(id), event_type TEXT NOT NULL, plan TEXT, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); } catch(e) { console.warn('subscription_events:', e.message); }
+
+  // Columnas de monetización en users
+  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS nombre TEXT`); } catch(e) {}
+  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE`); } catch(e) {}
+  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'trial'`); } catch(e) {}
+  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ`); } catch(e) {}
+  try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEFAULT 'trial'`); } catch(e) {}
+  try { await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL`); } catch(e) {}
+  try { await query(`CREATE INDEX IF NOT EXISTS idx_email_tokens_token ON email_tokens(token)`); } catch(e) {}
+
+  // Usuarios existentes sin trial → darles 14 días (no rompe admins)
+  try { await query(`UPDATE users SET plan=COALESCE(plan,'trial'),subscription_status=COALESCE(subscription_status,'trial'),trial_ends_at=COALESCE(trial_ends_at,NOW()+INTERVAL '14 days'),email_verified=COALESCE(email_verified,TRUE) WHERE trial_ends_at IS NULL AND NOT is_admin`); } catch(e) {}
+  try { await query(`UPDATE users SET plan='admin',subscription_status='active',email_verified=TRUE WHERE is_admin=TRUE`); } catch(e) {}
 
   // Make first registered user an admin
   try {
@@ -4628,9 +6380,7 @@ async function start() {
     console.log(`🗄️  Database   : PostgreSQL (Railway)`);
     console.log(`📸  Vision     : ${GROQ_API_KEY   ? 'Groq ✅'   : '❌ GROQ_API_KEY missing'}`);
     console.log(`🧠  AI Parser  : ${GEMINI_API_KEY ? 'Gemini ✅' : 'Fallback only'}`);
-    console.log(`📧  Email      : ${RESEND_API_KEY ? 'Resend ✅'  : '⚠️  Sin RESEND_API_KEY (modo simulado)'}`);
     console.log(`🔔  Webhook    : POST /webhook/${WEBHOOK_SECRET || 'tg'}`);
-    console.log(`💰  Trial      : ${TRIAL_DAYS} días gratis`);
     console.log(`========================================\n`);
   });
 }
