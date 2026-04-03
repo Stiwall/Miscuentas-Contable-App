@@ -224,6 +224,23 @@ async function setWebhook(baseUrl) {
 }
 
 // ─── DB HELPERS ───────────────────────────────────────────────────────────────
+
+// Audit log helper
+async function logAudit(userId, action, entityType, entityId, oldData, newData, req) {
+  try {
+    const ip = req?.ip || req?.headers?.['x-forwarded-for'] || req?.headers?.host || null;
+    const ua = req?.headers?.['user-agent'] || null;
+    const id = `aud_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(
+      `INSERT INTO audit_log(id,user_id,action,entity_type,entity_id,old_data,new_data,ip,user_agent)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, userId||null, action, entityType||null, entityId||null,
+       oldData ? JSON.stringify(oldData) : null,
+       newData ? JSON.stringify(newData) : null,
+       ip, ua]
+    );
+  } catch(e) { console.error('audit log error:', e.message); }
+}
 async function ensureUser(id, lang = 'es') {
   await query(
     `INSERT INTO users(id, lang) VALUES($1,$2)
@@ -1645,15 +1662,22 @@ app.post('/api/auth/login', async (req, res) => {
     } else {
       creds = await query('SELECT user_id, password_hash FROM user_credentials WHERE username=$1', [username.toLowerCase()]);
     }
-    if (!creds || !creds.rows[0]) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+    if (!creds || !creds.rows[0]) {
+      await logAudit(null, 'auth.login_failed', null, null, {username}, null, req);
+      return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+    }
 
     const { user_id: userId, password_hash: storedHash } = creds.rows[0];
     const credRow = await query('SELECT username FROM user_credentials WHERE user_id=$1', [userId]);
     const uname   = credRow.rows[0]?.username || username.toLowerCase();
     let hash = crypto.pbkdf2Sync(password, uname, 100000, 64, 'sha512').toString('hex');
     if (hash !== storedHash) hash = crypto.pbkdf2Sync(password, username.toLowerCase(), 100000, 64, 'sha512').toString('hex');
-    if (hash !== storedHash) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+    if (hash !== storedHash) {
+      await logAudit(null, 'auth.login_failed', null, null, {username}, null, req);
+      return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+    }
 
+    await logAudit(userId, 'auth.login', null, null, null, {username}, req);
     const userRow = await query(`SELECT is_admin,plan,trial_ends_at,subscription_status,email,nombre,email_verified FROM users WHERE id=$1`, [userId]);
     const u = userRow.rows[0] || {};
     const now = new Date();
@@ -1869,6 +1893,27 @@ app.put('/api/admin/users/:id/admin', adminMiddleware, async (req, res) => {
     if (req.params.id === req.userId) return res.status(400).json({ error: 'Cannot modify yourself' });
     await query(`UPDATE users SET is_admin=TRUE WHERE id=$1`, [req.params.id]);
     res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/audit-log — admin only, with filters
+app.get('/api/audit-log', adminMiddleware, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const params = [req.userId];
+    let where = `WHERE a.user_id = $1`;
+    if (req.query.user_id) { params.push(req.query.user_id); where += ` AND a.user_id = $${params.length}`; }
+    if (req.query.action) { params.push(req.query.action); where += ` AND a.action = $${params.length}`; }
+    params.push(limit);
+    const r = await query(`
+      SELECT a.*, u.username
+      FROM audit_log a
+      LEFT JOIN user_credentials u ON u.user_id = a.user_id
+      ${where}
+      ORDER BY a.created_at DESC
+      LIMIT $${params.length}
+    `, params);
+    res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2274,6 +2319,7 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
     }
 
     await client.query('COMMIT');
+    await logAudit(req.userId, 'invoice.created', 'invoice', invId, null, {invoice_number: resolvedNum, total}, req);
     res.json({ ok: true, id: invId, invoice_number: resolvedNum, total });
   } catch(e) {
     await client.query('ROLLBACK');
@@ -2525,6 +2571,7 @@ app.put('/api/invoices/:id/status', authMiddleware, async (req, res) => {
       }
     }
 
+    await logAudit(req.userId, 'invoice.status_changed', 'invoice', req.params.id, {prevStatus}, {newStatus: status}, req);
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -2568,6 +2615,7 @@ app.delete('/api/invoices/:id', authMiddleware, async (req, res) => {
     // Delete invoice
     await query(`DELETE FROM invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
 
+    await logAudit(req.userId, 'invoice.deleted', 'invoice', req.params.id, {invoice_number: invoice.invoice_number}, null, req);
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -3588,6 +3636,7 @@ app.post('/api/receivables/:id/payments', authMiddleware, async (req, res) => {
     }
 
     await pgClient.query('COMMIT');
+    await logAudit(req.userId, 'payment.registered', 'receivable', req.params.id, null, {amount: amtNum, payment_method}, req);
     res.json({
       ok: true,
       new_status: newStatus,
@@ -3807,6 +3856,7 @@ app.post('/api/payables/:id/payments', authMiddleware, async (req, res) => {
       );
     }
     await client.query('COMMIT');
+    await logAudit(req.userId, 'payment.registered', 'payable', req.params.id, null, {amount}, req);
     res.json({ ok: true });
   } catch(e) {
     await client.query('ROLLBACK');
@@ -6398,6 +6448,25 @@ async function initDB() {
       }
     }
   } catch(e) {}
+
+  // ── Tabla audit_log ──
+  try { await query(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      action TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      old_data JSONB,
+      new_data JSONB,
+      ip TEXT,
+      user_agent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `); } catch(e) {}
+  try { await query(`CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id)`); } catch(e) {}
+  try { await query(`CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)`); } catch(e) {}
+  try { await query(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC)`); } catch(e) {}
 
   console.log('✅  Database schema ready');
 }
