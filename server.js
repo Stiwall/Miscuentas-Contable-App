@@ -2726,13 +2726,11 @@ app.get('/api/inventory/stock', authMiddleware, async (req, res) => {
   try {
     const r = await query(`
       SELECT p.id, p.code, p.name, p.category, p.unit,
-             COALESCE(p.cost_price,0) as cost_price, COALESCE(p.sell_price,0) as sell_price,
-             COALESCE(p.min_stock,0) as min_stock,
-             COALESCE(SUM(CASE WHEN m.type='entry' THEN m.quantity WHEN m.type IN ('exit','adjustment') THEN -m.quantity ELSE 0 END),0) as stock
-      FROM inventory_products p
-      LEFT JOIN inventory_movements m ON m.product_id = p.id AND m.user_id = p.user_id
+             COALESCE(p.cost_price,0) as cost_price, COALESCE(p.sale_price,0) as sell_price,
+             COALESCE(p.stock_minimum,0) as min_stock,
+             COALESCE(p.stock_current,0) as stock
+      FROM products p
       WHERE p.user_id=$1
-      GROUP BY p.id
       ORDER BY p.name`, [req.userId]);
     res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -2790,11 +2788,22 @@ app.post('/api/inventory/entry', authMiddleware, async (req, res) => {
     const { product_id, quantity, unit_cost, reference, notes, mov_date, reason } = req.body;
     if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
     const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const qty = parseFloat(quantity);
     await query(
       `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
        VALUES($1,$2,$3,'entry',$4,$5,$6,$7,$8,$9)`,
-      [id, req.userId, product_id, quantity, unit_cost||null, reference||null, notes||null, mov_date||null, reason||'compra']
+      [id, req.userId, product_id, qty, unit_cost||null, reference||null, notes||null, mov_date||null, reason||'compra']
     );
+    // Actualizar stock_current en products
+    await query(
+      `UPDATE products SET stock_current = COALESCE(stock_current, 0) + $1 WHERE id=$2 AND user_id=$3`,
+      [qty, product_id, req.userId]
+    );
+    // Actualizar también en inventory_products si existe
+    await query(
+      `UPDATE inventory_products SET cost_price=COALESCE($1, cost_price) WHERE id=$2 AND user_id=$3`,
+      [unit_cost||null, product_id, req.userId]
+    ).catch(()=>{});
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -2805,10 +2814,16 @@ app.post('/api/inventory/exit', authMiddleware, async (req, res) => {
     const { product_id, quantity, unit_price, reference, notes, mov_date, reason } = req.body;
     if (!product_id || !quantity) return res.status(400).json({ error: 'product_id and quantity required' });
     const id = `mov_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    const qty = parseFloat(quantity);
     await query(
       `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
        VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8,$9)`,
-      [id, req.userId, product_id, quantity, unit_price||null, reference||null, notes||null, mov_date||null, reason||'venta']
+      [id, req.userId, product_id, qty, unit_price||null, reference||null, notes||null, mov_date||null, reason||'venta']
+    );
+    // Descontar stock_current en products
+    await query(
+      `UPDATE products SET stock_current = GREATEST(0, COALESCE(stock_current, 0) - $1) WHERE id=$2 AND user_id=$3`,
+      [qty, product_id, req.userId]
     );
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
