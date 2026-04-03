@@ -156,7 +156,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 .panel-divider { height:1px; background:var(--border); margin:var(--space-sm) 0; }
 
 /* ── MODAL ── */
-.modal-backdrop { position:fixed; inset:0; z-index:500; background:rgba(0,0,0,0.75); backdrop-filter:blur(4px); display:none; overflow-y:auto; overscroll-behavior:contain; }
+.modal-backdrop { position:fixed; inset:0; z-index:1001; background:rgba(0,0,0,0.75); backdrop-filter:blur(4px); display:none; overflow-y:auto; overscroll-behavior:contain; }
 .modal-backdrop.open { display:block; }
 .modal-box { background:var(--surface); border:1px solid var(--border2); border-radius:var(--radius); width:100%; max-width:480px; margin:20px auto !important; padding:var(--space-md); }
 .modal-title { font-family:var(--font-head); font-size:var(--fs-lg); font-weight:800; margin-bottom:var(--space-md); display:flex; align-items:center; justify-content:space-between; }
