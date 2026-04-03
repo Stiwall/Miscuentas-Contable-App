@@ -1981,7 +1981,16 @@ function authHeaders() { return { 'Content-Type':'application/json', 'x-session-
 
 async function apiFetch(endpoint, options={}) {
   const res = await fetch(SERVER_URL + endpoint, { ...options, headers: { 'Content-Type':'application/json', 'x-session-token': currentUser?.token||'', ...(options.headers||{}) } });
-  if (res.status === 401) { clearSession(); throw new Error('Sesión expirada'); }
+  if (res.status === 401) {
+    const d = await res.json().catch(()=>({}));
+    if (d.error === 'session_expired') {
+      toast('Tu sesión expiró. Por favor inicia sesión nuevamente.', 'error');
+      setTimeout(() => { clearSession(); location.reload(); }, 2000);
+    } else {
+      clearSession();
+    }
+    throw new Error(d.error || 'Sesión expirada');
+  }
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

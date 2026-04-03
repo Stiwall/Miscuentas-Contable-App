@@ -92,7 +92,8 @@ function emailWelcomeHTML(name, plan) {
 
 
 function generateToken(userId) {
-  const payload = `${userId}:${Date.now()}`;
+  const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 días
+  const payload = `${userId}:${Date.now()}:${expiresAt}`;
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
   return Buffer.from(`${payload}:${sig}`).toString('base64url');
 }
@@ -105,8 +106,12 @@ function verifyToken(token) {
     const sig = decoded.substring(lastColon + 1);
     const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
     if (sig !== expected) return null;
-    const colonIdx = payload.indexOf(':');
-    return payload.substring(0, colonIdx); // userId
+    // payload = userId:iat:expiresAt
+    const parts = payload.split(':');
+    const userId = parts[0];
+    const expiresAt = parts[2] ? parseInt(parts[2]) : null;
+    if (expiresAt && expiresAt < Date.now()) return null; // token expirado
+    return { userId, expiresAt };
   } catch {
     return null;
   }
@@ -144,20 +149,20 @@ async function consumeAuthToken(token) {
 function authMiddleware(req, res, next) {
   const token = req.headers['x-session-token'];
   if (!token) return res.status(401).json({ error: 'unauthorized' });
-  const userId = verifyToken(token);
-  if (!userId) return res.status(401).json({ error: 'invalid token' });
-  req.userId = userId;
+  const tokenData = verifyToken(token);
+  if (!tokenData) return res.status(401).json({ error: 'session_expired' });
+  req.userId = tokenData.userId;
   next();
 }
 
 async function planMiddleware(req, res, next) {
   const token = req.headers['x-session-token'];
   if (!token) return res.status(401).json({ error: 'unauthorized' });
-  const userId = verifyToken(token);
-  if (!userId) return res.status(401).json({ error: 'invalid token' });
-  req.userId = userId;
+  const tokenData = verifyToken(token);
+  if (!tokenData) return res.status(401).json({ error: 'session_expired' });
+  req.userId = tokenData.userId;
   try {
-    const r = await query(`SELECT plan, trial_ends_at, subscription_status, is_admin FROM users WHERE id=$1`, [userId]);
+    const r = await query(`SELECT plan, trial_ends_at, subscription_status, is_admin FROM users WHERE id=$1`, [tokenData.userId]);
     const u = r.rows[0];
     if (!u) return res.status(401).json({ error: 'user not found' });
     if (u.is_admin) return next();
@@ -170,11 +175,11 @@ async function planMiddleware(req, res, next) {
 async function adminMiddleware(req, res, next) {
   const token = req.headers['x-session-token'];
   if (!token) return res.status(401).json({ error: 'unauthorized' });
-  const userId = verifyToken(token);
-  if (!userId) return res.status(401).json({ error: 'invalid token' });
-  const r = await query(`SELECT is_admin FROM users WHERE id=$1`, [userId]);
+  const tokenData = verifyToken(token);
+  if (!tokenData) return res.status(401).json({ error: 'session_expired' });
+  const r = await query(`SELECT is_admin FROM users WHERE id=$1`, [tokenData.userId]);
   if (!r.rows[0]?.is_admin) return res.status(403).json({ error: 'admin only' });
-  req.userId = userId;
+  req.userId = tokenData.userId;
   next();
 }
 
