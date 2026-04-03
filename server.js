@@ -2080,7 +2080,7 @@ async function processCMVForInvoice(pgClient, userId, invoiceId, invoiceNumber, 
         `INSERT INTO inventory_movements(id,user_id,product_id,type,quantity,unit_cost,reference,notes,mov_date,reason)
          VALUES($1,$2,$3,'exit',$4,$5,$6,$7,$8,$9)`,
         [movId, userId, invProdR.rows[0].id, qty, costPrice,
-         `FAC-${invoiceNumber}`, `CMV automático Factura ${invoiceNumber}`, invoiceDate]
+         `FAC-${invoiceNumber}`, `CMV automático Factura ${invoiceNumber}`, invoiceDate, 'venta']
       );
     }
 
