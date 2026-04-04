@@ -4811,7 +4811,8 @@ async function resendVerification() {
 
 // ─── ADMIN ───────────────────────────────────────────────────────────────────
 async function renderAuditLog() {
-  el('adminLoading').style.display='block';
+  if (el('adminLoading')) el('adminLoading').style.display='block';
+  if (!el('adminContent')) return;
   el('adminContent').innerHTML=`<button onclick="renderAdmin()" style="padding:6px 14px;border-radius:var(--radius-xs);border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px;font-weight:600;margin-bottom:12px">← Volver a Usuarios</button>
   <div style="margin-bottom:12px">
     <select id="auditFiltro" onchange="doAuditLoad()" style="padding:6px 10px;border-radius:var(--radius-xs);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;">
@@ -4834,11 +4835,11 @@ async function doAuditLoad() {
   let url = '/api/audit-log?limit=100';
   if (filtro) url += '&action=' + encodeURIComponent(filtro);
   const container = el('auditTable');
-  if (!container) return;
-  el('auditLoading').style.display='block';
+  if (!el('auditTable')) return;
+  if (el('auditLoading')) el('auditLoading').style.display='block';
   try {
     const logs = await apiFetch(url);
-    el('auditLoading').style.display='none';
+    if (el('auditLoading')) el('auditLoading').style.display='none';
     if (!logs.length) { container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-muted)">Sin registros</div>'; return; }
     const colorMap = {
       'auth.login':'#10b981','auth.login_failed':'#ef4444','auth.logout':'#6b7280',
@@ -4865,13 +4866,15 @@ async function doAuditLoad() {
         </tr>`;
       }).join('')}</tbody></table>`;
   } catch(e) {
-    el('auditLoading').style.display='none';
-    container.innerHTML=`<div style="padding:20px;color:var(--accent2)">Error: ${e.message}</div>`;
+    if (el('auditLoading')) el('auditLoading').style.display='none';
+    const container = el('auditTable');
+    if (container) container.innerHTML=`<div style="padding:20px;color:var(--accent2)">Error: ${e.message}</div>`;
   }
 }
 
 async function renderAdmin() {
-  el('adminLoading').style.display='block';
+  if (el('adminLoading')) el('adminLoading').style.display='block';
+  if (!el('adminContent')) return;
   el('adminContent').innerHTML='<div id="adminLoading" style="text-align:center;padding:40px;color:var(--text-muted)">⏳ Cargando...</div>';
   try {
     const [users, stats] = await Promise.all([
