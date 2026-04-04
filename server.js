@@ -12,7 +12,7 @@ const express  = require('express');
 const { Pool } = require('pg');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 // Serve static PWA files
 const path = require('path');
 app.use(express.static(__dirname, {
