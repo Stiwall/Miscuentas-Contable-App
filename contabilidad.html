@@ -445,6 +445,10 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>
       Reportes
     </div>
+    <div class="nav-item" id="nav-empresa" onclick="showPage('empresa',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      Mi Empresa
+    </div>
     <div class="nav-item" id="nav-dgii" onclick="showPage('dgii',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       DGII 606/607
@@ -628,6 +632,59 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
       </button>
     </div>
     <div class="card"><div class="card-body" id="cxpList"></div></div>
+  </div>
+
+  <!-- MI EMPRESA -->
+  <div id="page-empresa" class="page" style="display:none">
+    <div class="page-header">
+      <div class="page-title">🏢 Mi Empresa</div>
+      <div class="page-subtitle">Datos que aparecen en tus facturas</div>
+    </div>
+    <div style="max-width:700px;margin:0 auto;padding:var(--space-md) var(--pad-x) 80px">
+
+      <!-- LOGO SECTION -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px">
+        <div style="font-weight:700;margin-bottom:12px;font-size:var(--fs-sm)">Logo de la Empresa</div>
+        <div id="logoPreviewArea" style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
+          <div id="logoPreview" style="width:120px;height:120px;border:2px dashed var(--border);border-radius:var(--radius-xs);display:flex;align-items:center;justify-content:center;background:var(--bg);flex-shrink:0">
+            <span style="font-size:40px;color:var(--text-muted)">🏢</span>
+          </div>
+          <div style="flex:1">
+            <div id="logoFileName" style="font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:8px"></div>
+            <div id="logoSizeWarn" style="color:var(--accent2);font-size:var(--fs-xs);display:none;margin-bottom:8px">⚠️ Imagen muy grande. Recomendamos máximo 500KB.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <label class="btn btn-sm" style="cursor:pointer">📁 Subir Logo<input type="file" id="logoInput" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="handleLogoUpload(this)"></label>
+              <button class="btn btn-sm btn-secondary" id="removeLogoBtn" style="display:none" onclick="removeCompanyLogo()">🗑️ Quitar logo</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DATOS SECTION -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+        <div style="font-weight:700;margin-bottom:16px;font-size:var(--fs-sm)">Datos de la Empresa</div>
+        <div class="form-group"><label class="form-label">Nombre de la empresa *</label><input class="form-input" type="text" id="emp-nombre" placeholder="Mi Empresa SRL"></div>
+        <div class="form-group"><label class="form-label">RNC (formato: 000-00000-0)</label><input class="form-input" type="text" id="emp-rnc" placeholder="123-45678-9"></div>
+        <div class="form-group"><label class="form-label">Dirección</label><textarea class="form-input" id="emp-direccion" rows="2" placeholder="Av. Principal #123, Ciudad"></textarea></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group"><label class="form-label">Teléfono</label><input class="form-input" type="text" id="emp-telefono" placeholder="809-555-1234"></div>
+          <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" id="emp-email" placeholder="contacto@miempresa.com"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Sitio web</label><input class="form-input" type="text" id="emp-website" placeholder="https://miempresa.com"></div>
+        <div class="form-group"><label class="form-label">Moneda</label>
+          <select class="form-input form-select" id="emp-moneda">
+            <option value="RD$">RD$ — Peso Dominicano</option>
+            <option value="USD">USD — Dólar Estadounidense</option>
+            <option value="EUR">EUR — Euro</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Pie de factura</label>
+          <textarea class="form-input" id="emp-pie" rows="2" maxlength="200" placeholder="Gracias por su preferencia · ITBIS incluido"></textarea>
+          <div style="font-size:var(--fs-2xs);color:var(--text-muted);margin-top:4px;text-align:right"><span id="pieCharCount">0</span>/200</div>
+        </div>
+        <div style="margin-top:16px"><button class="btn btn-primary" onclick="saveCompanyProfile()">💾 Guardar Cambios</button></div>
+      </div>
+    </div>
   </div>
 
   <!-- REPORTES -->
@@ -1944,6 +2001,7 @@ const SERVER_URL = window.location.hostname.includes('b76e')
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let currentUser = null;
+let companyProfile = {};
 let accounts    = [];
 let clients     = [];
 let vendors     = [];
@@ -2106,6 +2164,7 @@ async function loadAllData() {
   try { assets      = await apiFetch('/api/assets'); }      catch { assets=[]; }
   try { incomeTypes = await apiFetch('/api/income-types/with-totals'); } catch { incomeTypes=[]; }
   try { invoices    = await apiFetch('/api/invoices?limit=20'); } catch { invoices=[]; }
+  try { companyProfile = await apiFetch('/api/company-profile'); } catch { companyProfile={}; }
 }
 
 // ─── FAB ──────────────────────────────────────────────────────────────────────
@@ -2171,6 +2230,7 @@ function showPage(id, btn) {
   if (id==='reportes')        { const now=new Date(); el('rep-month').value=now.getMonth()+1; }
   if (id==='alertas')         renderAlertas();
   if (id==='dgii')            initDGIIPage();
+  if (id==='empresa')         renderEmpresaPage();
   if (id==='sucursales')      loadSucursales();
   if (id==='monedas')         loadMonedas();
   if (id==='pagos-config')    loadPagosConfig();
@@ -4808,6 +4868,103 @@ async function resendVerification() {
     const b=el('emailVerifyBanner'); if(b) b.style.display='none';
   } catch(e) { toast('Error: '+e.message,'error'); }
 }
+
+// ─── COMPANY PROFILE ─────────────────────────────────────────────────────────
+async function loadCompanyProfile() {
+  try { companyProfile = await apiFetch('/api/company-profile'); } catch { companyProfile={}; }
+  fillCompanyForm();
+}
+
+function fillCompanyForm() {
+  if (!el('emp-nombre')) return;
+  const cp = companyProfile || {};
+  el('emp-nombre').value = cp.nombre || '';
+  el('emp-rnc').value = cp.rnc || '';
+  el('emp-direccion').value = cp.direccion || '';
+  el('emp-telefono').value = cp.telefono || '';
+  el('emp-email').value = cp.email || '';
+  el('emp-website').value = cp.website || '';
+  el('emp-moneda').value = cp.moneda || 'RD$';
+  el('emp-pie').value = cp.pie_factura || '';
+  el('pieCharCount').textContent = (cp.pie_factura || '').length;
+  updateLogoPreview(cp.logo_base64, cp.logo_mime);
+}
+
+function updateLogoPreview(logo_base64, logo_mime) {
+  const preview = el('logoPreview');
+  const fileName = el('logoFileName');
+  const removeBtn = el('removeLogoBtn');
+  if (!preview) return;
+  if (logo_base64) {
+    preview.innerHTML = `<img src="data:${logo_mime};base64,${logo_base64}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:4px">`;
+    if (fileName) fileName.textContent = '';
+    if (removeBtn) removeBtn.style.display = '';
+  } else {
+    preview.innerHTML = '<span style="font-size:40px;color:var(--text-muted)">🏢</span>';
+    if (fileName) fileName.textContent = '';
+    if (removeBtn) removeBtn.style.display = 'none';
+  }
+}
+
+function handleLogoUpload(input) {
+  if (!input.files[0]) return;
+  const file = input.files[0];
+  const sizeKB = Math.round(file.size / 1024);
+  el('logoFileName').textContent = `${file.name} — Tamaño: ${sizeKB} KB`;
+  if (sizeKB > 500) {
+    el('logoSizeWarn').style.display = '';
+  } else {
+    el('logoSizeWarn').style.display = 'none';
+  }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const b64 = e.target.result.split(',')[1];
+    el('logoPreview').innerHTML = `<img src="${e.target.result}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:4px">`;
+    el('removeLogoBtn').style.display = '';
+    window._pendingLogo = { logo_base64: b64, logo_mime: file.type };
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeCompanyLogo() {
+  window._pendingLogo = { logo_base64: null, logo_mime: null };
+  updateLogoPreview(null, null);
+  el('logoFileName').textContent = '';
+  el('logoSizeWarn').style.display = 'none';
+}
+
+async function saveCompanyProfile() {
+  const nombre = el('emp-nombre').value.trim();
+  if (!nombre) { toast('El nombre de empresa es requerido', 'error'); return; }
+  const payload = {
+    nombre,
+    rnc: el('emp-rnc').value.trim(),
+    direccion: el('emp-direccion').value.trim(),
+    telefono: el('emp-telefono').value.trim(),
+    email: el('emp-email').value.trim(),
+    website: el('emp-website').value.trim(),
+    moneda: el('emp-moneda').value,
+    pie_factura: el('emp-pie').value.trim(),
+  };
+  if (window._pendingLogo) {
+    payload.logo_base64 = window._pendingLogo.logo_base64;
+    payload.logo_mime = window._pendingLogo.logo_mime;
+  }
+  try {
+    companyProfile = await apiFetch('/api/company-profile', { method: 'POST', body: JSON.stringify(payload) });
+    window._pendingLogo = null;
+    toast('✅ Perfil de empresa guardado');
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+function renderEmpresaPage() {
+  loadCompanyProfile();
+  el('emp-pie').removeEventListener('input', updatePieCount);
+  el('emp-pie').addEventListener('input', updatePieCount);
+}
+function updatePieCount() { el('pieCharCount').textContent = el('emp-pie').value.length; }
 
 // ─── ADMIN ───────────────────────────────────────────────────────────────────
 async function renderAuditLog() {
