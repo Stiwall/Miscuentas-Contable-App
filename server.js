@@ -1834,6 +1834,7 @@ app.get('/api/company-profile', authMiddleware, async (req, res) => {
 app.post('/api/company-profile', authMiddleware, async (req, res) => {
   try {
     const { nombre, rnc, direccion, telefono, email, website, logo_base64, logo_mime, moneda, pie_factura } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'El nombre de empresa es requerido' });
     if (logo_base64 && logo_base64.length > 700000) return res.status(400).json({ error: 'El logo no puede superar 500KB. Comprime la imagen antes de subir.' });
     const id = `cp_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await query(`
@@ -1847,7 +1848,7 @@ app.post('/api/company-profile', authMiddleware, async (req, res) => {
     `, [id, req.userId, nombre||null, rnc||null, direccion||null, telefono||null, email||null, website||null, logo_base64||null, logo_mime||null, moneda||'RD$', pie_factura||null]);
     const r = await query(`SELECT * FROM company_profile WHERE user_id=$1`, [req.userId]);
     res.json(r.rows[0]);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('company-profile error:', e.message); res.status(500).json({ error: e.message }); }
 });
 
 // GET /api/admin/promote/:userId — make any user admin (requires admin auth)

@@ -4894,7 +4894,7 @@ function handleEmpresaClick(btn) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
   const pe = el('page-empresa');
-  if (pe) { pe.classList.add('active'); pe.style.display='block'; }
+  if (pe) { pe.classList.add('active'); pe.style.display=''; }
   if (btn) btn.classList.add('active');
   window.scrollTo({top:0,behavior:'smooth'});
   renderEmpresaPage();
@@ -4941,11 +4941,13 @@ function handleLogoUpload(input) {
   if (!input.files[0]) return;
   const file = input.files[0];
   const sizeKB = Math.round(file.size / 1024);
-  el('logoFileName').textContent = `${file.name} — Tamaño: ${sizeKB} KB`;
+  const fnEl = el('logoFileName');
+  if (fnEl) fnEl.textContent = `${file.name} — Tamaño: ${sizeKB} KB`;
+  const warnEl = el('logoSizeWarn');
   if (sizeKB > 500) {
-    el('logoSizeWarn').style.display = '';
+    if (warnEl) { warnEl.textContent = `⚠️ Logo demasiado pesado (${sizeKB} KB). Máximo 500KB.`; warnEl.style.display = ''; }
   } else {
-    el('logoSizeWarn').style.display = 'none';
+    if (warnEl) warnEl.style.display = 'none';
   }
   const reader = new FileReader();
   reader.onload = function(e) {
