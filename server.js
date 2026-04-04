@@ -3705,9 +3705,9 @@ app.post('/api/vendors', authMiddleware, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Name required' });
     const id = `ven_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     await query(
-      `INSERT INTO vendors(id, user_id, name, vendor_type, phone, email, address, notes)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [id, req.userId, name, vendor_type, phone, email, address, notes]
+      `INSERT INTO vendors(id, user_id, name, vendor_type, phone, email, address, notes, rnc)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, req.userId, name, vendor_type, phone, email, address, notes, req.body.rnc || null]
     );
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -6046,6 +6046,7 @@ async function initDB() {
       email       TEXT,
       address     TEXT,
       notes       TEXT,
+      rnc         TEXT,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
 
@@ -6217,6 +6218,8 @@ async function initDB() {
   try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS auxiliary_type TEXT`); } catch(e) {}
   try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS auxiliary_id TEXT`); } catch(e) {}
   try { await query(`ALTER TABLE journal_lines ADD COLUMN IF NOT EXISTS auxiliary_name TEXT`); } catch(e) {}
+  // Migrations for vendors
+  try { await query(`ALTER TABLE vendors ADD COLUMN IF NOT EXISTS rnc TEXT`); } catch(e) {}
   // Migrations for invoices
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS date DATE NOT NULL DEFAULT CURRENT_DATE`); } catch(e) {}
   try { await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS subtotal NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
