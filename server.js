@@ -2065,6 +2065,13 @@ async function insertJournalEntry(pgClient, userId, date, description, refType, 
     ? (sql, params) => pgClient.query(sql, params)
     : (sql, params) => query(sql, params);
 
+  // ── VALIDACIÓN: débitos deben ser IGUAL a créditos ──
+  const totalDebit  = lines.reduce((s, l) => s + (parseFloat(l.d) || 0), 0);
+  const totalCredit = lines.reduce((s, l) => s + (parseFloat(l.c) || 0), 0);
+  if (Math.abs(totalDebit - totalCredit) > 0.005) {
+    throw new Error(`Asiento desbalanceado: débitos RD$${totalDebit.toFixed(2)}, créditos RD$${totalCredit.toFixed(2)}, diferencia RD$${Math.abs(totalDebit - totalCredit).toFixed(2)}`);
+  }
+
   const jeId = `je_${Date.now()}_${Math.random().toString(36).substr(2,8)}`;
   await q(
     `INSERT INTO journal_entries(id,user_id,date,description,ref_type,ref_id) VALUES($1,$2,$3,$4,$5,$6)`,
