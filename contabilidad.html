@@ -4424,20 +4424,34 @@ async function deleteInvoice(id) {
 async function printInvoice(id) {
   try {
     const inv = await apiFetch('/api/invoices/'+id);
+    const cp = inv.company_profile || {};
+    const curr = cp.moneda || 'RD$';
     const lineRows = (inv.items||[]).map(l=>`
       <tr>
         <td>${l.description||''}</td>
         <td style="text-align:right">${l.qty||1}</td>
-        <td style="text-align:right">RD$ ${fmt(l.price||0)}</td>
-        <td style="text-align:right;font-weight:600">RD$ ${fmt(l.total||0)}</td>
+        <td style="text-align:right">${curr} ${fmt(l.price||0)}</td>
+        <td style="text-align:right">${curr} ${fmt(l.total||0)}</td>
       </tr>`).join('');
+    const hasLogo = cp.logo_base64 && cp.logo_mime;
+    const headerLeft = hasLogo
+      ? `<img src="data:${cp.logo_mime};base64,${cp.logo_base64}" style="max-height:70px;max-width:180px;object-fit:contain;margin-bottom:4px">`
+      : (cp.nombre ? `<div style="font-size:18px;font-weight:900;margin-bottom:2px">${cp.nombre}</div>` : '');
+    const issuerBlock = cp.nombre ? `
+      <div style="font-size:11px;color:#888;margin-top:8px">
+        ${cp.rnc ? `<div>RNC: ${cp.rnc}</div>` : ''}
+        ${cp.direccion ? `<div>${cp.direccion}</div>` : ''}
+        ${cp.telefono ? `<div>Tel: ${cp.telefono}</div>` : ''}
+        ${cp.email ? `<div>Email: ${cp.email}</div>` : ''}
+      </div>` : '';
     const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
       <title>Factura ${inv.invoice_number}</title>
       <style>
         body{font-family:sans-serif;padding:30px;color:#111;max-width:720px;margin:0 auto}
-        .header{display:flex;justify-content:space-between;margin-bottom:24px;align-items:flex-start}
+        .header{display:flex;justify-content:space-between;margin-bottom:24px;align-items:flex-start;gap:20px}
+        .header-left{}
         .logo{font-size:22px;font-weight:900;color:#ff7c2a}
-        .badge{background:#ff7c2a;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700}
+        .badge{background:#ff7c2a;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;display:inline-block}
         .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px}
         .info-block label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#888;display:block;margin-bottom:2px}
         .info-block span{font-weight:600}
@@ -4448,28 +4462,34 @@ async function printInvoice(id) {
         .total-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}
         .total-final{font-weight:800;font-size:16px;border-top:2px solid #111;padding-top:8px;margin-top:4px}
         .footer{margin-top:30px;text-align:center;color:#aaa;font-size:11px}
+        .pie-nota{margin-top:20px;font-size:12px;color:#555;border-top:1px solid #eee;padding-top:12px}
         @media print{body{padding:10px}}
       </style></head><body>
       <div class="header">
-        <div><div class="logo">mis<span>cuentas</span></div><div style="font-size:11px;color:#888;margin-top:4px">Sistema Contable</div></div>
-        <div style="text-align:right">
+        <div class="header-left">
+          ${hasLogo ? `<img src="data:${cp.logo_mime};base64,${cp.logo_base64}" style="max-height:70px;max-width:180px;object-fit:contain;margin-bottom:8px">` : ''}
+          ${cp.nombre ? `<div style="font-size:18px;font-weight:900;margin-bottom:2px">${cp.nombre}</div>` : ''}
+          ${issuerBlock}
+        </div>
+        <div style="text-align:right;flex-shrink:0">
           <div style="font-size:20px;font-weight:800;margin-bottom:4px">FACTURA</div>
           <div class="badge">${inv.invoice_number}</div>
           ${inv.ncf?`<div style="font-size:11px;color:#888;margin-top:4px">NCF: ${inv.ncf}</div>`:''}
         </div>
       </div>
       <div class="info-grid">
-        <div class="info-block"><label>Cliente</label><span>${inv.client_name||'Consumidor Final'}</span>${inv.client_rnc?`<br><label>RNC/Cédula</label><span>${inv.client_rnc}</span>`:''}</div>
+        <div class="info-block"><label>Facturar a</label><span>${inv.client_name||'Consumidor Final'}</span>${inv.client_rnc?`<br><label>RNC/Cédula</label><span>${inv.client_rnc}</span>`:''}${inv.client_address?`<br><label>Dirección</label><span>${inv.client_address}</span>`:''}</div>
         <div class="info-block"><label>Fecha Emisión</label><span>${inv.date||inv.issue_date||'N/A'}</span>${inv.due_date?`<br><label>Fecha Vencimiento</label><span>${inv.due_date}</span>`:''}</div>
       </div>
-      <table><thead><tr><th>Descripción</th><th style="text-align:right">Cant.</th><th style="text-align:right">Precio</th><th style="text-align:right">Desc.</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${lineRows}</tbody></table>
+      <table><thead><tr><th>Descripción</th><th style="text-align:right">Cant.</th><th style="text-align:right">Precio</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${lineRows}</tbody></table>
       <div class="totals">
-        <div class="total-row"><span>Subtotal</span><span>RD$ ${fmt(inv.subtotal)}</span></div>
-        ${inv.discount_amount>0?`<div class="total-row"><span>Descuento (${inv.discount_pct}%)</span><span style="color:#e53">-RD$ ${fmt(inv.discount_amount)}</span></div>`:''}
-        <div class="total-row"><span>ITBIS (${inv.tax_rate}%)</span><span>RD$ ${fmt(inv.tax_amount)}</span></div>
-        <div class="total-row total-final"><span>TOTAL</span><span>RD$ ${fmt(inv.total)}</span></div>
+        <div class="total-row"><span>Subtotal</span><span>${curr} ${fmt(inv.subtotal||0)}</span></div>
+        ${inv.discount_amount>0?`<div class="total-row"><span>Descuento</span><span style="color:#e53">-${curr} ${fmt(inv.discount_amount)}</span></div>`:''}
+        <div class="total-row"><span>ITBIS (${inv.tax_rate}%)</span><span>${curr} ${fmt(inv.tax_amount||0)}</span></div>
+        <div class="total-row total-final"><span>TOTAL</span><span>${curr} ${fmt(inv.total||0)}</span></div>
       </div>
       ${inv.notes?`<div style="margin-top:20px;padding:10px;background:#f9f9f9;border-radius:6px;font-size:12px"><strong>Notas:</strong> ${inv.notes}</div>`:''}
+      ${cp.pie_factura?`<div class="pie-nota">${cp.pie_factura}</div>`:''}
       <div class="footer">Generado por MisCuentas Contable · ${new Date().toLocaleDateString()}</div>
       </body></html>`;
     const w=window.open('','_blank');
