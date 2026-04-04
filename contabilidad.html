@@ -1995,9 +1995,9 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 
 <script>
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const SERVER_URL = window.location.hostname.includes('b76e')
-  ? 'https://miscuentas-contable-app-production-b76e.up.railway.app'
-  : 'https://miscuentas-contable-app-production.up.railway.app';
+const SERVER_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'http://localhost:3000'
+  : window.location.origin;
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let currentUser = null;
