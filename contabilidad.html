@@ -44,8 +44,8 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 /* ── HEADER ── */
 .header { position:fixed; top:0; left:0; right:0; z-index:200; height:var(--header-h); background:rgba(9,16,15,0.96); backdrop-filter:blur(14px); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 var(--pad-x); gap:12px; }
 .logo { display:flex; align-items:center; gap:9px; font-family:var(--font-head); font-size:17px; font-weight:800; letter-spacing:-0.5px; text-decoration:none; color:var(--text); flex-shrink:0; }
-.logo-icon { width:32px; height:32px; background:linear-gradient(135deg,var(--orange),#cc5500); border-radius:9px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 12px var(--orange-glow); flex-shrink:0; }
-.logo-icon svg { width:16px; height:16px; }
+.logo-icon { width:32px; height:32px; border-radius:9px; display:flex; align-items:center; justify-content:center; flex-shrink:0; overflow:hidden; }
+.logo-icon img { width:32px; height:32px; object-fit:cover; border-radius:9px; display:block; }
 .logo span { color:var(--orange); }
 .logo-badge { font-size:9px; font-weight:800; background:var(--orange); color:#000; border-radius:4px; padding:2px 5px; letter-spacing:0.5px; margin-left:2px; }
 .header-mid { flex:1; display:flex; align-items:center; justify-content:center; }
@@ -217,7 +217,8 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 .login-screen { position:fixed; inset:0; z-index:1000; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:var(--pad-x); }
 .login-card { width:100%; max-width:380px; }
 .login-logo { text-align:center; margin-bottom:32px; }
-.login-logo-icon { width:68px; height:68px; background:linear-gradient(135deg,var(--orange),#cc5500); border-radius:20px; display:flex; align-items:center; justify-content:center; margin:0 auto 14px; box-shadow:0 0 28px var(--orange-glow); }
+.login-logo-icon { width:68px; height:68px; border-radius:20px; display:flex; align-items:center; justify-content:center; margin:0 auto 14px; overflow:hidden; }
+.login-logo-icon img { width:68px; height:68px; object-fit:cover; border-radius:20px; display:block; }
 .login-box { background:var(--surface); border:1px solid var(--border2); border-radius:var(--radius); padding:var(--space-lg) var(--space-md); }
 .login-title { font-family:var(--font-head); font-size:var(--fs-xl); font-weight:800; margin-bottom:4px; }
 .login-sub { color:var(--text-muted); font-size:var(--fs-sm); margin-bottom:20px; }
@@ -238,7 +239,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   <div class="login-card">
     <div class="login-logo">
       <div class="login-logo-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" width="32" height="32"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        <img src="icon-256.png" width="68" height="68" alt="MC">
       </div>
       <div style="font-family:var(--font-head);font-size:24px;font-weight:800;letter-spacing:-0.5px">mis<span style="color:var(--orange)">cuentas</span> <span style="font-size:13px;background:var(--orange);color:#000;border-radius:5px;padding:2px 7px;letter-spacing:0.5px">CONTABLE</span></div>
       <div style="color:var(--text-muted);font-size:var(--fs-sm);margin-top:5px">Contabilidad para tu negocio</div>
@@ -313,7 +314,7 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
   </button>
   <div class="logo">
     <div class="logo-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" stroke-linecap="round" width="16" height="16"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      <img src="icon-48.png" width="32" height="32" alt="MC">
     </div>
     mis<span>cuentas</span>
     <span class="logo-badge">CONTABLE</span>
