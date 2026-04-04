@@ -4896,17 +4896,18 @@ async function loadCompanyProfile() {
 }
 
 function fillCompanyForm() {
-  if (!el('emp-nombre')) return;
+  if (!el('emp-nombre')) { console.warn('empresa form elements not found'); return; }
   const cp = companyProfile || {};
-  el('emp-nombre').value = cp.nombre || '';
-  el('emp-rnc').value = cp.rnc || '';
-  el('emp-direccion').value = cp.direccion || '';
-  el('emp-telefono').value = cp.telefono || '';
-  el('emp-email').value = cp.email || '';
-  el('emp-website').value = cp.website || '';
-  el('emp-moneda').value = cp.moneda || 'RD$';
-  el('emp-pie').value = cp.pie_factura || '';
-  el('pieCharCount').textContent = (cp.pie_factura || '').length;
+  const sv = (id,val) => { const e=el(id); if(e) e.value=val||''; };
+  sv('emp-nombre', cp.nombre);
+  sv('emp-rnc', cp.rnc);
+  sv('emp-direccion', cp.direccion);
+  sv('emp-telefono', cp.telefono);
+  sv('emp-email', cp.email);
+  sv('emp-website', cp.website);
+  const ms = el('emp-moneda'); if(ms) ms.value = cp.moneda || 'RD$';
+  sv('emp-pie', cp.pie_factura);
+  const pc = el('pieCharCount'); if(pc) pc.textContent = (cp.pie_factura||'').length;
   updateLogoPreview(cp.logo_base64, cp.logo_mime);
 }
 
@@ -4980,6 +4981,7 @@ async function saveCompanyProfile() {
 }
 
 function renderEmpresaPage() {
+  console.log('renderEmpresaPage called, page-empresa:', !!el('page-empresa'), 'form elements:', !!el('emp-nombre'));
   loadCompanyProfile();
   const pieEl = el('emp-pie');
   if (pieEl) {
