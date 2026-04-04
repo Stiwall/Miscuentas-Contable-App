@@ -1822,6 +1822,34 @@ app.get('/api/auth/plan', authMiddleware, async (req, res) => {
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
+// GET /api/company-profile — get current user's company profile
+app.get('/api/company-profile', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(`SELECT id,user_id,nombre,rnc,direccion,telefono,email,website,logo_base64,logo_mime,moneda,pie_factura FROM company_profile WHERE user_id=$1`, [req.userId]);
+    res.json(r.rows[0] || {});
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/company-profile — create or update company profile (upsert)
+app.post('/api/company-profile', authMiddleware, async (req, res) => {
+  try {
+    const { nombre, rnc, direccion, telefono, email, website, logo_base64, logo_mime, moneda, pie_factura } = req.body;
+    if (logo_base64 && logo_base64.length > 700000) return res.status(400).json({ error: 'El logo no puede superar 500KB. Comprime la imagen antes de subir.' });
+    const id = `cp_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
+    await query(`
+      INSERT INTO company_profile(id,user_id,nombre,rnc,direccion,telefono,email,website,logo_base64,logo_mime,moneda,pie_factura,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())
+      ON CONFLICT(user_id) DO UPDATE SET
+        nombre=EXCLUDED.nombre, rnc=EXCLUDED.rnc, direccion=EXCLUDED.direccion,
+        telefono=EXCLUDED.telefono, email=EXCLUDED.email, website=EXCLUDED.website,
+        logo_base64=EXCLUDED.logo_base64, logo_mime=EXCLUDED.logo_mime,
+        moneda=EXCLUDED.moneda, pie_factura=EXCLUDED.pie_factura, updated_at=NOW()
+    `, [id, req.userId, nombre||null, rnc||null, direccion||null, telefono||null, email||null, website||null, logo_base64||null, logo_mime||null, moneda||'RD$', pie_factura||null]);
+    const r = await query(`SELECT * FROM company_profile WHERE user_id=$1`, [req.userId]);
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/admin/promote/:userId — make any user admin (requires admin auth)
 app.get('/api/admin/promote/:userId', authMiddleware, async (req, res) => {
   try {
@@ -2342,7 +2370,8 @@ app.get('/api/invoices/:id', authMiddleware, async (req, res) => {
     const inv = await query(`SELECT * FROM invoices WHERE id=$1 AND user_id=$2`, [req.params.id, req.userId]);
     if (!inv.rows[0]) return res.status(404).json({ error: 'Not found' });
     const items = await query(`SELECT * FROM invoice_items WHERE invoice_id=$1`, [req.params.id]);
-    res.json({ ...inv.rows[0], items: items.rows });
+    const cp = await query(`SELECT nombre,rnc,direccion,telefono,email,logo_base64,logo_mime,moneda,pie_factura FROM company_profile WHERE user_id=$1`, [req.userId]);
+    res.json({ ...inv.rows[0], items: items.rows, company_profile: cp.rows[0] || null });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -4587,7 +4616,8 @@ app.get('/api/quotes/:id', authMiddleware, async (req, res) => {
     const items = await query(`SELECT * FROM quote_items WHERE quote_id=$1 ORDER BY rowid`, [req.params.id]).catch(
       () => query(`SELECT * FROM quote_items WHERE quote_id=$1`, [req.params.id])
     );
-    res.json({ ...q.rows[0], items: items.rows });
+    const cp = await query(`SELECT nombre,rnc,direccion,telefono,email,logo_base64,logo_mime,moneda,pie_factura FROM company_profile WHERE user_id=$1`, [req.userId]);
+    res.json({ ...q.rows[0], items: items.rows, company_profile: cp.rows[0] || null });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -6474,6 +6504,27 @@ async function initDB() {
   try { await query(`CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id)`); } catch(e) {}
   try { await query(`CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)`); } catch(e) {}
   try { await query(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC)`); } catch(e) {}
+
+  // ── Tabla company_profile ──
+  try { await query(`
+    CREATE TABLE IF NOT EXISTS company_profile (
+      id TEXT PRIMARY KEY,
+      user_id TEXT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      nombre TEXT,
+      rnc TEXT,
+      direccion TEXT,
+      telefono TEXT,
+      email TEXT,
+      website TEXT,
+      logo_base64 TEXT,
+      logo_mime TEXT,
+      moneda TEXT NOT NULL DEFAULT 'RD$',
+      pie_factura TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `); } catch(e) {}
+  try { await query(`CREATE INDEX IF NOT EXISTS idx_company_user ON company_profile(user_id)`); } catch(e) {}
 
   console.log('✅  Database schema ready');
 }
