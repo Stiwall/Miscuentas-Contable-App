@@ -4981,10 +4981,13 @@ async function saveCompanyProfile() {
 
 function renderEmpresaPage() {
   loadCompanyProfile();
-  el('emp-pie').removeEventListener('input', updatePieCount);
-  el('emp-pie').addEventListener('input', updatePieCount);
+  const pieEl = el('emp-pie');
+  if (pieEl) {
+    pieEl.removeEventListener('input', updatePieCount);
+    pieEl.addEventListener('input', updatePieCount);
+  }
 }
-function updatePieCount() { el('pieCharCount').textContent = el('emp-pie').value.length; }
+function updatePieCount() { const c=el('pieCharCount'); if(c) c.textContent=el('emp-pie')?.value?.length||0; }
 
 // ─── ADMIN ───────────────────────────────────────────────────────────────────
 async function renderAuditLog() {
