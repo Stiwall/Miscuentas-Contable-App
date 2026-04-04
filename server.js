@@ -1,3 +1,4 @@
+// force deploy restore good state
 /**
  * MisCuentas RD — Bot Server v2
  * Stack : Express + Telegram Webhooks + PostgreSQL (Railway) + Groq Vision + Gemini
