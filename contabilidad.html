@@ -25,7 +25,7 @@
   --accent2:#ff4d6d; --accent2-dim:#ff4d6d15;
   --accent3:#ffbe3d; --accent3-dim:#ffbe3d15;
   --accent4:#4d9fff; --accent4-dim:#4d9fff15;
-  --text:#e8f0ee; --text-secondary:#8aada8; --text-muted:#ffffff;
+  --text:#e8f0ee; --text-secondary:#8aada8; --text-muted:#c0c0c0;
   --font-head:'Outfit',sans-serif; --font-body:'Outfit',sans-serif; --font-num:'JetBrains Mono',monospace;
   --radius:16px; --radius-sm:10px; --radius-xs:7px;
   --fs-2xs:clamp(9px,2vw,10px); --fs-xs:clamp(10px,2.4vw,11px);
@@ -64,8 +64,8 @@ body::before { content:''; position:fixed; top:-100px; left:-100px; width:500px;
 .sidebar { width:var(--sidebar-w); flex-shrink:0; position:fixed; top:var(--header-h); left:0; bottom:0; background:var(--surface); border-right:1px solid var(--border); overflow-y:auto; overflow-x:hidden; scrollbar-width:none; display:flex; flex-direction:column; z-index:100; transition:transform 0.25s; }
 .sidebar::-webkit-scrollbar { display:none; }
 .sidebar-section { padding:var(--space-sm) var(--space-sm) 0; }
-.sidebar-label { font-size:9px; font-weight:800; letter-spacing:1.5px; text-transform:uppercase; color:#fff; padding:0 8px; margin-bottom:4px; margin-top:8px; }
-.nav-item { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:var(--radius-xs); color:#fff; font-size:var(--fs-sm); font-weight:600; cursor:pointer; transition:all 0.15s; border:1px solid transparent; margin-bottom:2px; text-decoration:none; }
+.sidebar-label { font-size:9px; font-weight:800; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-muted); padding:0 8px; margin-bottom:4px; margin-top:8px; }
+.nav-item { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:var(--radius-xs); color:var(--text-muted); font-size:var(--fs-sm); font-weight:600; cursor:pointer; transition:all 0.15s; border:1px solid transparent; margin-bottom:2px; text-decoration:none; }
 .nav-item svg { width:15px; height:15px; flex-shrink:0; opacity:0.6; }
 .nav-item:hover { background:var(--surface2); color:var(--text-secondary); border-color:var(--border); }
 .nav-item:hover svg { opacity:0.9; }
