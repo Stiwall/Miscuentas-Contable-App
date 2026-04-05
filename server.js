@@ -2132,11 +2132,20 @@ async function processCMVForInvoice(pgClient, userId, invoiceId, invoiceNumber, 
     if (costPrice <= 0) continue;
 
     const stockActual = parseFloat(prod.stock_current || 0);
+
+    // ── VALIDACIÓN: verificar stock suficiente antes de descontar ──
+    if (stockActual < qty) {
+      throw new Error(
+        `Stock insuficiente para "${prod.name}": disponible ${stockActual}, requerido ${qty}. ` +
+        `Registra una entrada de inventario antes de facturar.`
+      );
+    }
+
     const lineCMV = Math.round(qty * costPrice * 100) / 100;
     totalCMV += lineCMV;
 
-    // Reducir stock en tabla products
-    const newStock = Math.max(0, stockActual - qty);
+    // Reducir stock en tabla products (stock validado arriba — no puede quedar negativo)
+    const newStock = Math.round((stockActual - qty) * 1000) / 1000;
     await q(
       `UPDATE products SET stock_current=$1 WHERE id=$2 AND user_id=$3`,
       [newStock, item.product_id, userId]
@@ -2674,13 +2683,16 @@ app.get('/api/assets', authMiddleware, async (req, res) => {
 
 app.post('/api/assets', authMiddleware, async (req, res) => {
   try {
-    const { name, description, category, purchase_date, purchase_value, useful_life_years, salvage_value } = req.body;
+    const { name, description, category, purchase_date, purchase_value, useful_life_months, useful_life_years, salvage_value, residual_value, depreciation_method } = req.body;
     if (!name || purchase_value == null) return res.status(400).json({ error: 'name and purchase_value required' });
+    // Soportar tanto useful_life_months (frontend nuevo) como useful_life_years (legacy)
+    const lifeMonths = parseInt(useful_life_months) || (parseInt(useful_life_years || 5) * 12);
+    const residual   = parseFloat(salvage_value || residual_value || 0);
     const id = `asset_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await query(
-      `INSERT INTO fixed_assets(id,user_id,name,description,category,purchase_date,purchase_value,useful_life_years,salvage_value)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [id, req.userId, name, description||null, category||'General', purchase_date||null, purchase_value, useful_life_years||5, salvage_value||0]
+      `INSERT INTO fixed_assets(id,user_id,name,description,category,purchase_date,purchase_value,useful_life_months,salvage_value,depreciation_method)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [id, req.userId, name, description||null, category||'General', purchase_date||null, purchase_value, lifeMonths, residual, depreciation_method||'straight_line']
     );
     res.json({ ok: true, id });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -2688,10 +2700,12 @@ app.post('/api/assets', authMiddleware, async (req, res) => {
 
 app.put('/api/assets/:id', authMiddleware, async (req, res) => {
   try {
-    const { name, description, category, purchase_date, purchase_value, useful_life_years, salvage_value } = req.body;
+    const { name, description, category, purchase_date, purchase_value, useful_life_months, useful_life_years, salvage_value, residual_value, depreciation_method } = req.body;
+    const lifeMonths = parseInt(useful_life_months) || (parseInt(useful_life_years || 5) * 12);
+    const residual   = parseFloat(salvage_value || residual_value || 0);
     await query(
-      `UPDATE fixed_assets SET name=$1,description=$2,category=$3,purchase_date=$4,purchase_value=$5,useful_life_years=$6,salvage_value=$7 WHERE id=$8 AND user_id=$9`,
-      [name, description||null, category||'General', purchase_date||null, purchase_value, useful_life_years||5, salvage_value||0, req.params.id, req.userId]
+      `UPDATE fixed_assets SET name=$1,description=$2,category=$3,purchase_date=$4,purchase_value=$5,useful_life_months=$6,salvage_value=$7,depreciation_method=$8 WHERE id=$9 AND user_id=$10`,
+      [name, description||null, category||'General', purchase_date||null, purchase_value, lifeMonths, residual, depreciation_method||'straight_line', req.params.id, req.userId]
     );
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -2724,10 +2738,31 @@ app.post('/api/assets/:id/depreciate', authMiddleware, async (req, res) => {
     // Verificar si ya existe depreciación para este período
     const exists = await query(`SELECT id FROM asset_depreciation WHERE asset_id=$1 AND period=$2`, [a.id, period]);
     if (exists.rows[0]) return res.status(400).json({ error: `Ya existe depreciación para ${period}` });
-    // Calcular depreciación mensual (línea recta)
-    const monthlyDepreciation = Math.round(
-      ((parseFloat(a.purchase_value) - parseFloat(a.salvage_value || 0)) / (parseInt(a.useful_life_years || 5) * 12)) * 100
-    ) / 100;
+    // ── Calcular depreciación mensual correctamente ──
+    // Usa useful_life_months directamente (el frontend siempre envía meses)
+    // Con soporte legacy para useful_life_years si la columna antigua existe
+    const purchaseVal = parseFloat(a.purchase_value || 0);
+    const residualVal = parseFloat(a.salvage_value || 0);
+    const lifeMonths  = parseInt(a.useful_life_months) || (parseInt(a.useful_life_years || 5) * 12);
+    const depreciable = purchaseVal - residualVal;
+
+    if (lifeMonths <= 0) return res.status(400).json({ error: 'Vida útil debe ser mayor a 0 meses' });
+
+    let monthlyDepreciation;
+    const method = a.depreciation_method || 'straight_line';
+    if (method === 'declining_balance') {
+      // Saldo decreciente: tasa anual = 2/vida_útil_años, aplicada al valor en libros
+      const accumulated = await query(
+        `SELECT COALESCE(SUM(amount),0) as total FROM asset_depreciation WHERE asset_id=$1`,
+        [a.id]
+      );
+      const bookValue = purchaseVal - parseFloat(accumulated.rows[0].total);
+      const annualRate = 2 / (lifeMonths / 12);
+      monthlyDepreciation = Math.max(0, Math.round((bookValue * annualRate / 12) * 100) / 100);
+    } else {
+      // Línea recta: depreciación fija mensual
+      monthlyDepreciation = Math.round((depreciable / lifeMonths) * 100) / 100;
+    }
     const id = `dep_${Date.now()}_${Math.random().toString(36).substr(2,6)}`;
     await query(
       `INSERT INTO asset_depreciation(id,asset_id,period,amount) VALUES($1,$2,$3,$4)`,
@@ -3914,9 +3949,9 @@ app.post('/api/payables/:id/payments', authMiddleware, async (req, res) => {
 app.get('/api/cashflow', authMiddleware, async (req, res) => {
   try {
     let { from, to, month, year } = req.query;
-    // Support ?month=0-based&year=YYYY  (sent by frontend)
+    // Frontend sends month 1-based (1=Enero, 12=Diciembre) — NO sumar +1
     if (!from && month !== undefined && year !== undefined) {
-      const m = parseInt(month) + 1;  // frontend sends 0-based
+      const m = parseInt(month); // ya viene 1-based desde el <select>
       const y = parseInt(year);
       from = `${y}-${String(m).padStart(2,'0')}-01`;
       const lastDay = new Date(y, m, 0).getDate();
@@ -3967,9 +4002,9 @@ app.get('/api/cashflow', authMiddleware, async (req, res) => {
 app.get('/api/income-statement', authMiddleware, async (req, res) => {
   try {
     let { from, to, month, year } = req.query;
-    // Support ?month=0-based&year=YYYY
+    // Frontend sends month 1-based (1=Enero, 12=Diciembre) — NO sumar +1
     if (!from && month !== undefined && year !== undefined) {
-      const m = parseInt(month) + 1;
+      const m = parseInt(month); // ya viene 1-based desde el <select>
       const y = parseInt(year);
       from = `${y}-${String(m).padStart(2,'0')}-01`;
       const lastDay = new Date(y, m, 0).getDate();
@@ -6164,8 +6199,10 @@ async function initDB() {
       category      TEXT DEFAULT 'General',
       purchase_date DATE,
       purchase_value NUMERIC(12,2) NOT NULL DEFAULT 0,
-      useful_life_years INTEGER DEFAULT 5,
+      useful_life_months INTEGER DEFAULT 60,
+      useful_life_years  INTEGER DEFAULT 5,
       salvage_value  NUMERIC(12,2) DEFAULT 0,
+      depreciation_method TEXT DEFAULT 'straight_line',
       depreciacion_metodo TEXT DEFAULT 'linea_recta',
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
@@ -6240,6 +6277,25 @@ async function initDB() {
   try { await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_current NUMERIC(12,2) DEFAULT 0`); } catch(e) {}
   // Migrations for fixed_assets
   try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS depreciacion_metodo TEXT DEFAULT 'linea_recta'`); } catch(e) {}
+  // BUG 3 FIX: agregar columna useful_life_months (correcta en meses)
+  try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS useful_life_months INTEGER`); } catch(e) {}
+  try { await query(`ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS depreciation_method TEXT DEFAULT 'straight_line'`); } catch(e) {}
+  // Migrar datos existentes: convertir useful_life_years → useful_life_months
+  try {
+    await query(`
+      UPDATE fixed_assets
+      SET useful_life_months = useful_life_years * 12
+      WHERE useful_life_months IS NULL AND useful_life_years IS NOT NULL
+    `);
+    // Fallback para registros sin ninguna vida útil
+    await query(`
+      UPDATE fixed_assets
+      SET useful_life_months = 60
+      WHERE useful_life_months IS NULL
+    `);
+  } catch(e) { console.warn('useful_life_months migration:', e.message); }
+  // inventory_movements reason column
+  try { await query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reason TEXT`); } catch(e) {}
   // Migration: income_records - add all missing columns
   try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS date DATE NOT NULL DEFAULT CURRENT_DATE`); } catch(e) {}
   try { await query(`ALTER TABLE income_records ADD COLUMN IF NOT EXISTS amount NUMERIC(12,2)`); } catch(e) {}
